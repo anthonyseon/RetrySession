@@ -24,30 +24,65 @@ RetrySession 은 그 비대칭을 없앤다. 감시와 재시작 **둘 다** OS 
 | ① | **감시** — 어디까지 왔는지 디스크에 기록 | OS 작업 스케줄러 `EasyAI-RetrySession-Heartbeat` | 5분 |
 | ② | **재시작** — `claude --resume` 로 실제로 이어서 진행 | OS 작업 스케줄러 `EasyAI-RetrySession-Resume` | 15분 |
 | ③ | **UI** — 실시간 상태 화면 | OS 작업 스케줄러 `EasyAI-RetrySession-UI` | 로그온 시 |
+| ④ | **트레이** — 상태 점 + 변화 시 알림 | OS 작업 스케줄러 `EasyAI-RetrySession-Tray` | 로그온 시 |
 
-세 개 모두 **Claude Code 세션과 무관하게** 돈다. 세션을 닫아도, VS Code 를 닫아도 계속 돈다.
+넷 모두 **Claude Code 세션과 무관하게** 돈다. 세션을 닫아도, VS Code 를 닫아도 계속 돈다.
 
 **장수 타이머를 쓰지 않는다.** 5분마다 OS 가 새 프로세스를 띄운다 — 얼어붙을 타이머 자체가 없다.
 그래서 `heartbeat.mjs` 에는 `--loop` 이 없다. 다시 넣지 마라. 그게 9시간 중단의 원인이었다.
 
 ## 시작하기
 
-```bash
-npm test                                  # 83개 테스트 (판정 로직이 여기에 고정돼 있다)
-npm run ui                                # http://127.0.0.1:7345
-```
-
-UI 에서 세션을 골라 감시·재시작을 켠 뒤, OS 에 등록한다:
+만질 파일은 **[`start.ps1`](./start.ps1) 하나**다.
 
 ```powershell
-.\scripts\register-all.ps1                # 감시 + UI (아무것도 쓰지 않는다)
-.\scripts\register-all.ps1 -WithResume    # 재시작까지 (토큰을 쓴다)
-.\scripts\status.ps1                      # 등록 상태 + 기록 신선도
-.\scripts\unregister-all.ps1              # 전부 해제 (state/ 는 남는다)
+.\start.ps1 -Install        # 처음 한 번 — OS 작업 등록 + 바로가기 + 창 열기
+.\start.ps1                 # 그 뒤로는 이것만 (서버·트레이 확인하고 창을 연다)
+.\start.ps1 -Status         # 상태만 출력
+.\start.ps1 -Restart        # 🔴 src\ 를 고친 뒤 (아래 참조)
+.\start.ps1 -Stop           # 서버·트레이 중지 (예약은 남아 다음 로그온에 다시 뜬다)
+.\start.ps1 -Uninstall      # OS 작업 전부 해제 (state\ 는 남는다)
 ```
 
-`register-all.ps1` 은 기본으로 **재시작을 등록하지 않는다.** 사람 없이 토큰을 쓰고 파일을 고치는
-일이라 명령줄에 `-WithResume` 을 적는 명시적 동작이어야 한다.
+`-Install` 은 기본으로 **재시작을 등록하지 않는다.** 사람 없이 토큰을 쓰고 파일을 고치는
+일이라 `-Install -WithResume` 이라고 명시해야 한다.
+
+> **🔴 `-Restart` 가 왜 필요한가** (실측 함정)
+> 그냥 실행하면 서버가 "이미 떠 있음"으로 보고 그대로 둔다. 그런데 살아 있는 node 프로세스는
+> **기동 시점의 모듈을 들고 있다.** 그래서 `src\` 를 고쳐도 화면은 옛 동작을 계속 보여주고
+> 아무도 경고해주지 않는다. 실제로 이 작업 중에 겪었다 — `-Restart` 가 포트를 비우고 새로 띄운다.
+
+세션을 고르고 감시·재시작을 켜는 것은 창에서 한다. 개별 명령이 필요하면:
+
+```bash
+npm test          # 97개 테스트 (판정 로직·단가·ASCII 규칙이 여기 고정돼 있다)
+npm run check     # 기록이 살아 있나 (fail-closed, 낡으면 exit 1)
+npm run list      # 감시·재시작 대상 목록
+npm run resume:dry    # 재시작 가드만 판정 (띄우지 않고 지시문도 보여준다)
+npm run resume:status # 예산·마지막 실행
+```
+
+## GUI
+
+브라우저 탭이 아니라 **단독 앱 창 + 트레이 아이콘**으로 쓴다.
+
+```powershell
+.\scripts\open-app.ps1              # 주소창·탭 없는 앱 창으로 열기
+.\scripts\shortcut.ps1 -Desktop     # 시작 메뉴 + 바탕화면 바로가기
+.\scripts\register-tray.ps1         # 트레이 아이콘 상주
+```
+
+- **앱 창** — Edge/Chrome 의 `--app` 모드다. 주소창·탭이 없고 작업표시줄 아이콘이 따로 잡혀
+  고정할 수 있다. 전용 `--user-data-dir` 을 쓰므로 평소 브라우저 세션과 섞이지 않는다.
+- **트레이** — 상태를 색 점으로 보여주고, 상태가 **바뀔 때만** 풍선 알림을 띄운다
+  (감시 끊김 · 재시작 차단 · 사용량 제한 · 서버 응답 없음). 더블클릭으로 창을 열고,
+  우클릭 메뉴에서 지금 감시 실행·예약 상태 보기·종료를 할 수 있다.
+- **콘솔 창이 뜨지 않는다.** 모든 실행은 `powershell.exe -WindowStyle Hidden` 이나
+  실행 파일 직접 호출이고, `cmd.exe` 를 거치지 않는다.
+
+> **왜 Electron 이 아닌가** — 이 도구는 *다른 게 다 멈췄을 때 살아 있어야 하는* 감시 장치다.
+> `npm install` 이 필요한 형태는 정작 필요한 순간에 못 뜬다. 그래서 의존성 0 을 지킨다.
+> 트레이는 Windows 에 내장된 WinForms 를 쓰고, 아이콘은 실행 시에 그린다(`.ico` 자산 없음).
 
 ## UI
 
@@ -117,10 +152,11 @@ UI 에서 세션을 골라 감시·재시작을 켠 뒤, OS 에 등록한다:
 
 ## 구조
 
-```
+```text
 config/
   projects.json          대상 저장소·기본값 (추적함 / 경로가 다르면 projects.local.json)
   pricing.json           단가표 (실측 검증 기록 포함)
+  ui-labels.json         트레이 한글 문구 (🔴 키는 ASCII — tray.ps1 이 코드에 적는다)
 src/
   heartbeat.mjs          ① 감시 본체        hb.mjs  ← 스케줄러가 부르는 ASCII 진입점
   resume.mjs             ② 재시작 본체      rs.mjs  ← 같은 이유
@@ -128,14 +164,16 @@ src/
   lib/
     config.mjs  targets.mjs     설정 · 대상 등록부
     sessions.mjs detail.mjs     세션 목록·사용량(증분 캐시) · 상세 타임라인
-    cli.mjs                     claude CLI 를 정보 출처로 (agents --json · auth status)
+    cli.mjs                     claude.exe 를 정보 출처로 (agents --json · auth status)
     tracker.mjs probe.mjs       추적기 판정 · git·세션 관측
     guard.mjs                   🔴 fail-closed 판정 (낡음·조용한시간·예산·락)
     pricing.mjs stamp.mjs       비용 환산 · 로컬 시각
-    status.mjs scheduler.mjs    집계(화면·CLI 공용) · schtasks 조회
-scripts/*.ps1            OS 등록·해제·상태 (🔴 전부 ASCII)
+    status.mjs scheduler.mjs    집계(화면·트레이·CLI 공용) · 예약 조회
+scripts/                 🔴 전부 ASCII
+  register-{heartbeat,resume,ui,tray}.ps1 · register-all.ps1 · unregister-all.ps1
+  tray.ps1  open-app.ps1  shortcut.ps1  status.ps1
 state/                   런타임 기록 (추적 안 함)
-test/                    83개 — 판정·단가·ASCII 규칙을 고정
+test/                    85개 — 판정·단가·ASCII 규칙을 고정
 ```
 
 **왜 `hb.mjs` / `rs.mjs` 가 따로 있나** — PowerShell 5.1 은 `.ps1` 을 ANSI 로 읽어서 한글이
@@ -156,6 +194,27 @@ CLI 가 주는 것은 CLI 로 얻고, 없는 것만 파일에서 읽는다. CLI 
 트랜스크립트는 크다 — 실측으로 한 파일이 **21.6MB** 였다. 그래서:
 목록은 (크기·mtime·오프셋) 캐시로 **자란 부분만** 읽고(초회 186ms → 이후 3ms),
 상세는 **꼬리 512KB** 만 읽는다(21.6MB 파일에 6ms).
+
+## "이 폴더의 세션이 목록에 없다"
+
+실제로 나온 물음이다 — Description 이 VS Code 에 열려 있고 거기서 작업도 했는데 목록에 없었다.
+
+답: **열린 폴더와 세션은 다른 것이다.** 세션 목록은 `~/.claude/projects/<슬러그>/*.jsonl`,
+즉 *그 폴더에서 시작된* 세션이다. Description 슬러그에는 `.jsonl` 이 **0개**였다 —
+그 세션은 `EasyAI.Platform` 에서 시작해 Description 으로 옮겨가 일했을 뿐이다.
+빠뜨린 것이 아니라 애초에 Description 에서 Claude Code 를 시작한 적이 없다.
+
+그래서 화면은 **열린 폴더를 세션 목록 위에 나란히** 보여준다. `~/.claude/ide/<포트>.lock`
+에서 VS Code 워크스페이스를 읽어 폴더별로 이렇게 적는다:
+
+| 폴더 | 뜻 |
+|------|-----|
+| `● 세션 3` | 이 폴더에서 시작한 세션이 3개 |
+| `⇄ 여기서 시작한 세션 없음 · 다른 곳에서 시작한 1개가 작업 중` | **Description 의 경우** |
+| `○ 세션 없음` | 열려 있지만 여기서 Claude Code 를 시작한 적이 없다 |
+
+- pid 로 **열린 창과 닫힌 창의 흔적을 구별**한다. 실측으로 9일 된 낡은 lock 이 남아 있었다.
+- 🔴 lock 파일에는 `authToken` 이 들어 있다. **읽는 즉시 버리고 응답에 담지 않는다.**
 
 ## 한 세션이 여러 곳을 오간다
 

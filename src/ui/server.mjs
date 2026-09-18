@@ -20,7 +20,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { RS_HOME } from '../lib/config.mjs'
-import { fullStatus, tail } from '../lib/status.mjs'
+import { fullStatus, trayStatus, tail } from '../lib/status.mjs'
 import { sessionDetail } from '../lib/detail.mjs'
 import { loadTargets, setMany, removeTarget, statePaths, resolveRepo, trackerPath } from '../lib/targets.mjs'
 import { loadRunState, saveRunState, budgetVerdict, rearm } from '../lib/guard.mjs'
@@ -140,6 +140,9 @@ const server = createServer(async (req, res) => {
 
     /* 상태 */
     if (req.method === 'GET' && p === '/api/status') return json(res, 200, fullStatus())
+
+    // 트레이 전용 — 키가 전부 ASCII 다 (scripts/tray.ps1 이 ANSI 로 읽히기 때문)
+    if (req.method === 'GET' && p === '/api/tray') return json(res, 200, trayStatus())
 
     if (req.method === 'GET' && p.startsWith('/api/session/')) {
       const id = decodeURIComponent(p.slice('/api/session/'.length))

@@ -88,3 +88,24 @@ export function claudeProjectsRoot() {
   const home = process.env.USERPROFILE || process.env.HOME
   return home ? join(home, '.claude', 'projects') : null
 }
+
+/** `~/.claude` — IDE lock 등 다른 상태 파일의 뿌리 */
+export function claudeHome() {
+  const home = process.env.USERPROFILE || process.env.HOME
+  return home ? join(home, '.claude') : null
+}
+
+/**
+ * 경로 비교용 정규화. 한 곳에 둔다 — 여러 곳에서 제각기 정규화하면 같은 경로가
+ * 서로 다른 키가 되어 짝짓기가 조용히 실패한다.
+ *
+ * 실측: 같은 폴더가 `c:\...`(트랜스크립트·IDE lock)와 `C:\...`(CLI) 로 섞여 들어온다.
+ */
+export const 경로키 = (p) =>
+  String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').replace(/^([a-z]):/, (_, d) => d.toUpperCase() + ':')
+
+/** a 가 b 이거나 b 의 하위 경로인가 */
+export const 안에있나 = (a, b) => {
+  const x = 경로키(a).toLowerCase(), y = 경로키(b).toLowerCase()
+  return x === y || x.startsWith(y + '/')
+}

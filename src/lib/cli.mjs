@@ -14,20 +14,37 @@
  *   API 키를 쓰지 않는다. 그래서 자식 프로세스의 환경에서 ANTHROPIC_API_KEY 계열을
  *   **비운다** — 설정돼 있으면 계정 프로필을 가려 다른 주체로 청구될 수 있다.
  */
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** Windows npm 전역 설치는 claude.cmd 셸 심이다. Node 는 셸 없이 .cmd 를 못 띄운다 */
+/**
+ * claude 실행 파일.
+ *
+ * 🔴 `claude.cmd` 가 아니라 `claude.exe` 를 쓴다.
+ *   실측: npm 전역 설치의 `claude.cmd` 는 내용이 한 줄이고, 네이티브 실행 파일
+ *   `node_modules/@anthropic-ai/claude-code/bin/claude.exe` 를 그대로 넘긴다.
+ *   .cmd 를 쓰면 Node 가 셸(cmd.exe)을 거쳐야 하고, 그러면
+ *     · 콘솔 창이 뜬다
+ *     · 인자를 직접 인용해야 하고 코드페이지 때문에 한글이 깨진다
+ *     · 프로세스 트리가 한 겹 깊어져 종료시 taskkill /T 가 필요하다
+ *   .exe 를 직접 부르면 세 문제가 모두 없다 (shell:false · windowsHide:true).
+ */
 export function claudeBin(override = null) {
   if (override) return override
   const appdata = process.env.APPDATA
   if (appdata) {
-    const c = join(appdata, 'npm', 'claude.cmd')
-    if (existsSync(c)) return c
+    const exe = join(appdata, 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe')
+    if (existsSync(exe)) return exe
+    // 설치 형태가 다르면 심으로 물러선다 (이때는 호출부가 셸을 써야 한다)
+    const cmd = join(appdata, 'npm', 'claude.cmd')
+    if (existsSync(cmd)) return cmd
   }
   return 'claude'
 }
+
+/** 셸을 거쳐야 하는 경로인가 — .exe 면 필요 없다 */
+export const 셸필요 = (bin) => !/\.exe$/i.test(String(bin))
 
 /**
  * 계정 프로필이 이기도록 정리한 환경.
@@ -42,19 +59,16 @@ export function 계정환경(extra = {}) {
 }
 
 /**
- * 셸로 넘길 인용. claude.cmd 경로에 공백이 있고, 셸을 거치지 않으면 .cmd 를 띄울 수 없다.
- * 인자를 배열로 넘기면서 shell:true 를 쓰면 Node 가 경고한다(인용을 안 해주므로) —
- * 그래서 명령 문자열을 직접 만든다.
+ * CLI 를 한 번 부르고 JSON 으로 받는다. 실패는 던지지 않고 결과에 담는다.
+ * 인자는 배열로 넘긴다 — 셸이 없으므로 인용도, 코드페이지 변환도 없다.
  */
-const q = (s) => (/[\s"&|<>^()]/.test(s) ? `"${String(s).replace(/"/g, '\\"')}"` : String(s))
-
-/** CLI 를 한 번 부르고 JSON 으로 받는다. 실패는 던지지 않고 결과에 담는다 */
 function callJson(args, { timeout = 20000, bin = null } = {}) {
-  const cmd = [q(claudeBin(bin)), ...args.map(q)].join(' ')
+  const exe = claudeBin(bin)
   try {
-    const out = execSync(cmd, {
+    const out = execFileSync(exe, args, {
       encoding: 'utf8', timeout, windowsHide: true, env: 계정환경(),
       maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+      shell: 셸필요(exe), // .exe 면 false — 콘솔 창이 뜨지 않는다
     })
     return { ok: true, data: JSON.parse(out) }
   } catch (e) {
@@ -136,9 +150,10 @@ export function cliVersion({ ttlMs = 600000 } = {}) {
   if (hit && Date.now() - hit.at < ttlMs) return hit.v
   let v = null
   try {
-    v = execSync(`${q(claudeBin())} --version`, {
+    const exe = claudeBin()
+    v = execFileSync(exe, ['--version'], {
       encoding: 'utf8', timeout: 20000, windowsHide: true, env: 계정환경(),
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'], shell: 셸필요(exe),
     }).trim()
   } catch { v = null }
   _cache.set('ver', { at: Date.now(), v })

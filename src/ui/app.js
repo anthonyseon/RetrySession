@@ -83,19 +83,77 @@ function 타일들(d) {
 
   box.append(타일('세션', `${h.실행중} / ${h.세션수}`, `실행 중 / 전체 · 감시 ${h.감시켜짐} · 재시작 ${h.재시작켜짐}`))
 
+  // VS Code 창 — 열린 창과 남은 흔적을 구별한다
+  const ide = d.ide || { 창: [], 살아있는창: 0, 낡은lock: 0, 폴더: [] }
+  const t살아 = ide.창.filter((w) => w.살아있음)
+  const ideTile = 타일('VS Code', `${ide.살아있는창}개 열림`,
+    t살아.length
+      ? t살아.map((w) => `포트 ${w.포트} · pid ${w.pid} · 폴더 ${w.workspaceFolders.length}개`).join('\n') +
+        (ide.낡은lock ? `\n낡은 lock ${ide.낡은lock}개 (닫힌 창의 흔적)` : '')
+      : (ide.오류 ? `읽기 실패: ${ide.오류}` : 'VS Code 연동 정보가 없다'))
+  if (h.세션없는폴더) ideTile.append(badge('off', '○', `세션 없는 폴더 ${h.세션없는폴더}`))
+  box.append(ideTile)
+
   box.append(타일('누적 토큰', 압축(h.총토큰), `${h.세션수}개 세션 합계`))
 
   box.append(타일('정가 환산', '$' + n(h.총USD.toFixed ? h.총USD.toFixed(2) : h.총USD), h.비용해석))
 
-  // OS 트리거 — 등록 여부와 마지막 결과를 나란히
+  /**
+   * OS 트리거 — 등록 여부와 마지막 결과를 나란히 놓는다.
+   * 🔴 "등록 안 됨"과 "조회 실패"를 구별한다. 대처가 다르다(재등록 vs 권한·환경 확인).
+   */
   const 작업 = d.작업
   for (const [키, 라벨] of [['하트비트', 'OS 트리거 · 감시'], ['재시작', 'OS 트리거 · 재시작'], ['UI', 'OS 트리거 · UI']]) {
     const w = 작업[키]
     if (!w) continue
-    box.append(타일(라벨, w.등록됨 ? (w.상태 || '등록됨') : '없음',
-      w.등록됨
-        ? `${w.이름} · 마지막 ${w.마지막실행 || '?'} (결과 ${w.마지막결과 ?? '?'}) · 다음 ${w.다음실행 || '?'}`
-        : (w.오류 ? `조회 실패: ${w.오류}` : `등록되지 않았다 — scripts/register-all.ps1`)))
+    let 값, 설명
+    if (w.조회실패) { 값 = '조회 실패'; 설명 = `${w.이름} · ${w.오류 || ''}` }
+    else if (!w.등록됨) { 값 = '없음'; 설명 = `${w.이름} · 등록되지 않았다 — scripts\\register-all.ps1` }
+    else {
+      값 = w.상태 || '등록됨'
+      설명 = `${w.결과뜻 || '?'} · 마지막 ${w.마지막실행 || '없음'}` +
+        (w.다음실행 ? ` · 다음 ${w.다음실행}` : '')
+    }
+    const t = 타일(라벨, 값, 설명)
+    // 문제일 때만 배지를 하나 더 붙인다 — 색만으로 말하지 않는다
+    if (w.조회실패) t.append(badge('warn', '▲', '조회 실패'))
+    else if (!w.등록됨) t.append(badge('crit', '▲', '미등록'))
+    else if (!w.정상) t.append(badge('crit', '▲', `실패 · ${w.결과뜻}`))
+    box.append(t)
+  }
+}
+
+/* ── 열린 폴더 ───────────────────────────────────────────────── */
+/**
+ * VS Code 에 열린 폴더별 세션 수.
+ *
+ * 왜 필요한가 — "이 폴더의 세션이 목록에 없다"를 설명하는 유일한 방법이다.
+ * 폴더가 열려 있어도 **그 폴더에서 Claude Code 를 시작한 적이 없으면** 세션이 없다.
+ * 실측: Description 은 열려 있고 거기서 작업도 했지만, 세션은 EasyAI.Platform 에서
+ * 시작해 옮겨온 것이라 `여기서시작` 이 0 이었다.
+ */
+function 폴더그리기(d) {
+  const box = $('#folders'); box.textContent = ''
+  const 폴더 = d.ide?.폴더 || []
+  if (!폴더.length) { box.classList.add('hide'); return }
+  box.classList.remove('hide')
+
+  for (const f of 폴더) {
+    const row = el('div', 'frow')
+    const name = 짧은경로(f.폴더)
+    row.append(el('span', 'fname', name))
+
+    if (f.여기서시작 > 0) {
+      row.append(badge('good', '●', `세션 ${f.여기서시작}`))
+    } else if (f.세션수 > 0) {
+      // 여기서 일하지만 여기서 시작하지 않았다 — 이게 Description 의 경우다
+      row.append(badge('off', '⇄', `여기서 시작한 세션 없음 · 다른 곳에서 시작한 ${f.세션수}개가 작업 중`))
+    } else {
+      row.append(badge('off', '○', '세션 없음 — 이 폴더에서 Claude Code 를 시작한 적이 없다'))
+    }
+    if (f.실행중) row.append(badge('good', '▶', `실행 중 ${f.실행중}`))
+    if (f.감시) row.append(badge('good', '◉', `감시 ${f.감시}`))
+    box.append(row)
   }
 }
 
@@ -136,6 +194,7 @@ function 목록(d) {
     add('토큰', 압축(s.토큰합))
     add('정가', '$' + (s.비용USD || 0).toFixed(2))
     if (s.gitBranch) add('브랜치', s.gitBranch)
+    if (s.ide) add('VS Code', `포트 ${s.ide.포트}`)
     body.append(m)
     body.append(el('div', 'path', 짧은경로(s.주작업cwd || s.실행cwd)))
 
@@ -359,7 +418,7 @@ function 그리기() {
   신선도갱신()
   if (!d) return
   $('#acct').textContent = d.계정.email ? `${d.계정.email} · ${d.계정.subscriptionType || ''}` : '계정 확인 실패'
-  타일들(d); 목록(d); 선택갱신(); 상세그리기()
+  타일들(d); 폴더그리기(d); 목록(d); 선택갱신(); 상세그리기()
 }
 
 /**

@@ -21,6 +21,7 @@ import { scanSessions } from './sessions.mjs'
 import { runningSessions, account, cliVersion } from './cli.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath } from './targets.mjs'
 import { 작업상태 } from './scheduler.mjs'
+import { ideWindows, 창찾기, 폴더별세션 } from './ide.mjs'
 import { paths as repoPaths } from './config.mjs'
 import { 총비용 } from './pricing.mjs'
 
@@ -86,7 +87,7 @@ export function 할당량보기(q) {
 
 /* ── 세션 하나의 감시·재시작 상태 ────────────────────────────── */
 
-function 세션상태(s, 등록, 실행중맵) {
+function 세션상태(s, 등록, 실행중맵, ide창 = []) {
   const run = 실행중맵.get(s.sessionId) || null
   const 대상 = 등록.targets[s.sessionId] || null
 
@@ -190,6 +191,9 @@ function 세션상태(s, 등록, 실행중맵) {
     모델별: 비용.모델별,
     바이트: s.바이트,
 
+    // 이 세션이 어느 VS Code 창에서 열린 폴더에 있나 (살아있는 창만)
+    ide: 창찾기(실행cwd, ide창) || 창찾기(짝cwd, ide창),
+
     등록됨: !!대상,
     재개지시: 대상?.재개지시 || null,
     저장소설정있음: 설정있음,
@@ -227,7 +231,19 @@ export function fullStatus() {
       바이트: 0, 활성분: +((Date.now() - r.startedAtEpoch) / 60000).toFixed(1), 토큰합: 0,
     }))
 
-  const 세션 = [...scan.sessions, ...추가].map((s) => 세션상태(s, 등록, 실행중맵))
+  const ide = ideWindows()
+  const 세션 = [...scan.sessions, ...추가].map((s) => 세션상태(s, 등록, 실행중맵, ide.창))
+
+  /**
+   * 열린 폴더별 세션 수 — "왜 이 폴더의 세션이 목록에 없나"에 답하기 위한 것이다.
+   *
+   * 실측 사례: Description 은 VS Code 에 폴더로 열려 있고 작업도 그곳에서 했지만,
+   * `~/.claude/projects/<Description 슬러그>/` 에는 트랜스크립트(.jsonl)가 0개였다.
+   * 그 폴더에서 Claude Code 를 **시작한** 적이 없고, 세션은 EasyAI.Platform 에서
+   * 시작해 Description 으로 옮겨가 일했을 뿐이다. 세션 목록만 보면 이 차이를
+   * 설명할 수 없으므로 열린 폴더를 나란히 놓는다.
+   */
+  const 폴더 = 폴더별세션(ide.창, 세션)
 
   const acct = account()
   const 총토큰 = 세션.reduce((a, s) => a + s.토큰합, 0)
@@ -240,12 +256,21 @@ export function fullStatus() {
     cli: { 버전: cliVersion(), agents조회: { ok: run.ok, 오류: run.오류 } },
     할당량: 할당량보기(scan.할당량),
     작업: 작업상태(),
+    ide: {
+      창: ide.창,
+      오류: ide.오류,
+      살아있는창: ide.창.filter((w) => w.살아있음).length,
+      낡은lock: ide.창.filter((w) => w.낡음).length,
+      폴더,
+    },
     세션,
     합계: {
       세션수: 세션.length,
       실행중: 세션.filter((s) => s.실행중).length,
       감시켜짐: 세션.filter((s) => s.감시.켜짐).length,
       재시작켜짐: 세션.filter((s) => s.재시작.켜짐).length,
+      // 열려 있지만 그 폴더에서 시작된 세션이 없는 곳 — 목록에 "없어 보이는" 이유다
+      세션없는폴더: 폴더.filter((f) => f.여기서시작 === 0).length,
       총토큰,
       총USD,
       // 🔴 구독(max)이면 정가 환산은 청구액이 아니다. 화면이 이 문장을 그대로 보여준다.
@@ -254,5 +279,52 @@ export function fullStatus() {
         : '정가 기준 환산액',
     },
     스캔: scan.스캔,
+  }
+}
+
+/**
+ * 트레이 아이콘용 요약. **키가 전부 ASCII 다.**
+ *
+ * 🔴 왜 따로 있나
+ *   `scripts/tray.ps1` 은 ASCII 여야 한다(PowerShell 5.1 이 ANSI 로 읽는다). 그런데
+ *   fullStatus() 의 속성명은 한글이라 그 스크립트가 코드에 적을 수 없다.
+ *   그래서 ASCII 키로 갈아 담은 창구를 하나 둔다.
+ *
+ * 🔴 판정(`kind`)도 여기서 한다 — 트레이가 따로 계산하면 화면과 트레이가
+ *   서로 다른 말을 하게 된다. 집계는 한 곳이라는 규칙을 지킨다.
+ *
+ * @returns {{kind:'good'|'warn'|'crit'|'off', ...}}
+ */
+export function trayStatus() {
+  const d = fullStatus()
+  const 세션 = d.세션
+
+  const dead = 세션.filter((s) => s.감시.켜짐 && s.감시.판정 && !s.감시.판정.alive).length
+  const blocked = 세션.filter((s) => s.재시작.켜짐 && s.재시작.차단).length
+  const watched = d.합계.감시켜짐
+  const limited = !!(d.할당량.있음 && !d.할당량.이미해제됨)
+  const 미등록작업 = Object.entries(d.작업)
+    .filter(([k]) => k !== '캐시됨')
+    .filter(([, v]) => v.등록됨 === false).length
+
+  // 나쁜 것이 먼저다 — 가장 급한 하나를 아이콘이 나른다
+  let kind = 'good', state = 'ok'
+  if (dead > 0) { kind = 'crit'; state = 'stalled' }
+  else if (blocked > 0) { kind = 'crit'; state = 'blocked' }
+  else if (limited) { kind = 'warn'; state = 'limited' }
+  else if (watched === 0) { kind = 'off'; state = 'none' }
+
+  return {
+    kind, state,
+    at: d.at,
+    sessions: d.합계.세션수,
+    running: d.합계.실행중,
+    watched,
+    resumeOn: d.합계.재시작켜짐,
+    dead, blocked, limited,
+    unregisteredTasks: 미등록작업,
+    limitText: d.할당량.설명 || '',
+    account: d.계정.email || '',
+    plan: d.계정.subscriptionType || '',
   }
 }

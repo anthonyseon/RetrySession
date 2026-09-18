@@ -45,6 +45,27 @@ $settings = New-ScheduledTaskSettingsSet `
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
     -LogonType Interactive -RunLevel Limited
 
+# ---- free the port before registering ----------------------------------
+# Measured: unregistering a task does NOT kill an instance that is already
+# running. The old server keeps the port, the freshly started one dies with
+# EADDRINUSE, and the task looks "registered but failing" for no visible reason.
+# It also means a code change never takes effect, because the live process still
+# holds the modules it loaded at startup.
+$holders = @()
+try {
+  $holders = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+             Select-Object -ExpandProperty OwningProcess -Unique
+} catch { }
+
+foreach ($procId in $holders) {
+  $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+  if ($p) {
+    Write-Host "freeing port $Port - stopping pid $procId ($($p.ProcessName))" -ForegroundColor Yellow
+    Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+  }
+}
+if ($holders.Count -gt 0) { Start-Sleep -Seconds 2 }
+
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
@@ -52,6 +73,23 @@ Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Description 'RetrySession: local status UI (127.0.0.1 only).' | Out-Null
 
 Start-ScheduledTask -TaskName $TaskName
+
+# Confirm it actually answers. "Registered" is not the same as "serving" - that
+# distinction is the whole lesson of this project.
+$ok = $false
+foreach ($i in 1..20) {
+  Start-Sleep -Milliseconds 700
+  try {
+    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/tray" -TimeoutSec 3 -UseBasicParsing
+    if ($r.StatusCode -eq 200) { $ok = $true; break }
+  } catch { }
+}
+if (-not $ok) {
+  Write-Host ''
+  Write-Host "registered, but http://127.0.0.1:$Port is not answering yet." -ForegroundColor Red
+  Write-Host '  check: Get-ScheduledTaskInfo -TaskName ' + $TaskName
+  exit 1
+}
 
 Write-Host ''
 Write-Host 'registered and started.' -ForegroundColor Green

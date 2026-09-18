@@ -3,17 +3,18 @@
 # ASCII ONLY (PowerShell 5.1 reads .ps1 as ANSI).
 #
 # Default is deliberately asymmetric:
-#   monitor + UI  -> registered (they only read and record; nothing is spent)
-#   resumer       -> NOT registered unless you pass -WithResume
+#   monitor + UI + tray -> registered (they only read and record; nothing is spent)
+#   resumer             -> NOT registered unless you pass -WithResume
 #
 # The resumer spends tokens and edits files with no human watching. Opting into
 # that should be an explicit word on the command line, not a default.
 #
-#   .\scripts\register-all.ps1                # monitor + UI
-#   .\scripts\register-all.ps1 -WithResume    # all three
+#   .\scripts\register-all.ps1                # monitor + UI + tray
+#   .\scripts\register-all.ps1 -WithResume    # all four
 
 param(
-  [switch]$WithResume
+  [switch]$WithResume,
+  [switch]$NoTray
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +22,11 @@ $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'register-heartbeat.ps1')
 Write-Host ''
 & (Join-Path $PSScriptRoot 'register-ui.ps1')
+
+if (-not $NoTray) {
+  Write-Host ''
+  & (Join-Path $PSScriptRoot 'register-tray.ps1')
+}
 
 if ($WithResume) {
   Write-Host ''
@@ -32,6 +38,9 @@ if ($WithResume) {
   Write-Host '  Add it with: .\scripts\register-all.ps1 -WithResume'
   Write-Host '  Or directly: .\scripts\register-resume.ps1'
 }
+
+Write-Host ''
+& (Join-Path $PSScriptRoot 'shortcut.ps1')
 
 Write-Host ''
 & (Join-Path $PSScriptRoot 'status.ps1')

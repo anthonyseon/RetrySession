@@ -14,7 +14,8 @@ $Root  = Split-Path -Parent $PSScriptRoot
 $Names = @(
   @{ Key = 'monitor'; Name = 'EasyAI-RetrySession-Heartbeat' },
   @{ Key = 'resume ' ; Name = 'EasyAI-RetrySession-Resume'    },
-  @{ Key = 'ui     ' ; Name = 'EasyAI-RetrySession-UI'        }
+  @{ Key = 'ui     ' ; Name = 'EasyAI-RetrySession-UI'        },
+  @{ Key = 'tray   ' ; Name = 'EasyAI-RetrySession-Tray'      }
 )
 
 Write-Host '== scheduled tasks =='
@@ -29,6 +30,24 @@ foreach ($e in $Names) {
   Write-Host ("{0} : {1,-8} last={2} result={3} next={4}" -f `
       $e.Key, $t.State, $i.LastRunTime, $i.LastTaskResult, $i.NextRunTime) -ForegroundColor $color
 }
+
+# "registered" is not "serving" - check the two live pieces for real.
+Write-Host ''
+Write-Host '== actually running =='
+try {
+  $r = Invoke-WebRequest -Uri 'http://127.0.0.1:7345/api/tray' -TimeoutSec 4 -UseBasicParsing
+  if ($r.StatusCode -eq 200) { Write-Host 'server  : answering on 127.0.0.1:7345' -ForegroundColor Green }
+} catch {
+  Write-Host 'server  : NOT answering on 127.0.0.1:7345' -ForegroundColor Red
+}
+$m = New-Object System.Threading.Mutex($false, 'Global\EasyAI-RetrySession-Tray')
+if ($m.WaitOne(0)) {
+  Write-Host 'tray    : not running' -ForegroundColor Yellow
+  $m.ReleaseMutex()
+} else {
+  Write-Host 'tray    : running' -ForegroundColor Green
+}
+$m.Dispose()
 
 Write-Host ''
 Write-Host '== record freshness (fail-closed: unknown counts as dead) =='

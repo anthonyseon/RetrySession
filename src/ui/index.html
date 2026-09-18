@@ -105,6 +105,16 @@ main{display:grid; grid-template-columns:minmax(420px,1.05fr) minmax(460px,1.35f
 /* ── 선택 작업 바 ── */
 .actions{display:flex; gap:7px; align-items:center; flex-wrap:wrap; padding:9px 13px; border-bottom:1px solid var(--grid)}
 .actions .n{color:var(--ink-2); font-size:12px; margin-right:3px}
+.filter{font-weight:400; color:var(--muted); font-size:11.5px}
+.filter input{vertical-align:-2px}
+
+/* ── 열린 폴더 (VS Code 워크스페이스) ── */
+.folders{padding:8px 13px; border-bottom:1px solid var(--grid); background:var(--surface-2)}
+.frow{display:flex; align-items:center; gap:7px; flex-wrap:wrap; padding:3px 0}
+.fname{
+  font-family:ui-monospace,Consolas,monospace; font-size:11.5px; color:var(--ink-2);
+  min-width:150px; word-break:break-all;
+}
 
 /* ── 세션 목록 ── */
 .srow{display:grid; grid-template-columns:22px 1fr; gap:9px; padding:10px 13px; border-bottom:1px solid var(--grid); cursor:pointer}
@@ -179,9 +189,9 @@ table.models td:first-child{text-align:left; color:var(--ink)}
   <h1>RetrySession <small id="acct">계정 확인 중…</small></h1>
   <div class="spacer"></div>
   <span class="live"><i class="dot off" id="dot"></i><span id="freshness">연결 중…</span></span>
-  <button class="sm" id="btnAuto">자동갱신 켬</button>
-  <button class="sm" id="btnRefresh">지금 갱신</button>
-  <button class="sm" id="btnTheme">밝게</button>
+  <button type="button" class="sm" id="btnAuto">자동갱신 켬</button>
+  <button type="button" class="sm" id="btnRefresh">지금 갱신</button>
+  <button type="button" class="sm" id="btnTheme">밝게</button>
 </header>
 
 <section class="tiles" id="tiles"></section>
@@ -190,19 +200,20 @@ table.models td:first-child{text-align:left; color:var(--ink)}
   <section class="panel">
     <h2>세션 <span id="scount" class="badge off"><span class="ic">●</span>—</span>
       <span class="spacer"></span>
-      <label style="font-weight:400;color:var(--muted);font-size:11.5px">
-        <input type="checkbox" id="onlyReg" style="vertical-align:-2px"> 등록된 것만
+      <label class="filter">
+        <input type="checkbox" id="onlyReg"> 등록된 것만
       </label>
     </h2>
     <div class="actions">
       <span class="n" id="selN">0개 선택</span>
-      <button class="sm primary" data-act="watch-on">감시 시작</button>
-      <button class="sm" data-act="watch-off">감시 중지</button>
-      <button class="sm primary" data-act="resume-on">재시작 시작</button>
-      <button class="sm" data-act="resume-off">재시작 중지</button>
-      <button class="sm" data-act="rearm">차단 해제</button>
-      <button class="sm danger" data-act="remove">등록 해제</button>
+      <button type="button" class="sm primary" data-act="watch-on">감시 시작</button>
+      <button type="button" class="sm" data-act="watch-off">감시 중지</button>
+      <button type="button" class="sm primary" data-act="resume-on">재시작 시작</button>
+      <button type="button" class="sm" data-act="resume-off">재시작 중지</button>
+      <button type="button" class="sm" data-act="rearm">차단 해제</button>
+      <button type="button" class="sm danger" data-act="remove">등록 해제</button>
     </div>
+    <div id="folders" class="folders hide"></div>
     <div id="slist"></div>
   </section>
 
@@ -211,11 +222,11 @@ table.models td:first-child{text-align:left; color:var(--ink)}
     <div class="empty" id="dempty">세션 행을 누르면 처리 상황과 내용이 실시간으로 표시됩니다.</div>
     <div id="dbody" class="hide">
       <div class="tabs">
-        <button data-tab="now" class="on">처리 상황</button>
-        <button data-tab="tl">대화·도구</button>
-        <button data-tab="hb">감시 로그</button>
-        <button data-tab="rs">재시작 로그</button>
-        <button data-tab="cfg">설정</button>
+        <button type="button" data-tab="now" class="on">처리 상황</button>
+        <button type="button" data-tab="tl">대화·도구</button>
+        <button type="button" data-tab="hb">감시 로그</button>
+        <button type="button" data-tab="rs">재시작 로그</button>
+        <button type="button" data-tab="cfg">설정</button>
       </div>
       <div id="tab-now" class="pad"></div>
       <div id="tab-tl" class="tl hide"></div>

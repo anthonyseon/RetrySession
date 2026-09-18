@@ -14,7 +14,8 @@ $ErrorActionPreference = 'Continue'
 $Names = @(
   'EasyAI-RetrySession-Heartbeat',
   'EasyAI-RetrySession-Resume',
-  'EasyAI-RetrySession-UI'
+  'EasyAI-RetrySession-UI',
+  'EasyAI-RetrySession-Tray'
 )
 
 foreach ($n in $Names) {
@@ -28,5 +29,26 @@ foreach ($n in $Names) {
   }
 }
 
+# Measured: unregistering a task does not kill an instance already running.
+# The UI server would keep holding port 7345 and the tray would keep its icon,
+# so "unregistered" would not mean "stopped".
+$port = 7345
+try {
+  Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique |
+    ForEach-Object {
+      Write-Host "stopping server on port $port - pid $_" -ForegroundColor Yellow
+      Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+    }
+} catch { }
+
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -and $_.CommandLine -like '*tray.ps1*' } |
+  ForEach-Object {
+    Write-Host "stopping tray - pid $($_.ProcessId)" -ForegroundColor Yellow
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+
 Write-Host ''
 Write-Host 'done. state/ was left untouched (targets, logs, history).'
+Write-Host 'a resume run already in flight is not stopped - check: Get-Process node'

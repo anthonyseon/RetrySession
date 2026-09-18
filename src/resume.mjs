@@ -36,7 +36,7 @@ import {
   acquireLock, releaseLock, quietNow,
 } from './lib/guard.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath } from './lib/targets.mjs'
-import { runningSessions, account, claudeBin, 계정환경, 살아있나 } from './lib/cli.mjs'
+import { runningSessions, account, claudeBin, 셸필요, 계정환경, 살아있나 } from './lib/cli.mjs'
 import { scanSessions } from './lib/sessions.mjs'
 
 const argv = process.argv.slice(2)
@@ -153,8 +153,13 @@ function 판정(대상, ctx) {
 
 /* ── claude 실행 ─────────────────────────────────────────────── */
 
-const q = (s) => (/[\s"&|<>^()]/.test(s) ? `"${String(s).replace(/"/g, '\\"')}"` : String(s))
-
+/**
+ * 🔴 셸(cmd.exe)을 거치지 않는다.
+ *   claudeBin() 이 네이티브 `claude.exe` 를 돌려주므로 인자를 배열로 그대로 넘긴다.
+ *   그 덕에: 콘솔 창이 뜨지 않고, 인자를 직접 인용할 필요가 없고(코드페이지로 한글이
+ *   깨지지 않는다), 프로세스 트리가 한 겹 얕아 종료가 단순하다.
+ *   설치 형태가 달라 .cmd 로 물러설 때만 셸을 쓴다.
+ */
 function runClaude({ sessionId, cwd, prompt, cfg, addDirs }) {
   return new Promise((resolve) => {
     const 시작 = Date.now()
@@ -162,9 +167,11 @@ function runClaude({ sessionId, cwd, prompt, cfg, addDirs }) {
       '--permission-mode', cfg.권한모드 || 'acceptEdits']
     for (const d of addDirs || []) args.push('--add-dir', d)
 
-    const cmdline = [q(claudeBin(cfg.claudeBin)), ...args.map(q)].join(' ')
+    const exe = claudeBin(cfg.claudeBin)
     // 🔴 env 를 계정환경으로 준다 — API 키가 설정돼 있어도 로그인 계정이 이긴다
-    const child = spawn(cmdline, { shell: true, cwd, windowsHide: true, env: 계정환경() })
+    const child = spawn(exe, args, {
+      cwd, windowsHide: true, env: 계정환경(), shell: 셸필요(exe),
+    })
 
     let stdout = '', stderr = '', timedOut = false
     const CAP = 4_000_000
@@ -174,14 +181,16 @@ function runClaude({ sessionId, cwd, prompt, cfg, addDirs }) {
     // 🔴 이 CLI 버전에 --max-turns 가 없다(실측). 폭주는 벽시계 타임아웃으로만 막는다.
     const timer = setTimeout(() => {
       timedOut = true
-      // 셸을 거치므로 child.pid 는 cmd.exe 다. /T 로 자식까지 끊는다.
-      try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }) } catch { /* 이미 죽었으면 됐다 */ }
+      // 자식을 또 띄울 수 있으므로 트리째 끊는다. taskkill 은 셸 없이 부른다.
+      try {
+        spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+      } catch { /* 이미 죽었으면 됐다 */ }
       try { child.kill() } catch { /* 위와 같다 */ }
     }, (cfg.타임아웃분 ?? 30) * 60_000)
 
     const 끝 = (code) => {
       clearTimeout(timer)
-      resolve({ code, stdout, stderr, timedOut, 소요초: Math.round((Date.now() - 시작) / 1000), cmdline })
+      resolve({ code, stdout, stderr, timedOut, 소요초: Math.round((Date.now() - 시작) / 1000), exe })
     }
     child.on('error', (e) => { stderr += '\n' + e.message; 끝(-1) })
     child.on('close', 끝)

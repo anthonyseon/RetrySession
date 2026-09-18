@@ -17,7 +17,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
-import { claudeProjectsRoot, RS_HOME } from './config.mjs'
+import { claudeProjectsRoot, RS_HOME, 경로키 } from './config.mjs'
 import { 빈토큰, 총비용 } from './pricing.mjs'
 
 const 캐시파일 = join(RS_HOME, 'state', 'sessions-cache.json')
@@ -38,8 +38,8 @@ export const 빈누적 = (sessionId, slug) => ({
   할당량: null,
 })
 
-/** 분포 집계용 정규화 — 같은 경로가 `c:\` 와 `C:\` 로 섞여 들어온다(실측) */
-const cwd키 = (p) => String(p).replace(/\\/g, '/').replace(/^([a-z]):/, (_, d) => d.toUpperCase() + ':')
+/** 분포 집계용 정규화 — config.mjs 의 공용 함수를 쓴다(제각기 정규화하면 키가 갈라진다) */
+const cwd키 = 경로키
 
 /** assistant.message.usage → 우리 토큰 형태 */
 function 토큰추출(u) {
