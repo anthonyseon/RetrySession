@@ -1,0 +1,91 @@
+/**
+ * pricing.mjs — 토큰 수를 비용으로 환산한다.
+ *
+ * 왜 직접 계산하는가
+ *   세션 트랜스크립트의 assistant 엔트리에는 토큰 수는 있지만 비용이 없다
+ *   (`claude -p` 의 result 엔트리에만 total_cost_usd 가 붙는다).
+ *   사용량 화면에서 비용을 보여주려면 단가를 곱해야 한다.
+ *
+ * 🔴 단가표는 config/pricing.json 이 정본이고 실측으로 검증했다.
+ *   배수를 코드에 박지 않는다 — 단가는 바뀐다.
+ */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { RS_HOME } from './config.mjs'
+
+let _표 = null
+
+export function 단가표() {
+  if (_표) return _표
+  _표 = JSON.parse(readFileSync(join(RS_HOME, 'config', 'pricing.json'), 'utf8'))
+  return _표
+}
+
+/**
+ * 모델 id 를 단가표 키로 정규화한다.
+ * CLI 는 컨텍스트 창을 접미사로 붙인다 — `claude-opus-5[1m]` (실측).
+ */
+export function 모델정규화(id) {
+  return String(id || '').replace(/\[.*?\]$/, '').trim()
+}
+
+export const 빈토큰 = () => ({ 입력: 0, 캐시쓰기1h: 0, 캐시쓰기5m: 0, 캐시읽기: 0, 출력: 0, 사고: 0 })
+
+/** 토큰 두 묶음을 합친다 (순수) */
+export function 토큰합(a, b) {
+  const out = { ...빈토큰() }
+  for (const k of Object.keys(out)) out[k] = (a?.[k] || 0) + (b?.[k] || 0)
+  return out
+}
+
+/**
+ * 한 모델의 토큰 묶음 → USD. 순수 함수.
+ * @returns {{usd:number, 추정:boolean}} 추정=단가표에 없는 모델이라 기본 단가를 썼다
+ */
+export function 모델비용(modelId, 토큰, 표 = 단가표()) {
+  const key = 모델정규화(modelId)
+  const m = 표.모델[key]
+  const r = m || 표.기본
+  const b = 표.배수
+
+  const usd =
+    (토큰.입력 || 0) * r.입력 +
+    (토큰.캐시쓰기1h || 0) * r.입력 * b.캐시쓰기_1h +
+    (토큰.캐시쓰기5m || 0) * r.입력 * b.캐시쓰기_5m +
+    (토큰.캐시읽기 || 0) * r.입력 * b.캐시읽기 +
+    (토큰.출력 || 0) * r.출력
+
+  /**
+   * 단가는 $/1M 이므로 1e6 으로 나눈다.
+   *
+   * 🔴 여기서 반올림하지 않는다. 중간에 6자리로 자르면 실측 표본과 5e-7 어긋났고
+   *   (CLI 보고 0.0408015 vs 우리 0.040801), 그 오차가 수천 엔트리에 누적된다.
+   *   회계는 끝까지 정확히 하고 **화면에서만** 반올림한다.
+   */
+  return { usd: usd / 1e6, 추정: !m }
+}
+
+/**
+ * `{모델id: 토큰}` 묶음 전체의 비용.
+ * @returns {{usd:number, 추정포함:boolean, 모델별:object}}
+ */
+export function 총비용(모델별, 표 = 단가표()) {
+  let usd = 0, 추정포함 = false
+  const out = {}
+  for (const [id, tok] of Object.entries(모델별 || {})) {
+    const c = 모델비용(id, tok, 표)
+    out[id] = { ...tok, usd: c.usd, 추정: c.추정 }
+    usd += c.usd
+    if (c.추정) 추정포함 = true
+  }
+  return { usd: +usd.toFixed(4), 추정포함, 모델별: out }
+}
+
+/** 큰 수를 읽기 쉽게 — 12.9K / 1.3M */
+export function 압축(n) {
+  const v = Number(n) || 0
+  if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(1) + 'B'
+  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + 'M'
+  if (Math.abs(v) >= 1e4) return (v / 1e3).toFixed(1) + 'K'
+  return v.toLocaleString('en-US')
+}

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RetrySession — 세션 감시·재시작</title>
+<style>
+/* ── 색: 검증된 기본 팔레트. 상태색은 고정이고 테마를 따르지 않는다.
+      상태색은 반드시 아이콘+라벨과 함께 쓴다 — 색만으로 뜻을 나르지 않는다. ── */
+:root{
+  color-scheme: light;
+  --plane:#f9f9f7; --surface:#fcfcfb; --surface-2:#f2f1ed;
+  --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --base:#c3c2b7; --ring:rgba(11,11,11,.10);
+  --accent:#2a78d6; --accent-track:#cde2fb;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+  --good-ink:#006300;
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#222221;
+  --ink:#fff; --ink-2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --base:#383835; --ring:rgba(255,255,255,.10);
+  --accent:#3987e5; --accent-track:#184f95;
+  --good-ink:#0ca30c;
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#222221;
+    --ink:#fff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --base:#383835; --ring:rgba(255,255,255,.10);
+    --accent:#3987e5; --accent-track:#184f95; --good-ink:#0ca30c;
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--plane); color:var(--ink);
+  font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+a{color:var(--accent)}
+.hide{display:none !important}
+
+/* ── 머리 ── */
+header{
+  position:sticky; top:0; z-index:10; background:var(--surface);
+  border-bottom:1px solid var(--grid); padding:10px 16px;
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+}
+h1{font-size:15px; font-weight:600; margin:0; letter-spacing:-.01em}
+h1 small{color:var(--muted); font-weight:400; margin-left:8px}
+.spacer{flex:1}
+.live{display:inline-flex; align-items:center; gap:6px; color:var(--ink-2); font-size:12px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 0 2px var(--surface)}
+.dot.stale{background:var(--warn)}
+.dot.off{background:var(--muted)}
+
+button{
+  font:inherit; font-size:13px; color:var(--ink); background:var(--surface-2);
+  border:1px solid var(--ring); border-radius:6px; padding:5px 11px; cursor:pointer;
+}
+button:hover:not(:disabled){border-color:var(--base)}
+button:disabled{opacity:.45; cursor:not-allowed}
+button.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+button.danger{color:var(--crit); border-color:var(--ring)}
+button.sm{padding:3px 8px; font-size:12px}
+
+/* ── 타일 행 ── */
+.tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; padding:12px 16px}
+.tile{background:var(--surface); border:1px solid var(--grid); border-radius:9px; padding:11px 13px}
+.tile .label{color:var(--ink-2); font-size:12px; margin-bottom:5px}
+.tile .value{font-size:21px; font-weight:600; letter-spacing:-.02em}
+.tile .sub{color:var(--muted); font-size:11.5px; margin-top:4px; line-height:1.45}
+
+/* ── 상태 배지: 아이콘 + 라벨 + 색 ── */
+.badge{
+  display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:500;
+  padding:2px 8px; border-radius:999px; border:1px solid var(--ring); background:var(--surface-2);
+  white-space:nowrap;
+}
+.badge .ic{font-size:11px; line-height:1}
+.badge.good{color:var(--good-ink)} .badge.good .ic{color:var(--good)}
+.badge.warn .ic{color:var(--warn)}
+.badge.serious .ic{color:var(--serious)}
+.badge.crit{color:var(--crit)} .badge.crit .ic{color:var(--crit)}
+.badge.off{color:var(--muted)}
+
+/* ── 계량기 ── */
+.meter{height:6px; border-radius:3px; background:var(--accent-track); overflow:hidden; margin-top:6px}
+.meter > i{display:block; height:100%; background:var(--accent); border-radius:3px}
+.meter.warn > i{background:var(--warn)} .meter.crit > i{background:var(--crit)}
+
+/* ── 본문 2단 ── */
+main{display:grid; grid-template-columns:minmax(420px,1.05fr) minmax(460px,1.35fr); gap:12px; padding:0 16px 16px; align-items:start}
+@media (max-width:1100px){ main{grid-template-columns:1fr} }
+.panel{background:var(--surface); border:1px solid var(--grid); border-radius:9px; overflow:hidden}
+.panel > h2{
+  font-size:12.5px; font-weight:600; color:var(--ink-2); margin:0;
+  padding:9px 13px; border-bottom:1px solid var(--grid); background:var(--surface-2);
+  display:flex; align-items:center; gap:9px; flex-wrap:wrap;
+}
+.panel > h2 .spacer{flex:1}
+.pad{padding:12px 13px}
+
+/* ── 선택 작업 바 ── */
+.actions{display:flex; gap:7px; align-items:center; flex-wrap:wrap; padding:9px 13px; border-bottom:1px solid var(--grid)}
+.actions .n{color:var(--ink-2); font-size:12px; margin-right:3px}
+
+/* ── 세션 목록 ── */
+.srow{display:grid; grid-template-columns:22px 1fr; gap:9px; padding:10px 13px; border-bottom:1px solid var(--grid); cursor:pointer}
+.srow:last-child{border-bottom:0}
+.srow:hover{background:var(--surface-2)}
+.srow.sel{background:var(--surface-2); box-shadow:inset 3px 0 0 var(--accent)}
+.srow input{margin-top:3px; width:15px; height:15px; accent-color:var(--accent); cursor:pointer}
+.stitle{font-weight:500; display:flex; align-items:center; gap:7px; flex-wrap:wrap}
+.smeta{color:var(--muted); font-size:11.5px; margin-top:3px; display:flex; gap:9px; flex-wrap:wrap}
+.smeta b{color:var(--ink-2); font-weight:500}
+.sbadges{display:flex; gap:5px; margin-top:6px; flex-wrap:wrap}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11.5px}
+.path{color:var(--muted); font-family:ui-monospace,Consolas,monospace; font-size:11px; word-break:break-all}
+
+/* ── 상세 ── */
+.kv{display:grid; grid-template-columns:96px 1fr; gap:4px 11px; font-size:12.5px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0; color:var(--ink-2); word-break:break-word}
+.tabs{display:flex; gap:2px; padding:0 13px; border-bottom:1px solid var(--grid); background:var(--surface-2)}
+.tabs button{
+  background:none; border:0; border-bottom:2px solid transparent; border-radius:0;
+  padding:8px 11px; color:var(--muted); font-size:12.5px;
+}
+.tabs button.on{color:var(--ink); border-bottom-color:var(--accent); font-weight:500}
+
+/* 타임라인 */
+.tl{max-height:440px; overflow:auto; padding:4px 0}
+.ti{padding:8px 13px; border-bottom:1px solid var(--grid)}
+.ti:last-child{border-bottom:0}
+.ti .hd{display:flex; gap:8px; align-items:baseline; font-size:11.5px; color:var(--muted)}
+.ti .who{font-weight:600; font-size:12px}
+.ti.user .who{color:var(--accent)}
+.ti.asst .who{color:var(--ink)}
+.ti.tool .who{color:var(--muted)}
+.ti .body{margin-top:4px; font-size:12.5px; color:var(--ink-2); white-space:pre-wrap; word-break:break-word}
+.ti .tools{margin-top:5px; display:flex; flex-direction:column; gap:3px}
+.tchip{
+  display:inline-flex; gap:6px; align-items:baseline; font-size:11.5px;
+  background:var(--surface-2); border:1px solid var(--ring); border-radius:5px; padding:3px 7px;
+}
+.tchip b{font-weight:600; color:var(--ink)}
+.tchip span{color:var(--muted); font-family:ui-monospace,Consolas,monospace; word-break:break-all}
+.tok{color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums}
+
+/* 로그 */
+pre.log{
+  margin:0; padding:11px 13px; max-height:400px; overflow:auto;
+  background:var(--surface); color:var(--ink-2);
+  font-family:ui-monospace,Consolas,monospace; font-size:11.5px; line-height:1.55;
+  white-space:pre-wrap; word-break:break-word;
+}
+.empty{color:var(--muted); padding:22px 13px; text-align:center; font-size:12.5px}
+textarea{
+  width:100%; font:inherit; font-size:12.5px; background:var(--surface-2); color:var(--ink);
+  border:1px solid var(--ring); border-radius:6px; padding:8px; min-height:74px; resize:vertical;
+}
+.note{color:var(--muted); font-size:11.5px; margin-top:5px; line-height:1.5}
+.warnbox{
+  border:1px solid var(--ring); border-left:3px solid var(--warn);
+  background:var(--surface-2); padding:9px 11px; border-radius:6px; font-size:12.5px; color:var(--ink-2);
+}
+table.models{width:100%; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums}
+table.models th{text-align:right; color:var(--muted); font-weight:500; padding:3px 6px; border-bottom:1px solid var(--grid)}
+table.models th:first-child{text-align:left}
+table.models td{text-align:right; padding:3px 6px; border-bottom:1px solid var(--grid); color:var(--ink-2)}
+table.models td:first-child{text-align:left; color:var(--ink)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>RetrySession <small id="acct">계정 확인 중…</small></h1>
+  <div class="spacer"></div>
+  <span class="live"><i class="dot off" id="dot"></i><span id="freshness">연결 중…</span></span>
+  <button class="sm" id="btnAuto">자동갱신 켬</button>
+  <button class="sm" id="btnRefresh">지금 갱신</button>
+  <button class="sm" id="btnTheme">밝게</button>
+</header>
+
+<section class="tiles" id="tiles"></section>
+
+<main>
+  <section class="panel">
+    <h2>세션 <span id="scount" class="badge off"><span class="ic">●</span>—</span>
+      <span class="spacer"></span>
+      <label style="font-weight:400;color:var(--muted);font-size:11.5px">
+        <input type="checkbox" id="onlyReg" style="vertical-align:-2px"> 등록된 것만
+      </label>
+    </h2>
+    <div class="actions">
+      <span class="n" id="selN">0개 선택</span>
+      <button class="sm primary" data-act="watch-on">감시 시작</button>
+      <button class="sm" data-act="watch-off">감시 중지</button>
+      <button class="sm primary" data-act="resume-on">재시작 시작</button>
+      <button class="sm" data-act="resume-off">재시작 중지</button>
+      <button class="sm" data-act="rearm">차단 해제</button>
+      <button class="sm danger" data-act="remove">등록 해제</button>
+    </div>
+    <div id="slist"></div>
+  </section>
+
+  <section class="panel" id="detail">
+    <h2 id="dtitle">상세 — 왼쪽에서 세션을 고르세요</h2>
+    <div class="empty" id="dempty">세션 행을 누르면 처리 상황과 내용이 실시간으로 표시됩니다.</div>
+    <div id="dbody" class="hide">
+      <div class="tabs">
+        <button data-tab="now" class="on">처리 상황</button>
+        <button data-tab="tl">대화·도구</button>
+        <button data-tab="hb">감시 로그</button>
+        <button data-tab="rs">재시작 로그</button>
+        <button data-tab="cfg">설정</button>
+      </div>
+      <div id="tab-now" class="pad"></div>
+      <div id="tab-tl" class="tl hide"></div>
+      <pre id="tab-hb" class="log hide"></pre>
+      <pre id="tab-rs" class="log hide"></pre>
+      <div id="tab-cfg" class="pad hide"></div>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,251 @@
+/**
+ * guard.test.mjs — 판정 로직을 고정한다.
+ *
+ * 왜 이 시험이 있는가 (실측 사고)
+ *   2026-09-17: 손으로 쓴 하트비트 판정이 `atEpoch` 가 없을 때 "살아있음"으로 답했다.
+ *   실제로는 9시간 낡은 상태였고, 그 fail-open 때문에 중단을 놓쳤다.
+ *   **감시 장치가 "모르면 정상"이라고 답하면 감시가 아니다.**
+ *   그래서 "모르면 죽음/금지"를 여기서 시험으로 못박는다.
+ */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  heartbeatVerdict, quietNow, budgetVerdict, recordRun, rearm,
+  loadRunState, acquireLock, releaseLock, 빈상태,
+} from '../src/lib/guard.mjs'
+
+const 분 = 60_000
+const 기준 = new Date('2026-09-18T12:00:00').getTime()
+
+/* ── 하트비트 낡음 판정: fail-closed ──────────────────────────── */
+
+test('하트비트 — 최근 기록은 살아있음', () => {
+  const v = heartbeatVerdict({ atEpoch: 기준 - 3 * 분 }, 15, 기준)
+  assert.equal(v.alive, true)
+  assert.equal(v.ageMin, 3)
+})
+
+test('하트비트 — 한계를 넘기면 죽음', () => {
+  const v = heartbeatVerdict({ atEpoch: 기준 - 20 * 분 }, 15, 기준)
+  assert.equal(v.alive, false)
+  assert.match(v.why, /20분 전/)
+})
+
+test('하트비트 — 한계 경계값은 살아있음 (초과일 때만 죽음)', () => {
+  assert.equal(heartbeatVerdict({ atEpoch: 기준 - 15 * 분 }, 15, 기준).alive, true)
+  assert.equal(heartbeatVerdict({ atEpoch: 기준 - 16 * 분 }, 15, 기준).alive, false)
+})
+
+test('🔴 하트비트 — atEpoch 가 없으면 죽음으로 본다 (실측 사고 재발 방지)', () => {
+  const v = heartbeatVerdict({ at: '2026-09-18 11:59:00' }, 15, 기준)
+  assert.equal(v.alive, false, 'atEpoch 없는 파일을 살아있다고 답하면 안 된다')
+  assert.match(v.why, /atEpoch/)
+})
+
+test('🔴 하트비트 — 파일을 못 읽으면(null) 죽음으로 본다', () => {
+  assert.equal(heartbeatVerdict(null, 15, 기준).alive, false)
+})
+
+test('하트비트 — 미래 시각은 시계 어긋남으로 죽음', () => {
+  const v = heartbeatVerdict({ atEpoch: 기준 + 30 * 분 }, 15, 기준)
+  assert.equal(v.alive, false)
+  assert.match(v.why, /미래/)
+})
+
+/* ── 조용한 시간 ─────────────────────────────────────────────── */
+
+test('조용한시간 — null 이면 끈 것', () => {
+  assert.equal(quietNow(null, new Date(기준)).quiet, false)
+})
+
+test('조용한시간 — 자정을 넘기는 구간', () => {
+  const q = { from: '23:30', to: '07:00' }
+  assert.equal(quietNow(q, new Date('2026-09-18T23:45:00')).quiet, true)
+  assert.equal(quietNow(q, new Date('2026-09-18T03:00:00')).quiet, true)
+  assert.equal(quietNow(q, new Date('2026-09-18T12:00:00')).quiet, false)
+  assert.equal(quietNow(q, new Date('2026-09-18T07:00:00')).quiet, false, 'to 는 미포함')
+})
+
+test('조용한시간 — 같은 날 안의 구간', () => {
+  const q = { from: '09:00', to: '18:00' }
+  assert.equal(quietNow(q, new Date('2026-09-18T10:00:00')).quiet, true)
+  assert.equal(quietNow(q, new Date('2026-09-18T20:00:00')).quiet, false)
+})
+
+test('🔴 조용한시간 — 형식이 틀리면 조용한 시간으로 본다(fail-closed)', () => {
+  const v = quietNow({ from: '이상함', to: '07:00' }, new Date(기준))
+  assert.equal(v.quiet, true)
+  assert.match(v.why, /형식/)
+})
+
+/* ── 예산·회로차단기 ─────────────────────────────────────────── */
+
+const cfg = { 최소간격분: 30, 하루최대회: 3, 하루최대비용USD: 5, 연속실패한계: 3 }
+
+test('예산 — 빈 상태는 통과', () => {
+  assert.equal(budgetVerdict(빈상태(), cfg, 기준).ok, true)
+})
+
+test('예산 — 최소 간격 안이면 막는다', () => {
+  const s = { ...빈상태(), 마지막실행: { atEpoch: 기준 - 10 * 분 } }
+  const v = budgetVerdict(s, cfg, 기준)
+  assert.equal(v.ok, false)
+  assert.match(v.why, /최소 간격/)
+})
+
+test('예산 — 간격을 넘겼으면 통과', () => {
+  const s = { ...빈상태(), 마지막실행: { atEpoch: 기준 - 31 * 분 } }
+  assert.equal(budgetVerdict(s, cfg, 기준).ok, true)
+})
+
+test('예산 — 하루 횟수 상한', () => {
+  const s = { ...빈상태(), 일별: { '2026-09-18': 3 } }
+  const v = budgetVerdict(s, cfg, 기준)
+  assert.equal(v.ok, false)
+  assert.match(v.why, /하루 상한 3회/)
+})
+
+test('예산 — 하루 비용 상한 (횟수는 남아도 막는다)', () => {
+  const s = { ...빈상태(), 일별: { '2026-09-18': 1 }, 비용일별: { '2026-09-18': 5.5 } }
+  const v = budgetVerdict(s, cfg, 기준)
+  assert.equal(v.ok, false)
+  assert.match(v.why, /하루 상한 \$5/)
+})
+
+test('예산 — 어제 기록은 오늘 예산에 영향 없다', () => {
+  const s = { ...빈상태(), 일별: { '2026-09-17': 99 }, 비용일별: { '2026-09-17': 99 } }
+  assert.equal(budgetVerdict(s, cfg, 기준).ok, true)
+})
+
+test('예산 — 연속실패 한계에서 막는다', () => {
+  const v = budgetVerdict({ ...빈상태(), 연속실패: 3 }, cfg, 기준)
+  assert.equal(v.ok, false)
+  assert.match(v.why, /연속 3회/)
+})
+
+test('예산 — 회로 차단되면 막는다', () => {
+  const v = budgetVerdict({ ...빈상태(), 차단: { at: 'x', 이유: '연속 3회 실패' } }, cfg, 기준)
+  assert.equal(v.ok, false)
+  assert.match(v.why, /회로 차단/)
+})
+
+test('🔴 예산 — 상태 파일이 깨졌으면 막는다(fail-closed)', () => {
+  const v = budgetVerdict({ ...빈상태(), 손상: '파일이 깨졌다' }, cfg, 기준)
+  assert.equal(v.ok, false, '몇 번 돌았는지 모르면 돌리지 않는다')
+})
+
+/* ── 실행 기록 ───────────────────────────────────────────────── */
+
+test('기록 — 성공은 연속실패를 0으로 되돌린다', () => {
+  const s = { ...빈상태(), 연속실패: 2 }
+  const n = recordRun(s, { 결과: 'ok', 요약: '됐다', 소요초: 10, 비용USD: 0.5 }, cfg, 기준)
+  assert.equal(n.연속실패, 0)
+  assert.equal(n.차단, null)
+  assert.equal(n.일별['2026-09-18'], 1)
+  assert.equal(n.비용일별['2026-09-18'], 0.5)
+})
+
+test('기록 — 비용은 같은 날에 누적된다', () => {
+  let s = 빈상태()
+  s = recordRun(s, { 결과: 'ok', 소요초: 1, 비용USD: 0.25 }, cfg, 기준)
+  s = recordRun(s, { 결과: 'ok', 소요초: 1, 비용USD: 0.3 }, cfg, 기준)
+  assert.equal(s.일별['2026-09-18'], 2)
+  assert.equal(s.비용일별['2026-09-18'], 0.55)
+})
+
+test('기록 — 연속실패가 한계에 닿으면 회로를 차단한다', () => {
+  let s = 빈상태()
+  for (let i = 0; i < 3; i++) s = recordRun(s, { 결과: 'fail', 소요초: 1 }, cfg, 기준)
+  assert.equal(s.연속실패, 3)
+  assert.ok(s.차단, '한계에 닿으면 차단되어야 한다')
+  assert.equal(budgetVerdict(s, cfg, 기준).ok, false)
+})
+
+test('기록 — timeout 도 실패로 센다', () => {
+  const n = recordRun(빈상태(), { 결과: 'timeout', 소요초: 1800 }, cfg, 기준)
+  assert.equal(n.연속실패, 1)
+})
+
+test('--rearm 은 차단과 연속실패를 푼다', () => {
+  const s = { ...빈상태(), 연속실패: 5, 차단: { at: 'x', 이유: 'y' }, 일별: { '2026-09-18': 2 } }
+  const n = rearm(s)
+  assert.equal(n.연속실패, 0)
+  assert.equal(n.차단, null)
+  assert.equal(n.일별['2026-09-18'], 2, '하루 횟수는 남긴다 — 예산은 풀지 않는다')
+  assert.equal(budgetVerdict(n, cfg, 기준).ok, true)
+})
+
+/* ── 상태 파일 읽기 ─────────────────────────────────────────── */
+
+test('상태 — 파일이 없으면 빈 상태(첫 실행이므로 허용)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rs-'))
+  try {
+    const s = loadRunState(join(dir, '없는파일.json'))
+    assert.equal(s.손상, undefined)
+    assert.equal(budgetVerdict(s, cfg, 기준).ok, true)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('🔴 상태 — 파일이 깨졌으면 손상 표시 (없는 것과 구별한다)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rs-'))
+  try {
+    const p = join(dir, 'resume.json')
+    writeFileSync(p, '{깨진 JSON')
+    assert.ok(loadRunState(p).손상)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+/* ── 락 ──────────────────────────────────────────────────────── */
+
+test('락 — 잡고 풀면 다시 잡힌다', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rs-'))
+  try {
+    const p = join(dir, 'resume.lock')
+    assert.equal(acquireLock(p, 60).ok, true)
+    releaseLock(p)
+    assert.equal(acquireLock(p, 60).ok, true)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('락 — 살아있는 프로세스가 잡고 있으면 막는다', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rs-'))
+  try {
+    const p = join(dir, 'resume.lock')
+    // 자기 PID 로 락을 심는다 — 이 프로세스는 분명히 살아있다
+    writeFileSync(p, JSON.stringify({ pid: process.pid, atEpoch: Date.now() }))
+    const v = acquireLock(p, 60)
+    assert.equal(v.ok, false)
+    assert.match(v.why, /이미 돌고 있다/)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('락 — 죽은 프로세스의 락은 회수한다', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rs-'))
+  try {
+    const p = join(dir, 'resume.lock')
+    // PID 1 은 Windows 에서 이 프로세스가 신호를 보낼 수 없다 → 죽은 것으로 취급된다
+    writeFileSync(p, JSON.stringify({ pid: 999_999_999, atEpoch: Date.now() }))
+    assert.equal(acquireLock(p, 60).ok, true)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('락 — 한계를 넘긴 낡은 락은 살아있어도 회수한다', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rs-'))
+  try {
+    const p = join(dir, 'resume.lock')
+    writeFileSync(p, JSON.stringify({ pid: process.pid, atEpoch: Date.now() - 120 * 분 }))
+    assert.equal(acquireLock(p, 60).ok, true, '60분 한계를 넘긴 락은 회수한다')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('락 — 깨진 락 파일은 낡은 것으로 보고 회수한다', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rs-'))
+  try {
+    const p = join(dir, 'resume.lock')
+    writeFileSync(p, '깨짐')
+    assert.equal(acquireLock(p, 60).ok, true)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
