@@ -215,10 +215,26 @@ src/
     status.mjs scheduler.mjs    집계(화면·트레이·CLI 공용) · 예약 조회
 scripts/                 🔴 전부 ASCII
   register-{heartbeat,resume,ui,tray}.ps1 · register-all.ps1 · unregister-all.ps1
-  tray.ps1  open-app.ps1  shortcut.ps1  status.ps1
+  tray.ps1  open-app.ps1  shortcut.ps1  status.ps1  build-exe.ps1
+tools/                   start.exe · runhidden.exe 의 C# 원본 (빌드 산출물은 추적 안 함)
+start.ps1                사용자가 만지는 유일한 파일 (start.exe 가 이것을 부른다)
+.claude/skills/          이 저장소에서만 쓰는 작업 절차 (아래)
 state/                   런타임 기록 (추적 안 함)
-test/                    85개 — 판정·단가·ASCII 규칙을 고정
+test/                    143개 — 판정·단가·ASCII·중복실행·경보·스킬을 고정
 ```
+
+## 작업 절차 (Claude 스킬)
+
+이 저장소에만 적용되는 절차를 스킬로 두었다. 불변 규칙은 [`CLAUDE.md`](./CLAUDE.md) 가
+정본이고, 스킬은 **순서와 명령**을 담는다.
+
+| 스킬 | 언제 |
+|---|---|
+| `retrysession-change` | `src/`·`scripts/`·`tools/` 를 고치거나 예약 작업을 바꿀 때 |
+| `retrysession-diagnose` | 감시·재시작·화면이 안 돌거나, 세션이 목록에 없거나, 콘솔 창이 뜰 때 |
+
+스킬이 가리키는 스크립트·`npm` 명령·`start` 스위치가 실재하는지는
+`test/skills.test.mjs` 가 확인한다 — 틀린 안내는 없느니만 못하다.
 
 **왜 `hb.mjs` / `rs.mjs` 가 따로 있나** — PowerShell 5.1 은 `.ps1` 을 ANSI 로 읽어서 한글이
 들어가면 파서가 죽는다(실측). 스케줄러가 건드리는 경로는 ASCII 여야 한다.
