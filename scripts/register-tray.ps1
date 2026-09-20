@@ -84,10 +84,33 @@ $alive = -not $probe.WaitOne(0)
 if (-not $alive) { $probe.ReleaseMutex() }
 $probe.Dispose()
 
+# ---- make the icon actually visible ------------------------------------
+# Windows 11 hides every NEW tray icon in the overflow flyout by default, so a
+# freshly registered tray is invisible until the user digs through Taskbar
+# settings. Measured: our entry existed with IsPromoted unset.
+#
+# IsPromoted=1 pins it to the taskbar. The key is hashed per executable path, so
+# this promotes PowerShell-hosted tray icons generally - in practice that is
+# only ours. Best effort: never fail the registration over a cosmetic setting.
+try {
+  $base = 'HKCU:\Control Panel\NotifyIconSettings'
+  if (Test-Path $base) {
+    $promoted = 0
+    Get-ChildItem $base -ErrorAction SilentlyContinue | ForEach-Object {
+      $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+      if ($p.ExecutablePath -like '*\WindowsPowerShell\*\powershell.exe') {
+        Set-ItemProperty $_.PSPath -Name 'IsPromoted' -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        $promoted++
+      }
+    }
+    if ($promoted -gt 0) { Write-Host "tray icon pinned to the taskbar ($promoted entry/entries)" -ForegroundColor Green }
+  }
+} catch { }
+
 Write-Host ''
 if ($alive) {
   Write-Host 'registered and started - look for the dot in the notification area.' -ForegroundColor Green
-  Write-Host '  (Windows may hide new tray icons: Taskbar settings > Other system tray icons)'
+  Write-Host '  if it is hidden: Taskbar settings > Other system tray icons > RetrySession = On'
 } else {
   Write-Host 'registered, but the tray process is not running.' -ForegroundColor Red
   Write-Host "  run it in the foreground to see the error:"

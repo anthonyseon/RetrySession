@@ -20,6 +20,11 @@ $Source = Join-Path $Root 'tools\Launcher.cs'
 $OutExe = Join-Path $Root 'start.exe'
 $IcoTmp = Join-Path $env:TEMP 'retrysession-launcher.ico'
 
+# runhidden.exe is what the scheduled tasks actually invoke, so that node never
+# gets a console window. See tools\RunHidden.cs for the measurement behind it.
+$HiddenSrc = Join-Path $Root 'tools\RunHidden.cs'
+$HiddenExe = Join-Path $Root 'runhidden.exe'
+
 if (-not (Test-Path $Source)) { throw "source not found: $Source" }
 
 # ---- find csc.exe -------------------------------------------------------
@@ -96,6 +101,29 @@ if ($LASTEXITCODE -ne 0) {
 if (-not (Test-Path $OutExe)) {
   Write-Host 'compiler reported success but start.exe is missing.' -ForegroundColor Red
   exit 1
+}
+
+# ---- runhidden.exe ------------------------------------------------------
+if (Test-Path $HiddenSrc) {
+  # Stop anything holding the file (a running task action).
+  Get-Process -Name 'runhidden' -ErrorAction SilentlyContinue |
+    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+
+  $hArgs = @(
+    '/nologo', '/target:winexe', '/optimize+', '/platform:anycpu', '/codepage:65001',
+    '/reference:System.dll', '/reference:System.Windows.Forms.dll',
+    "/out:$HiddenExe"
+  )
+  if ($haveIcon) { $hArgs += "/win32icon:$IcoTmp" }
+  $hArgs += $HiddenSrc
+
+  & $csc $hArgs
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host 'runhidden.exe compile failed - tasks would show a console window.' -ForegroundColor Red
+    exit $LASTEXITCODE
+  }
+  $hs = [Math]::Round((Get-Item $HiddenExe).Length / 1KB, 1)
+  Write-Host "built runhidden.exe ($hs KB)" -ForegroundColor Green
 }
 
 $size = [Math]::Round((Get-Item $OutExe).Length / 1KB, 1)

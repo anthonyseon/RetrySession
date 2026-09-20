@@ -26,11 +26,20 @@ import { loadTargets, setMany, removeTarget, statePaths, resolveRepo, trackerPat
 import { loadRunState, saveRunState, budgetVerdict, rearm } from '../lib/guard.mjs'
 import { readTracker } from '../lib/tracker.mjs'
 import { localStamp } from '../lib/stamp.mjs'
+import { 단일실행 } from '../lib/single.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
 const PORT = Number((argv.indexOf('--port') >= 0 ? argv[argv.indexOf('--port') + 1] : null) || process.env.RS_UI_PORT || 7345)
 const HOST = '127.0.0.1'
+
+/**
+ * 🔴 서버도 하나만 돈다.
+ *   포트 충돌로도 막히기는 하지만, 그때는 EADDRINUSE 로 죽어 작업 이력이 실패로
+ *   남고 이유도 불친절하다. 락을 먼저 보면 "이미 돌고 있다"를 정확히 말하고
+ *   exit 0 으로 조용히 끝낼 수 있다. 서버는 오래 사니 pid 가 죽었을 때만 회수한다.
+ */
+단일실행('ui', { 낡음분: 24 * 60 })
 
 /* ── 응답 도우미 ─────────────────────────────────────────────── */
 

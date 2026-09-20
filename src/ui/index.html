@@ -65,6 +65,31 @@ button.primary{background:var(--accent); border-color:var(--accent); color:#fff}
 button.danger{color:var(--crit); border-color:var(--ring)}
 button.sm{padding:3px 8px; font-size:12px}
 
+/* ── 경보 배너 ──
+   Windows 풍선 알림을 걷어내고 알림을 여기로 옮겼다. 화면 맨 위에 두는 이유는
+   사람이 창을 열었을 때 가장 먼저 보이는 자리이기 때문이다. 색만으로 말하지 않고
+   수준 라벨과 아이콘을 함께 적는다. */
+.alerts{padding:12px 16px 0; display:flex; flex-direction:column; gap:7px}
+.alert{
+  display:flex; align-items:flex-start; gap:9px; padding:9px 12px;
+  border:1px solid var(--ring); border-radius:8px; background:var(--surface);
+  border-left-width:3px;
+}
+.alert.critical{border-left-color:var(--crit)}
+.alert.warning{border-left-color:var(--warn)}
+.alert.info{border-left-color:var(--muted)}
+.alert .ic{font-size:13px; line-height:1.35}
+.alert.critical .ic{color:var(--crit)}
+.alert.warning .ic{color:var(--warn)}
+.alert.info .ic{color:var(--muted)}
+.alert .txt{flex:1; min-width:0}
+.alert .t{font-weight:600; font-size:13px}
+.alert .d{color:var(--ink-2); font-size:12.5px; margin-top:2px; word-break:break-word}
+.alert .lv{
+  font-size:10.5px; font-weight:600; letter-spacing:.04em; color:var(--muted);
+  border:1px solid var(--ring); border-radius:4px; padding:1px 5px; white-space:nowrap;
+}
+
 /* ── 타일 행 ── */
 .tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; padding:12px 16px}
 .tile{background:var(--surface); border:1px solid var(--grid); border-radius:9px; padding:11px 13px}
@@ -203,6 +228,8 @@ table.models td:first-child{text-align:left; color:var(--ink)}
   <button type="button" class="sm" id="btnTheme">밝게</button>
 </header>
 
+<section id="alerts" class="alerts hide"></section>
+
 <section class="tiles" id="tiles"></section>
 
 <main>
@@ -228,21 +255,24 @@ table.models td:first-child{text-align:left; color:var(--ink)}
 
   <section class="panel" id="detail">
     <h2 id="dtitle">상세 — 왼쪽에서 세션을 고르세요</h2>
+    <div class="tabs" id="dtabs">
+      <button type="button" data-tab="now" class="on">처리 상황</button>
+      <button type="button" data-tab="tl">대화·도구</button>
+      <button type="button" data-tab="hb">감시 로그</button>
+      <button type="button" data-tab="rs">재시작 로그</button>
+      <button type="button" data-tab="cfg">설정</button>
+      <button type="button" data-tab="al">알림</button>
+    </div>
     <div class="empty" id="dempty">세션 행을 누르면 처리 상황과 내용이 실시간으로 표시됩니다.</div>
     <div id="dbody" class="hide">
-      <div class="tabs">
-        <button type="button" data-tab="now" class="on">처리 상황</button>
-        <button type="button" data-tab="tl">대화·도구</button>
-        <button type="button" data-tab="hb">감시 로그</button>
-        <button type="button" data-tab="rs">재시작 로그</button>
-        <button type="button" data-tab="cfg">설정</button>
-      </div>
       <div id="tab-now" class="pad"></div>
       <div id="tab-tl" class="tl hide"></div>
       <pre id="tab-hb" class="log hide"></pre>
       <pre id="tab-rs" class="log hide"></pre>
       <div id="tab-cfg" class="pad hide"></div>
     </div>
+    <!-- 알림은 세션을 고르지 않아도 볼 수 있어야 한다 — dbody 바깥에 둔다 -->
+    <pre id="tab-al" class="log hide"></pre>
   </section>
 </main>
 

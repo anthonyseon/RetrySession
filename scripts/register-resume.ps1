@@ -45,7 +45,17 @@ Write-Host ''
 Write-Host 'This task can spend tokens and edit files unattended.' -ForegroundColor Yellow
 Write-Host 'Guards are listed at the top of this script.' -ForegroundColor Yellow
 
-$action = New-ScheduledTaskAction -Execute $node -Argument "`"$Script`"" -WorkingDirectory $Root
+# Route through runhidden.exe so node never gets a console window
+# (see register-heartbeat.ps1 for the measurement).
+$hidden = Join-Path $Root 'runhidden.exe'
+if (Test-Path $hidden) {
+  $action = New-ScheduledTaskAction -Execute $hidden -WorkingDirectory $Root `
+      -Argument ('"' + $node + '" "' + $Script + '"')
+  Write-Host 'window : hidden (runhidden.exe)'
+} else {
+  $action = New-ScheduledTaskAction -Execute $node -Argument "`"$Script`"" -WorkingDirectory $Root
+  Write-Host 'window : VISIBLE - runhidden.exe is missing (.\scripts\build-exe.ps1)' -ForegroundColor Yellow
+}
 
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) `
     -RepetitionInterval (New-TimeSpan -Minutes $Minutes)

@@ -23,6 +23,8 @@ import { loadTargets, statePaths, resolveRepo, trackerPath } from './targets.mjs
 import { 작업상태 } from './scheduler.mjs'
 import { ideWindows, 창찾기, 폴더별세션 } from './ide.mjs'
 import { claudeProcesses } from './procs.mjs'
+import { 전체락상태 } from './single.mjs'
+import { 현재경보, 최근경보 } from './alerts.mjs'
 import { paths as repoPaths } from './config.mjs'
 import { 총비용 } from './pricing.mjs'
 
@@ -269,8 +271,9 @@ export function fullStatus() {
   const acct = account()
   const 총토큰 = 세션.reduce((a, s) => a + s.토큰합, 0)
   const 총USD = +세션.reduce((a, s) => a + s.비용USD, 0).toFixed(2)
+  const 락 = 전체락상태()
 
-  return {
+  const 기본 = {
     at: localStamp(),
     atEpoch: Date.now(),
     계정: acct,
@@ -311,7 +314,24 @@ export function fullStatus() {
         ? `정가 환산 참고값 — 구독(${acct.subscriptionType})이므로 실제 청구액이 아니다`
         : '정가 기준 환산액',
     },
+    락,
     스캔: scan.스캔,
+  }
+
+  /**
+   * 경보는 나머지가 다 모인 뒤에 판정한다 — 세션·작업·할당량·락을 모두 본다.
+   * 🔴 판정은 alerts.mjs 하나다. 화면이 따로 계산하면 트레이·로그와 말이 갈라진다.
+   */
+  const 경보 = 현재경보(기본)
+  return {
+    ...기본,
+    경보,
+    경보이력: 최근경보(60),
+    합계: {
+      ...기본.합계,
+      경보: 경보.length,
+      치명경보: 경보.filter((a) => a.수준 === 'critical').length,
+    },
   }
 }
 
@@ -359,5 +379,8 @@ export function trayStatus() {
     limitText: d.할당량.설명 || '',
     account: d.계정.email || '',
     plan: d.계정.subscriptionType || '',
+    // 트레이는 개수만 보여준다 — 내용과 조치는 화면에서 한다(풍선 알림 없음)
+    alerts: d.합계.경보 || 0,
+    criticalAlerts: d.합계.치명경보 || 0,
   }
 }

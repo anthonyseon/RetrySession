@@ -140,45 +140,39 @@ $icon.ContextMenuStrip = $menu
 $icon.Add_MouseDoubleClick({ Open-Window })
 
 # ---- polling ------------------------------------------------------------
-# Notify only when the state CHANGES. A balloon every 5 seconds is noise, and
-# noise is how a real warning gets ignored.
+#
+# IMPORTANT: NO BALLOON NOTIFICATIONS.
+#
+#   An earlier version raised a Windows balloon on every state change. In
+#   practice it fired far too often - a single server restart flips the state
+#   twice - and constant popups are how a real warning gets ignored. Worse, a
+#   balloon interrupts whatever the user is doing to say something they cannot
+#   act on from the popup anyway.
+#
+#   The tray now carries STATE ONLY: a coloured dot, a tooltip, and the menu
+#   header, all in words as well as colour. Alerts and their history live in
+#   the window (its alerts tab), which is where you can actually act on them.
+#   Do not add ShowBalloonTip back here.
 $script:lastKind = $null
 
 function Poll {
   $kind = 'off'; $head = ''; $tip = ''
-  $title = $null; $body = $null; $sev = 'Info'
 
   try {
     $s = Invoke-RestMethod -Uri "$BaseUrl/api/tray" -TimeoutSec 8
 
-    # the server decided `state` - the tray must not re-derive it, or the tray
-    # and the window would disagree about what is wrong
+    # The server decided `state`; the tray must not re-derive it, or the tray
+    # and the window would disagree about what is wrong.
     switch ($s.state) {
-      'stalled' {
-        $kind = 'crit'; $head = (Lbl 'status.stalled' 'monitor stalled') + " ($($s.dead))"
-        $title = Lbl 'alert.stalledTitle' 'Monitor stalled'
-        $body  = Lbl 'alert.stalledBody'  'Records are past the freshness limit.'
-        $sev = 'Warning'
-      }
-      'blocked' {
-        $kind = 'crit'; $head = (Lbl 'status.blocked' 'resume blocked') + " ($($s.blocked))"
-        $title = Lbl 'alert.blockedTitle' 'Resume blocked'
-        $body  = Lbl 'alert.blockedBody'  'Circuit breaker tripped.'
-        $sev = 'Warning'
-      }
-      'limited' {
-        $kind = 'warn'; $head = Lbl 'status.limited' 'usage limited'
-        $title = Lbl 'alert.limitedTitle' 'Usage limit hit'
-        $body  = [string]$s.limitText
-        $sev = 'Warning'
-      }
-      'none' {
-        $kind = 'off'; $head = Lbl 'status.none' 'nothing watched'
-      }
-      default {
-        $kind = 'good'; $head = (Lbl 'status.ok' 'monitor ok') + " ($($s.watched))"
-      }
+      'stalled' { $kind = 'crit'; $head = (Lbl 'status.stalled' 'monitor stalled') + " ($($s.dead))" }
+      'blocked' { $kind = 'crit'; $head = (Lbl 'status.blocked' 'resume blocked') + " ($($s.blocked))" }
+      'limited' { $kind = 'warn'; $head = Lbl 'status.limited' 'usage limited' }
+      'none'    { $kind = 'off';  $head = Lbl 'status.none' 'nothing watched' }
+      default   { $kind = 'good'; $head = (Lbl 'status.ok' 'monitor ok') + " ($($s.watched))" }
     }
+
+    # Unread alert count belongs in the tooltip, not in a popup.
+    if ($s.alerts -and $s.alerts -gt 0) { $head = "$head - " + (Lbl 'status.alerts' 'alerts') + " $($s.alerts)" }
 
     $tip = "$AppName - $head`n" +
            (Lbl 'tip.sessions' 'sessions') + " $($s.running)/$($s.sessions)  " +
@@ -186,9 +180,6 @@ function Poll {
            (Lbl 'tip.resume' 'resume') + " $($s.resumeOn)"
   } catch {
     $kind = 'crit'; $head = Lbl 'status.down' 'status server down'
-    $title = Lbl 'alert.downTitle' 'Status server not responding'
-    $body  = Lbl 'alert.downBody'  'Check the EasyAI-RetrySession-UI task.'
-    $sev = 'Error'
     $tip = "$AppName - $head"
   }
 
@@ -197,17 +188,7 @@ function Poll {
   if ($tip.Length -gt 62) { $tip = $tip.Substring(0, 62) }
   $icon.Text = $tip
   $hdr.Text  = $head
-
-  if ($kind -ne $script:lastKind) {
-    if ($null -ne $script:lastKind) {
-      if ($kind -eq 'crit' -or $kind -eq 'warn') {
-        if ($title) { $icon.ShowBalloonTip(8000, $title, $body, $sev) }
-      } elseif ($kind -eq 'good' -and ($script:lastKind -eq 'crit' -or $script:lastKind -eq 'warn')) {
-        $icon.ShowBalloonTip(4000, (Lbl 'alert.recoveredTitle' 'Back to normal'), $head, 'Info')
-      }
-    }
-    $script:lastKind = $kind
-  }
+  $script:lastKind = $kind
 }
 
 $timer = New-Object System.Windows.Forms.Timer

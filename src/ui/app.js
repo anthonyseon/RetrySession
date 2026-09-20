@@ -52,6 +52,39 @@ const 재시작배지 = (s) => {
   return badge('good', '●', '재시작 준비')
 }
 
+/* ── 경보 배너 ───────────────────────────────────────────────── */
+/**
+ * Windows 풍선 알림 대신 여기에 띄운다.
+ *
+ * 풍선은 상태가 조금만 오르내려도 떠서(서버 재시작 한 번에 두 번) 진짜 경고가
+ * 묻혔다. 화면 맨 위 배너는 창을 열면 바로 보이고, 조치할 곳 바로 옆에 있다.
+ * 이력은 "알림" 탭에서 본다 — 창을 닫아둔 사이의 변화는 하트비트가 적어둔다.
+ */
+const 경보아이콘 = { critical: '▲', warning: '▲', info: '●' }
+const 경보라벨 = { critical: '치명', warning: '주의', info: '정보' }
+
+function 경보그리기(d) {
+  const box = $('#alerts'); box.textContent = ''
+  const list = d.경보 || []
+  if (!list.length) { box.classList.add('hide'); return }
+  box.classList.remove('hide')
+
+  for (const a of list) {
+    const w = el('div', 'alert ' + a.수준)
+    w.append(el('i', 'ic', 경보아이콘[a.수준] || '●'))
+    const t = el('div', 'txt')
+    t.append(el('div', 't', a.제목), el('div', 'd', a.설명))
+    w.append(t, el('span', 'lv', 경보라벨[a.수준] || a.수준))
+    // 세션에 딸린 경보면 눌러서 그 세션 상세로 간다 — 조치까지 한 번에
+    if (a.대상) {
+      w.style.cursor = 'pointer'
+      w.title = '이 세션의 상세 보기'
+      w.addEventListener('click', () => { S.열린세션 = a.대상; S.상세 = null; 그리기(); 상세읽기() })
+    }
+    box.append(w)
+  }
+}
+
 /* ── 타일 ────────────────────────────────────────────────────── */
 function 타일(label, value, sub, meter) {
   const t = el('div', 'tile')
@@ -276,9 +309,19 @@ function 선택갱신() {
 function 상세그리기() {
   const d = S.상세
   const s = S.상태?.세션.find((x) => x.sessionId === S.열린세션)
+
+  // 알림 이력은 세션 선택과 무관하다 — 창을 열자마자 볼 수 있어야 한다
+  const 이력 = S.상태?.경보이력 || []
+  $('#tab-al').textContent = 이력.length
+    ? 이력.join('\n')
+    : '(기록된 경보 변화가 없습니다. 하트비트가 5분마다 확인하고, 상태가 바뀔 때만 여기에 남깁니다.)'
+
   if (!S.열린세션 || !d || !s) {
-    $('#dbody').classList.add('hide'); $('#dempty').classList.remove('hide')
-    $('#dtitle').textContent = '상세 — 왼쪽에서 세션을 고르세요'
+    $('#dbody').classList.add('hide')
+    // 알림 탭은 세션 없이도 보여준다
+    $('#dempty').classList.toggle('hide', S.탭 === 'al')
+    $('#dtitle').textContent = S.탭 === 'al' ? '알림 이력' : '상세 — 왼쪽에서 세션을 고르세요'
+    탭그리기()
     return
   }
   $('#dempty').classList.add('hide'); $('#dbody').classList.remove('hide')
@@ -433,7 +476,9 @@ function 상세그리기() {
 
 function 탭그리기() {
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === S.탭)
-  for (const k of ['now', 'tl', 'hb', 'rs', 'cfg']) $('#tab-' + k).classList.toggle('hide', k !== S.탭)
+  for (const k of ['now', 'tl', 'hb', 'rs', 'cfg', 'al']) $('#tab-' + k).classList.toggle('hide', k !== S.탭)
+  // 알림 탭에서는 세션 상세 묶음을 숨긴다 (알림은 그 바깥에 있다)
+  if (S.열린세션 && S.상세) $('#dbody').classList.toggle('hide', S.탭 === 'al')
 }
 
 /* ── 통신 ────────────────────────────────────────────────────── */
@@ -472,7 +517,7 @@ function 그리기() {
   신선도갱신()
   if (!d) return
   $('#acct').textContent = d.계정.email ? `${d.계정.email} · ${d.계정.subscriptionType || ''}` : '계정 확인 실패'
-  타일들(d); 폴더그리기(d); 목록(d); 선택갱신(); 상세그리기()
+  경보그리기(d); 타일들(d); 폴더그리기(d); 목록(d); 선택갱신(); 상세그리기()
 }
 
 /**
@@ -514,7 +559,7 @@ document.querySelector('.actions').addEventListener('click', async (e) => {
   }
 })
 
-document.querySelector('.tabs').addEventListener('click', (e) => {
+document.querySelector('#dtabs').addEventListener('click', (e) => {
   if (!e.target.dataset?.tab) return
   S.탭 = e.target.dataset.tab; 탭그리기()
 })

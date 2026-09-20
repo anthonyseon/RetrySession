@@ -12,9 +12,10 @@ state/
 config/projects.local.json
 
 # ── 빌드 산출물 ────────────────────────────────────────────────
-# start.exe 는 tools/Launcher.cs 에서 1초 만에 다시 만든다(scripts/build-exe.ps1).
+# 둘 다 tools/*.cs 에서 1초 만에 다시 만든다(scripts/build-exe.ps1).
 # 바이너리를 커밋하면 소스와 어긋나도 알 수 없고, 리뷰도 되지 않는다.
 start.exe
+runhidden.exe
 *.pdb
 
 # ── 잡동사니 ───────────────────────────────────────────────────

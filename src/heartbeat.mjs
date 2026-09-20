@@ -26,6 +26,8 @@ import { loadTargets, statePaths } from './lib/targets.mjs'
 import { fullStatus } from './lib/status.mjs'
 import { sessionDetail } from './lib/detail.mjs'
 import { 작업이름 } from './lib/scheduler.mjs'
+import { 단일실행 } from './lib/single.mjs'
+import { 변화기록 } from './lib/alerts.mjs'
 
 const argv = process.argv.slice(2)
 const flag = (n) => argv.includes(n)
@@ -71,6 +73,15 @@ if (flag('--check')) {
 
 /* ── 기본: 1회 기록 ─────────────────────────────────────────── */
 
+/**
+ * 🔴 한 번에 하나만 기록한다.
+ *   둘이 같은 heartbeat.json 을 덮어쓰면 기록이 찢어진다. 예약의
+ *   MultipleInstances IgnoreNew 는 스케줄러끼리만 막으므로, 사람이 손으로 돌리거나
+ *   화면·트레이에서 "지금 실행"을 누른 경우가 겹칠 수 있다.
+ *   한 회차는 보통 몇 초다 — 30분을 넘겼다면 죽은 락으로 본다.
+ */
+단일실행('heartbeat', { 낡음분: 30 })
+
 const 등록 = loadTargets()
 const 감시대상 = Object.entries(등록.targets).filter(([, v]) => v.감시).map(([id]) => id)
 
@@ -82,6 +93,19 @@ if (!감시대상.length) {
 // 집계는 한 번만 한다 — CLI 호출과 스캔이 들어 있어 세션마다 다시 하면 낭비다
 const S = fullStatus()
 const 세션맵 = new Map(S.세션.map((s) => [s.sessionId, s]))
+
+/**
+ * 경보 이력은 여기서 남긴다 — 5분마다 도는 것이 이것뿐이기 때문이다.
+ *
+ * 화면을 닫아둔 사이에 생긴 일을 놓치면 안 되고, 그렇다고 Windows 풍선으로
+ * 띄우지도 않는다(너무 자주 떠서 진짜 경고가 묻혔다). **변화가 있을 때만** 적는다.
+ */
+const 경보변화 = 변화기록(S.경보 || [])
+if (경보변화.기록) {
+  const n = (S.경보 || []).length
+  console.log(n ? `⚠ 경보 ${n}건 (변화 기록됨)` : '✅ 경보 해소 (기록됨)')
+  for (const a of S.경보 || []) console.log(`   ${a.수준} · ${a.제목} — ${a.설명}`)
+}
 
 for (const id of 감시대상) {
   const P = statePaths(id)

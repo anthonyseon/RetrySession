@@ -26,8 +26,22 @@ Write-Host "node   : $node"
 Write-Host "script : $Script"
 Write-Host "url    : http://127.0.0.1:$Port"
 
-$action = New-ScheduledTaskAction -Execute $node `
-    -Argument "`"$Script`" --port $Port" -WorkingDirectory $Root
+# IMPORTANT: route through runhidden.exe so node never gets a console window.
+#
+# This is the window the user kept seeing: a task whose action is node.exe gets
+# a conhost.exe child under an interactive logon, and the server runs forever,
+# so the console stays on screen forever. The task's -Hidden setting does not
+# prevent it - that only hides the task in the Task Scheduler list.
+$hidden = Join-Path $Root 'runhidden.exe'
+if (Test-Path $hidden) {
+  $action = New-ScheduledTaskAction -Execute $hidden -WorkingDirectory $Root `
+      -Argument ('"' + $node + '" "' + $Script + '" --port ' + $Port)
+  Write-Host 'window : hidden (runhidden.exe)'
+} else {
+  $action = New-ScheduledTaskAction -Execute $node `
+      -Argument "`"$Script`" --port $Port" -WorkingDirectory $Root
+  Write-Host 'window : VISIBLE - runhidden.exe is missing (.\scripts\build-exe.ps1)' -ForegroundColor Yellow
+}
 
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
 

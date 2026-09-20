@@ -32,7 +32,21 @@ Write-Host "node   : $node"
 Write-Host "script : $Script"
 Write-Host "every  : $Minutes minute(s)"
 
-$action = New-ScheduledTaskAction -Execute $node -Argument "`"$Script`"" -WorkingDirectory $Root
+# Route through runhidden.exe so node never gets a console window.
+#
+# Measured: a task whose action is node.exe directly spawns a conhost.exe - a
+# real console window. The task's -Hidden setting does not prevent that; it only
+# hides the task in the Task Scheduler list. This one would flash every 5 minutes.
+$hidden = Join-Path $Root 'runhidden.exe'
+if (Test-Path $hidden) {
+  $action = New-ScheduledTaskAction -Execute $hidden -WorkingDirectory $Root `
+      -Argument ('"' + $node + '" "' + $Script + '"')
+  Write-Host 'window : hidden (runhidden.exe)'
+} else {
+  $action = New-ScheduledTaskAction -Execute $node -Argument "`"$Script`"" -WorkingDirectory $Root
+  Write-Host 'window : VISIBLE - runhidden.exe is missing.' -ForegroundColor Yellow
+  Write-Host '         build it with: .\scripts\build-exe.ps1'
+}
 
 # No RepetitionDuration: on Windows 10/11 omitting it means "repeat indefinitely".
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `

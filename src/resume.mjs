@@ -38,6 +38,7 @@ import {
 import { loadTargets, statePaths, resolveRepo, trackerPath } from './lib/targets.mjs'
 import { runningSessions, account, claudeBin, 셸필요, 계정환경, 살아있나 } from './lib/cli.mjs'
 import { scanSessions } from './lib/sessions.mjs'
+import { 단일실행 } from './lib/single.mjs'
 
 const argv = process.argv.slice(2)
 const flag = (n) => argv.includes(n)
@@ -246,6 +247,14 @@ if (flag('--rearm')) {
 }
 
 /* ── 본 실행 ─────────────────────────────────────────────────── */
+
+/**
+ * 🔴 재시작은 프로세스 단위로도 하나만 돈다.
+ *   세션별 락은 같은 세션을 두 번 미는 것만 막는다. 프로세스가 둘이면 서로 다른
+ *   세션을 동시에 밀어 하루 예산을 두 배로 쓰고, 워킹트리가 겹치면 편집이 충돌한다.
+ *   한 회차는 최대 타임아웃(기본 30분)이므로 90분을 넘겼다면 죽은 락으로 본다.
+ */
+단일실행('resume', { 낡음분: 90 })
 
 const 목록 = 대상들()
 if (!목록.length) {
