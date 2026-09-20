@@ -22,6 +22,7 @@ import { runningSessions, account, cliVersion } from './cli.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath } from './targets.mjs'
 import { 작업상태 } from './scheduler.mjs'
 import { ideWindows, 창찾기, 폴더별세션 } from './ide.mjs'
+import { claudeProcesses } from './procs.mjs'
 import { paths as repoPaths } from './config.mjs'
 import { 총비용 } from './pricing.mjs'
 
@@ -87,7 +88,7 @@ export function 할당량보기(q) {
 
 /* ── 세션 하나의 감시·재시작 상태 ────────────────────────────── */
 
-function 세션상태(s, 등록, 실행중맵, ide창 = []) {
+function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = new Map()) {
   const run = 실행중맵.get(s.sessionId) || null
   const 대상 = 등록.targets[s.sessionId] || null
 
@@ -194,6 +195,13 @@ function 세션상태(s, 등록, 실행중맵, ide창 = []) {
     // 이 세션이 어느 VS Code 창에서 열린 폴더에 있나 (살아있는 창만)
     ide: 창찾기(실행cwd, ide창) || 창찾기(짝cwd, ide창),
 
+    /**
+     * 실제 프로세스. `claude agents --json` 이 주는 pid 로 짝짓는다.
+     * 여기서만 알 수 있는 것: 어느 바이너리인지(VS Code 확장 vs npm), 권한 우회 여부,
+     * --add-dir 로 붙은 폴더. 특히 권한 우회는 사람이 알아야 한다.
+     */
+    프로세스: run?.pid ? (프로세스맵.get(run.pid) || null) : null,
+
     등록됨: !!대상,
     재개지시: 대상?.재개지시 || null,
     저장소설정있음: 설정있음,
@@ -232,7 +240,20 @@ export function fullStatus() {
     }))
 
   const ide = ideWindows()
-  const 세션 = [...scan.sessions, ...추가].map((s) => 세션상태(s, 등록, 실행중맵, ide.창))
+  const procs = claudeProcesses()
+  const 프로세스맵 = new Map(procs.목록.map((p) => [p.pid, p]))
+  const 세션 = [...scan.sessions, ...추가].map((s) => 세션상태(s, 등록, 실행중맵, ide.창, 프로세스맵))
+
+  /**
+   * 🔴 세션 행에 짝지어지지 않은 claude.exe — "목록에 없는 것"의 정체다.
+   *
+   * 실측: `claude agents --json` 이 2개를 보고할 때 실제로는 4개가 돌고 있었다.
+   * 나머지 둘은 `--claude-in-chrome-mcp` 보조라 세션이 아닌 게 맞았지만,
+   * CLI 만 믿었으면 그 존재조차 몰랐다. 무엇이 돌고 있는지는 전부 보여주고,
+   * 세션이 아닌 것은 그렇다고 적는다.
+   */
+  const 짝지어진pid = new Set(세션.map((s) => s.pid).filter(Boolean))
+  const 짝없는프로세스 = procs.목록.filter((p) => !짝지어진pid.has(p.pid))
 
   /**
    * 열린 폴더별 세션 수 — "왜 이 폴더의 세션이 목록에 없나"에 답하기 위한 것이다.
@@ -263,6 +284,16 @@ export function fullStatus() {
       낡은lock: ide.창.filter((w) => w.낡음).length,
       폴더,
     },
+    프로세스: {
+      ok: procs.ok,
+      오류: procs.오류,
+      목록: procs.목록,
+      세션수: procs.세션수,
+      보조수: procs.보조수,
+      짝없음: 짝없는프로세스,
+      // CLI 가 보고한 세션 수와 실제 세션형 프로세스 수가 다르면 그 자체가 정보다
+      불일치: procs.ok && procs.세션수 !== 세션.filter((s) => s.실행중).length,
+    },
     세션,
     합계: {
       세션수: 세션.length,
@@ -271,6 +302,8 @@ export function fullStatus() {
       재시작켜짐: 세션.filter((s) => s.재시작.켜짐).length,
       // 열려 있지만 그 폴더에서 시작된 세션이 없는 곳 — 목록에 "없어 보이는" 이유다
       세션없는폴더: 폴더.filter((f) => f.여기서시작 === 0).length,
+      claude프로세스: procs.목록.length,
+      권한우회세션: 세션.filter((s) => s.프로세스?.위험권한).length,
       총토큰,
       총USD,
       // 🔴 구독(max)이면 정가 환산은 청구액이 아니다. 화면이 이 문장을 그대로 보여준다.

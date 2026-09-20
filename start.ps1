@@ -192,12 +192,21 @@ if (Test-Server) {
 if (Get-TrayRunning) {
   Write-Host 'tray     : already running' -ForegroundColor Green
 } else {
-  $psExe = (Get-Process -Id $PID).Path
-  Start-Process -FilePath $psExe -WindowStyle Hidden -ArgumentList @(
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
-    '-File', (Join-Path $Scripts 'tray.ps1'), '-Port', $Port
-  )
-  Start-Sleep -Seconds 2
+  # Prefer the registered task. Starting the tray directly works, but then the
+  # task keeps its last (stopped) result and the status screen shows the tray
+  # task as failed while a tray is plainly running - two sources disagreeing.
+  $trayTask = Get-ScheduledTask -TaskName 'EasyAI-RetrySession-Tray' -ErrorAction SilentlyContinue
+  if ($trayTask) {
+    Write-Host 'tray     : starting the registered task...'
+    Start-ScheduledTask -TaskName 'EasyAI-RetrySession-Tray'
+  } else {
+    $psExe = (Get-Process -Id $PID).Path
+    Start-Process -FilePath $psExe -WindowStyle Hidden -ArgumentList @(
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+      '-File', (Join-Path $Scripts 'tray.ps1'), '-Port', $Port
+    )
+  }
+  Start-Sleep -Seconds 3
   if (Get-TrayRunning) { Write-Host 'tray     : started' -ForegroundColor Green }
   else { Write-Host 'tray     : did not start (the window still works)' -ForegroundColor Yellow }
 }

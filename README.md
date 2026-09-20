@@ -33,11 +33,24 @@ RetrySession 은 그 비대칭을 없앤다. 감시와 재시작 **둘 다** OS 
 
 ## 시작하기
 
-만질 파일은 **[`start.ps1`](./start.ps1) 하나**다.
+**`start.exe` 를 더블클릭하면 된다.** 처음 한 번만 빌드한다:
+
+```powershell
+.\scripts\build-exe.ps1     # start.exe 생성 (Windows 내장 csc.exe, 1초)
+.\start.exe -Install        # 처음 한 번 — OS 작업 등록 + 바로가기 + 창 열기
+.\start.exe                 # 그 뒤로는 더블클릭 (또는 이 명령)
+```
+
+`start.exe` 는 `start.ps1` 을 부르는 8KB 짜리 런처다. `.ps1` 은 더블클릭해도 실행되지
+않고 편집기로 열리며, `.bat` 은 콘솔 창을 번쩍인다 — 그래서 `/target:winexe` 로 만든
+진짜 exe 를 쓴다. **콘솔 창이 뜨지 않고 `cmd.exe` 를 거치지 않는다.**
+터미널에서 인자와 함께 부르면 출력은 그 터미널에 그대로 나온다.
+
+exe 없이 `.ps1` 을 직접 써도 똑같다:
 
 ```powershell
 .\start.ps1 -Install        # 처음 한 번 — OS 작업 등록 + 바로가기 + 창 열기
-.\start.ps1                 # 그 뒤로는 이것만 (서버·트레이 확인하고 창을 연다)
+.\start.ps1                 # 서버·트레이 확인하고 창을 연다
 .\start.ps1 -Status         # 상태만 출력
 .\start.ps1 -Restart        # 🔴 src\ 를 고친 뒤 (아래 참조)
 .\start.ps1 -Stop           # 서버·트레이 중지 (예약은 남아 다음 로그온에 다시 뜬다)
@@ -215,6 +228,29 @@ CLI 가 주는 것은 CLI 로 얻고, 없는 것만 파일에서 읽는다. CLI 
 
 - pid 로 **열린 창과 닫힌 창의 흔적을 구별**한다. 실측으로 9일 된 낡은 lock 이 남아 있었다.
 - 🔴 lock 파일에는 `authToken` 이 들어 있다. **읽는 즉시 버리고 응답에 담지 않는다.**
+
+### 그래도 안 보이면 — 프로세스를 직접 본다
+
+CLI 가 모르는 것이 있을 수 있다. 실측으로 `claude agents --json` 이 세션 2개를 보고할 때
+실제 `claude.exe` 는 **4개**였다(나머지 둘은 `--claude-in-chrome-mcp` 보조). CLI 만 믿었으면
+그 둘의 존재조차 몰랐다. 그래서 **살아 있는 프로세스를 직접 열거**해 목록 끝에 붙인다:
+
+```text
+세션 행에 짝지어지지 않은 claude 프로세스  ? 2개
+  ⚙ 보조 프로세스 (세션 아님)   pid 2284   시작 09-15 15:26  VS Code 확장 2.1.263
+  ⚙ 보조 프로세스 (세션 아님)   pid 31668  시작 09-18 09:27  VS Code 확장 2.1.263
+```
+
+프로세스에서만 알 수 있는 것이 있고, 그중 둘은 중요하다:
+
+- **어느 바이너리인가** — VS Code 는 npm 판이 아니라 **확장에 번들된**
+  `.vscode\extensions\anthropic.claude-code-<버전>\resources\native-binary\claude.exe` 를 쓴다.
+  버전도 다를 수 있다(실측: 확장 2.1.263 vs npm 2.1.246).
+- **권한 우회 여부** — 실측으로 두 세션 모두 `--permission-mode bypassPermissions
+  --allow-dangerously-skip-permissions` 로 돌고 있었다. 화면에 `▲ 권한 우회로 실행 중` 으로 뜬다.
+
+`--add-dir` 로 붙은 폴더도 여기서 보인다. **'Description' 이 목록에 없던 이유가 이것이다** —
+Description 은 두 세션 모두의 `--add-dir` 이지 독립 세션이 아니었다.
 
 ## 한 세션이 여러 곳을 오간다
 

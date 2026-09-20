@@ -94,6 +94,19 @@ function 타일들(d) {
   if (h.세션없는폴더) ideTile.append(badge('off', '○', `세션 없는 폴더 ${h.세션없는폴더}`))
   box.append(ideTile)
 
+  /**
+   * 실행 중인 claude.exe — CLI 가 보고하든 안 하든 돌고 있는 것은 전부 센다.
+   * 실측: CLI 가 세션 2개를 보고할 때 프로세스는 4개였다(둘은 MCP 보조).
+   */
+  const pr = d.프로세스 || { 목록: [], 세션수: 0, 보조수: 0, 짝없음: [] }
+  const 프로세스타일 = 타일('claude 프로세스', `${pr.목록.length}개`,
+    pr.ok === false ? `조회 실패: ${pr.오류 || ''}`
+      : `세션 ${pr.세션수} · 보조 ${pr.보조수}` +
+        (pr.짝없음.length ? ` · 목록에 없는 프로세스 ${pr.짝없음.length}` : '') +
+        (pr.목록[0]?.출처 ? ` · ${pr.목록[0].출처}${pr.목록[0].확장버전 ? ` ${pr.목록[0].확장버전}` : ''}` : ''))
+  if (h.권한우회세션) 프로세스타일.append(badge('warn', '▲', `권한 우회 ${h.권한우회세션}`))
+  box.append(프로세스타일)
+
   box.append(타일('누적 토큰', 압축(h.총토큰), `${h.세션수}개 세션 합계`))
 
   box.append(타일('정가 환산', '$' + n(h.총USD.toFixed ? h.총USD.toFixed(2) : h.총USD), h.비용해석))
@@ -205,11 +218,52 @@ function 목록(d) {
         `추적기 ${s.추적기.완료표기}${s.추적기.doing ? ` · doing ${s.추적기.doing.id}` : ''}`))
     }
     if (s.추적기.doing위반) bb.append(badge('warn', '▲', `doing ${s.추적기.doing위반.length}개`))
+    // 프로세스에서만 알 수 있는 것 — 사람이 알아야 하는 쪽부터
+    if (s.프로세스?.위험권한) bb.append(badge('warn', '▲', '권한 우회로 실행 중'))
+    if (s.프로세스?.addDirs?.length) {
+      bb.append(badge('off', '+', `추가 폴더 ${s.프로세스.addDirs.map((x) => x.split('/').pop()).join(', ')}`))
+    }
     body.append(bb)
 
     row.append(body)
     row.addEventListener('click', () => { S.열린세션 = s.sessionId; S.상세 = null; 그리기(); 상세읽기() })
     box.append(row)
+  }
+
+  /**
+   * 🔴 세션 행에 짝지어지지 않은 claude.exe 를 목록 끝에 그대로 보여준다.
+   *
+   * "왜 목록에 없나"는 물음이 반복해서 나왔다. 답이 "세션이 아니라서"든
+   * "CLI 가 아직 모르는 세션이라서"든, **돌고 있는 것이 화면에 하나도 안 보이는 상태**가
+   * 그 물음을 만든다. 정체를 몰라도 있다는 사실은 보여준다.
+   */
+  const 짝없음 = d.프로세스?.짝없음 || []
+  if (짝없음.length) {
+    const hdr = el('div', 'orphan-hd')
+    hdr.append(el('span', null, '세션 행에 짝지어지지 않은 claude 프로세스'),
+      badge('off', '?', `${짝없음.length}개`))
+    box.append(hdr)
+
+    for (const p of 짝없음) {
+      const r = el('div', 'orow')
+      const t = el('div', 'stitle')
+      t.append(badge(p.종류 === '세션' ? 'warn' : 'off', p.종류 === '세션' ? '▲' : '⚙',
+        p.종류 === 'mcp보조' ? '보조 프로세스 (세션 아님)'
+          : p.종류 === '세션' ? '세션인데 CLI 가 보고하지 않음'
+          : '용도 미상'))
+      t.append(el('span', null, `pid ${p.pid}`))
+      r.append(t)
+
+      const m = el('div', 'smeta')
+      const add = (k, v) => { const w = el('span'); w.append(el('b', null, k + ' '), document.createTextNode(v)); m.append(w) }
+      add('시작', p.시작 || '?')
+      add('출처', p.출처 + (p.확장버전 ? ` ${p.확장버전}` : ''))
+      if (p.sessionId) add('세션', p.sessionId.slice(0, 8))
+      if (p.권한모드) add('권한', p.권한모드)
+      r.append(m)
+      if (p.addDirs?.length) r.append(el('div', 'path', p.addDirs.map(짧은경로).join('  ')))
+      box.append(r)
+    }
   }
 }
 
