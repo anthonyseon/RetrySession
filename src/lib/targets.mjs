@@ -45,13 +45,40 @@ export function saveTargets(t) {
   원자JSON쓰기(등록부, { ...t, updatedAt: localStamp() })
 }
 
+const 빈대상 = () => ({ 감시: false, 재시작: false, 재개지시: null, 추가시각: localStamp() })
+
+/**
+ * 감시를 **방금 켰다면** 그 시각을 epoch 으로 남긴다.
+ *
+ * 🔴 왜 필요한가 (실측 사건 2026-09-21)
+ *   하트비트는 5분마다 돈다. 감시를 켠 직후에는 기록이 없는 것이 정상인데,
+ *   판정이 그것을 "끊겼다"로 읽어 치명 경보를 띄웠다. 대기인지 고장인지는
+ *   **언제 켰는지**를 알아야 가를 수 있다 (guard.mjs 의 heartbeatVerdict).
+ *
+ *   문자열 시각(갱신시각)이 아니라 epoch 을 따로 둔다 — 문자열은 로컬 표기라
+ *   파싱이 환경에 따라 흔들린다. 낡음 판정은 언제나 epoch 으로 한다.
+ *   끌 때는 지운다. 남겨두면 다시 켰을 때 옛 시각으로 판정한다.
+ */
+function 감시시각반영(이전, patch) {
+  if (patch.감시 === true) {
+    return 이전.감시 === true ? (이전.감시켠epoch ?? Date.now()) : Date.now()
+  }
+  if (patch.감시 === false) return undefined
+  return 이전.감시켠epoch   // 감시를 건드리지 않는 변경이면 그대로 둔다
+}
+
+function 대상갱신(이전, patch, meta) {
+  const 켠epoch = 감시시각반영(이전, patch)
+  const next = { ...이전, ...meta, ...patch, 갱신시각: localStamp() }
+  if (켠epoch === undefined) delete next.감시켠epoch
+  else next.감시켠epoch = 켠epoch
+  return next
+}
+
 /** 대상 하나를 켜고 끈다. 없으면 만든다 */
 export function setTarget(sessionId, patch, meta = {}) {
   const t = loadTargets()
-  const 이전 = t.targets[sessionId] || {
-    감시: false, 재시작: false, 재개지시: null, 추가시각: localStamp(),
-  }
-  t.targets[sessionId] = { ...이전, ...meta, ...patch, 갱신시각: localStamp() }
+  t.targets[sessionId] = 대상갱신(t.targets[sessionId] || 빈대상(), patch, meta)
   saveTargets(t)
   return t.targets[sessionId]
 }
@@ -61,8 +88,7 @@ export function setMany(sessionIds, patch, metaBySession = {}) {
   const t = loadTargets()
   const 결과 = {}
   for (const id of sessionIds) {
-    const 이전 = t.targets[id] || { 감시: false, 재시작: false, 재개지시: null, 추가시각: localStamp() }
-    t.targets[id] = { ...이전, ...(metaBySession[id] || {}), ...patch, 갱신시각: localStamp() }
+    t.targets[id] = 대상갱신(t.targets[id] || 빈대상(), patch, metaBySession[id] || {})
     결과[id] = t.targets[id]
   }
   saveTargets(t)

@@ -57,10 +57,17 @@ function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = ne
     let hb = null
     try { hb = JSON.parse(readFileSync(P.하트비트, 'utf8')) } catch { hb = null }
     const 한계 = project?.하트비트?.낡음한계분 ?? 15
+    /**
+     * 감시를 켠 시각. 이것이 있어야 "첫 기록 대기"와 "끊김"을 가를 수 있다.
+     * 옛 등록부에는 epoch 이 없으므로 문자열 시각으로 물러선다(없으면 null).
+     */
+    const 켠epoch = typeof 대상.감시켠epoch === 'number'
+      ? 대상.감시켠epoch
+      : (Date.parse(대상.갱신시각 || 대상.추가시각 || '') || null)
     감시상태 = {
       켜짐: !!대상.감시,
       기록있음: !!hb,
-      판정: 대상.감시 ? heartbeatVerdict(hb, 한계) : null,
+      판정: 대상.감시 ? heartbeatVerdict(hb, 한계, Date.now(), 켠epoch) : null,
       한계분: 한계,
       마지막기록: hb ? { at: hb.at, 단계: hb.현재단계?.id, 완료: hb.현재단계?.완료단계 } : null,
       로그: tail(P.하트비트로그, 12),

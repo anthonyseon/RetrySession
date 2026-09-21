@@ -9,6 +9,8 @@ const 감시배지 = (s) => {
   if (!s.감시.켜짐) return badge('off', '○', '감시 꺼짐')
   const v = s.감시.판정
   if (!v) return badge('warn', '◔', '감시 켬 · 기록 대기')
+  // 🔴 첫 기록을 기다리는 중은 끊긴 것이 아니다 — 빨강으로 말하지 않는다
+  if (v.대기) return badge('warn', '◔', `감시 켬 · ${v.why}`)
   return v.alive
     ? badge('good', '●', `감시 정상 · ${v.ageMin}분 전`)
     : badge('crit', '▲', `감시 끊김 · ${v.why}`)

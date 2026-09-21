@@ -64,9 +64,19 @@ if (flag('--check')) {
     let hb = null
     try { hb = JSON.parse(readFileSync(P.하트비트, 'utf8')) } catch { hb = null }
     const 한계 = v.낡음한계분 ?? 15
-    const r = heartbeatVerdict(hb, 한계)
+    const 켠epoch = typeof v.감시켠epoch === 'number'
+      ? v.감시켠epoch
+      : (Date.parse(v.갱신시각 || v.추가시각 || '') || null)
+    const r = heartbeatVerdict(hb, 한계, Date.now(), 켠epoch)
     const 이름 = `${id.slice(0, 8)} ${v.제목 ? `(${v.제목.slice(0, 30)})` : ''}`
     if (r.alive) console.log(`✅ ${이름} — ${r.ageMin}분 전 기록 (한계 ${한계}분)`)
+    /**
+     * 🔴 대기는 죽음이 아니다 — 아직 쓸 기회가 없었을 뿐이다.
+     *   fail-closed 를 어기는 것이 아니다: 대기 창은 한계 시간까지만이고
+     *   그 뒤에는 위의 판정이 죽음으로 답한다. 모르는 것을 정상이라 하는 게 아니라,
+     *   **아직 때가 아닌 것**을 고장이라 하지 않는 것이다.
+     */
+    else if (r.대기) console.log(`◔ ${이름} — ${r.why}`)
     else { 죽음++; console.error(`✖ ${이름} 하트비트 죽음 — ${r.why}`) }
   }
   if (죽음) {

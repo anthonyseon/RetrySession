@@ -325,3 +325,64 @@ test('🔴 락 — 두 번 연달아 잡으면 두 번째는 막힌다 (같은 �
     assert.equal(acquireLock(p, 60).ok, false, '두 번째도 통과하면 락이 아무 일도 안 하는 것이다')
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
+
+/* ── 첫 기록 대기 vs 끊김 ───────────────────────────────────── */
+
+/**
+ * 🔴 실측 사건 (2026-09-21)
+ *   사용자가 ChatTest 세션의 감시를 16:11:49 에 켰다. 하트비트 작업은 16:11:01 에
+ *   돌았고 다음은 16:16:00 — **켜기 38초 전에 지나갔으니 쓸 기회가 없었다.**
+ *   그런데 화면은 5분 동안 치명 경보 «감시가 끊겼습니다 / 하트비트 파일을 읽을
+ *   수 없다» 를 띄웠다. 아무것도 고장나지 않았는데.
+ *
+ *   멀쩡한 것을 고장이라 부르는 것은 이 저장소가 반복해서 고쳐 온 실패다.
+ *   늑대를 외치면 진짜 늑대를 놓친다.
+ */
+test('🔴 감시를 켠 직후 기록이 없는 것은 대기다 (끊김이 아니다)', () => {
+  const v = heartbeatVerdict(null, 15, 기준, 기준 - 1 * 분)
+  assert.equal(v.대기, true, '켠 지 1분은 아직 기다릴 때다')
+  assert.equal(v.alive, false, '그렇다고 살아있다고 하면 안 된다 — 기록은 없다')
+  assert.match(v.why, /기다리는 중/, '왜 기다리는지 말해야 한다')
+})
+
+test('대기는 한계 시간까지만이다 (경계)', () => {
+  assert.equal(heartbeatVerdict(null, 15, 기준, 기준 - 15 * 분).대기, true, '15분은 아직 한계 안')
+  assert.equal(heartbeatVerdict(null, 15, 기준, 기준 - 16 * 분).대기, false, '16분이면 대기가 끝난다')
+})
+
+test('🔴 한계를 넘겼는데 첫 기록이 없으면 죽음이다 (창을 무한정 열어두지 않는다)', () => {
+  const v = heartbeatVerdict(null, 15, 기준, 기준 - 60 * 분)
+  assert.equal(v.대기, false)
+  assert.equal(v.alive, false)
+  assert.match(v.why, /첫 기록이 없다/, '무엇이 잘못됐는지 말해야 한다')
+  assert.match(v.why, /돌지 않는다/, '조치할 방향을 짚어야 한다')
+})
+
+test('🔴 켠 시각을 모르면 대기로 봐주지 않는다 (fail-closed)', () => {
+  // 옛 등록부에는 epoch 이 없다. 모를 때 봐주면 진짜 끊김을 놓친다.
+  for (const 없음 of [null, undefined, NaN, Infinity, '2026-09-21']) {
+    const v = heartbeatVerdict(null, 15, 기준, 없음)
+    assert.equal(v.대기, false, `켠 시각이 ${String(없음)} 일 때 대기로 봐주면 안 된다`)
+    assert.equal(v.alive, false)
+  }
+})
+
+test('기록이 있으면 켠 시각과 무관하게 기록으로 판정한다', () => {
+  // 방금 켰어도 기록이 낡았으면 죽음이다 — 대기가 낡은 기록을 가려선 안 된다
+  const 낡은기록 = { atEpoch: 기준 - 60 * 분 }
+  const v = heartbeatVerdict(낡은기록, 15, 기준, 기준 - 1 * 분)
+  assert.equal(v.대기, false)
+  assert.equal(v.alive, false)
+  assert.match(v.why, /60분 전/)
+})
+
+test('대기 상태는 모든 판정 갈래에 있다 (없으면 화면이 undefined 를 본다)', () => {
+  const 갈래 = [
+    heartbeatVerdict(null, 15, 기준),
+    heartbeatVerdict({}, 15, 기준),
+    heartbeatVerdict({ atEpoch: 기준 }, 15, 기준),
+    heartbeatVerdict({ atEpoch: 기준 - 60 * 분 }, 15, 기준),
+    heartbeatVerdict({ atEpoch: 기준 + 60 * 분 }, 15, 기준),
+  ]
+  for (const v of 갈래) assert.equal(typeof v.대기, 'boolean', JSON.stringify(v))
+})

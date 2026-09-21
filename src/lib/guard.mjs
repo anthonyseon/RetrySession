@@ -19,17 +19,45 @@ import { 원자JSON쓰기 } from './io.mjs'
  * 하트비트 기록이 살아 있는가. 순수 함수 — 객체를 받아 판정만 한다.
  * @param hb 하트비트 JSON 객체. 읽기 실패면 null 을 넘긴다.
  */
-export function heartbeatVerdict(hb, limitMin = 15, now = Date.now()) {
+export function heartbeatVerdict(hb, limitMin = 15, now = Date.now(), 켠epoch = null) {
   if (hb === null || typeof hb !== 'object') {
-    return { alive: false, ageMin: null, why: '하트비트 파일을 읽을 수 없다' }
+    /**
+     * 🔴 "아직 없다" 와 "끊겼다" 는 다르다.
+     *
+     *   실측 사건 (2026-09-21): 사용자가 ChatTest 세션의 감시를 16:11:49 에 켰다.
+     *   하트비트 작업은 16:11:01 에 돌았고 다음은 16:16:00 이었다 — 켜기 38초 전에
+     *   지나갔으니 **쓸 기회가 없었다.** 그런데 화면은 5분 동안 치명 경보
+     *   «감시가 끊겼습니다 / 하트비트 파일을 읽을 수 없다» 를 띄웠다.
+     *
+     *   멀쩡한 것을 고장이라 부르는 것은 이 저장소가 반복해서 고쳐 온 실패다
+     *   (느린 것을 죽었다고 하기 · 멈춘 것을 실패라 하기 · 모르는 것을 0 이라 하기).
+     *   늑대를 외치면 진짜 늑대를 놓친다.
+     *
+     *   대기는 **한계 시간까지만** 인정한다. 그 뒤에도 첫 기록이 없으면 하트비트가
+     *   정말 안 도는 것이므로 죽음으로 답한다 — 창을 무한정 열어두지 않는다.
+     */
+    if (typeof 켠epoch === 'number' && Number.isFinite(켠epoch)) {
+      const 켠뒤 = minutesSince(켠epoch, now)
+      if (켠뒤 <= limitMin) {
+        return {
+          alive: false, 대기: true, ageMin: null,
+          why: `감시를 켠 지 ${Math.max(0, Math.round(켠뒤))}분 — 첫 기록을 기다리는 중 (5분마다 기록한다)`,
+        }
+      }
+      return {
+        alive: false, 대기: false, ageMin: null,
+        why: `감시를 켠 지 ${Math.round(켠뒤)}분이 지났는데 첫 기록이 없다 (한계 ${limitMin}분) — 하트비트가 돌지 않는다`,
+      }
+    }
+    return { alive: false, 대기: false, ageMin: null, why: '하트비트 파일을 읽을 수 없다' }
   }
   if (typeof hb.atEpoch !== 'number') {
-    return { alive: false, ageMin: null, why: 'atEpoch 필드가 없다(구 버전이 쓴 파일) — 낡음을 판정할 수 없다' }
+    return { alive: false, 대기: false, ageMin: null, why: 'atEpoch 필드가 없다(구 버전이 쓴 파일) — 낡음을 판정할 수 없다' }
   }
   const ageMin = Math.round(minutesSince(hb.atEpoch, now))
-  if (ageMin > limitMin) return { alive: false, ageMin, why: `마지막 기록이 ${ageMin}분 전 (한계 ${limitMin}분)` }
-  if (ageMin < -5) return { alive: false, ageMin, why: `마지막 기록이 미래다(${ageMin}분) — 시계가 어긋났다` }
-  return { alive: true, ageMin, why: null }
+  if (ageMin > limitMin) return { alive: false, 대기: false, ageMin, why: `마지막 기록이 ${ageMin}분 전 (한계 ${limitMin}분)` }
+  if (ageMin < -5) return { alive: false, 대기: false, ageMin, why: `마지막 기록이 미래다(${ageMin}분) — 시계가 어긋났다` }
+  return { alive: true, 대기: false, ageMin, why: null }
 }
 
 /* ── 세션이 돌고 있는가 ─────────────────────────────────────── */
