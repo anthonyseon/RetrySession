@@ -9,12 +9,12 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   heartbeatVerdict, quietNow, budgetVerdict, recordRun, rearm,
-  loadRunState, acquireLock, releaseLock, 빈상태,
+  loadRunState, acquireLock, releaseLock, 빈상태, 세션실행중,
 } from '../src/lib/guard.mjs'
 
 const 분 = 60_000
@@ -247,5 +247,81 @@ test('락 — 깨진 락 파일은 낡은 것으로 보고 회수한다', () => 
     const p = join(dir, 'resume.lock')
     writeFileSync(p, '깨짐')
     assert.equal(acquireLock(p, 60).ok, true)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+/* ── 세션이 돌고 있는가 (fail-closed) ───────────────────────── */
+
+/**
+ * 🔴 이 묶음이 지키는 것: "모르면 밀지 않는다".
+ *   고치기 전에는 목록 조회가 실패해도 빈 배열이 내려와 전부 "안 돌고 있다"가 됐다.
+ */
+const 살아있음 = () => true
+const 죽음 = () => false
+
+test('🔴 실행중 — 목록 조회가 실패하면 "돌고 있다"로 답한다 (실측 결함)', () => {
+  const v = 세션실행중({ ok: false, 오류: 'claude 를 찾을 수 없다', sessions: [] }, 'a', 살아있음)
+  assert.equal(v.실행중, true, '모르는데 "안 돈다"고 하면 사람이 쓰는 대화에 끼어든다')
+  assert.equal(v.확실한가, false)
+  assert.match(v.why, /확인할 수 없다/)
+})
+
+test('🔴 실행중 — 목록 자체가 없으면(undefined·null) 막는다', () => {
+  for (const 없음 of [undefined, null]) {
+    assert.equal(세션실행중(없음, 'a', 살아있음).실행중, true, `${String(없음)} 일 때 통과시키면 안 된다`)
+  }
+})
+
+test('🔴 실행중 — ok 가 true 가 아닌 값이면 막는다 (truthy 로 느슨하게 보지 않는다)', () => {
+  for (const 애매 of [1, 'ok', {}]) {
+    assert.equal(세션실행중({ ok: 애매, sessions: [] }, 'a', 살아있음).실행중, true)
+  }
+})
+
+test('실행중 — 목록에 있고 pid 가 살아 있으면 막는다', () => {
+  const v = 세션실행중({ ok: true, sessions: [{ sessionId: 'a', pid: 123 }] }, 'a', 살아있음)
+  assert.equal(v.실행중, true)
+  assert.equal(v.확실한가, true)
+  assert.match(v.why, /pid 123/)
+})
+
+test('실행중 — 목록에 있어도 pid 가 죽었으면 통과한다 (목록이 낡을 수 있다)', () => {
+  const v = 세션실행중({ ok: true, sessions: [{ sessionId: 'a', pid: 123 }] }, 'a', 죽음)
+  assert.equal(v.실행중, false)
+  assert.equal(v.확실한가, true)
+})
+
+test('실행중 — 조회에 성공했고 목록에 없으면 통과한다 (이때만 "빈 목록"을 믿는다)', () => {
+  const v = 세션실행중({ ok: true, sessions: [] }, 'a', 살아있음)
+  assert.equal(v.실행중, false)
+  assert.equal(v.확실한가, true)
+  assert.equal(v.why, null)
+})
+
+test('실행중 — 다른 세션이 돌고 있는 것은 이 세션과 무관하다', () => {
+  const v = 세션실행중({ ok: true, sessions: [{ sessionId: 'b', pid: 1 }] }, 'a', 살아있음)
+  assert.equal(v.실행중, false)
+})
+
+/* ── 락을 만드는 동작 자체가 잠금인가 ───────────────────────── */
+
+test('🔴 락 — 이미 있는 파일을 덮어쓰지 않는다 (보고-쓰기 사이의 틈을 없앤다)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rs-'))
+  try {
+    const p = join(dir, 'resume.lock')
+    // 살아 있는 남의 락을 심는다
+    writeFileSync(p, JSON.stringify({ pid: process.pid, atEpoch: Date.now() }))
+    const 이전내용 = readFileSync(p, 'utf8')
+    assert.equal(acquireLock(p, 60).ok, false)
+    assert.equal(readFileSync(p, 'utf8'), 이전내용, '막힌 쪽이 남의 락을 건드리면 안 된다')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('🔴 락 — 두 번 연달아 잡으면 두 번째는 막힌다 (같은 프로세스여도)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rs-'))
+  try {
+    const p = join(dir, 'resume.lock')
+    assert.equal(acquireLock(p, 60).ok, true)
+    assert.equal(acquireLock(p, 60).ok, false, '두 번째도 통과하면 락이 아무 일도 안 하는 것이다')
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })

@@ -13,10 +13,11 @@
  *
  * 🔴 판정은 여기 하나다. 화면·트레이·로그가 제각기 판단하면 서로 다른 말을 한다.
  */
-import { appendFileSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { RS_HOME } from './config.mjs'
 import { localStamp } from './stamp.mjs'
+import { 원자JSON쓰기, 덧붙이기 } from './io.mjs'
 
 const 상태폴더 = () => { const d = join(RS_HOME, 'state'); mkdirSync(d, { recursive: true }); return d }
 export const 경보로그 = () => join(상태폴더(), 'alerts.log')
@@ -114,9 +115,10 @@ export function 변화기록(경보들) {
     ? 경보들.map((a) => `${at} · ${a.수준.toUpperCase()} · ${a.코드} · ${a.제목} — ${a.설명}`).join('\n')
     : `${at} · OK · 해소 · 살아 있는 경보가 없습니다`
 
-  try { appendFileSync(경보로그(), 줄 + '\n') } catch { /* 로그 실패로 감시를 막지 않는다 */ }
+  try { 덧붙이기(경보로그(), 줄) } catch { /* 로그 실패로 감시를 막지 않는다 */ }
   try {
-    writeFileSync(마지막파일(), JSON.stringify({ 지문: 지금, at, 개수: 경보들.length }, null, 2) + '\n')
+    // 지문이 찢어지면 다음 회차가 "바뀌었다"고 오판해 같은 경보를 다시 적는다
+    원자JSON쓰기(마지막파일(), { 지문: 지금, at, 개수: 경보들.length })
   } catch { /* 위와 같다 */ }
 
   return { 기록: true, 이전, 지금 }

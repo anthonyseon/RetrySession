@@ -9,10 +9,11 @@
  * 🔴 state/targets.json 은 추적하지 않는다(.gitignore).
  *   어떤 세션을 켰는지는 그 PC 의 사정이고, 세션 id 는 다른 PC 에서 의미가 없다.
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { RS_HOME, loadConfig, paths as repoPaths } from './config.mjs'
 import { localStamp } from './stamp.mjs'
+import { 원자JSON쓰기 } from './io.mjs'
 
 const 등록부 = join(RS_HOME, 'state', 'targets.json')
 
@@ -33,9 +34,15 @@ export function loadTargets() {
   }
 }
 
+/**
+ * 🔴 원자적으로 쓴다 — 이 파일이 이 도구의 단일 실패점이다.
+ *   loadTargets() 는 깨진 등록부를 빈 것으로 바꿔치지 않고 던진다(위 주석). 옳은 선택이지만,
+ *   그래서 **쓰다가 죽으면 하트비트와 재개가 둘 다 멈춘다.** 켜둔 감시가 통째로 사라지는데
+ *   알려주는 곳이 없다. 자르고-쓰는 두 동작 사이를 없앤다.
+ */
 export function saveTargets(t) {
   mkdirSync(join(RS_HOME, 'state'), { recursive: true })
-  writeFileSync(등록부, JSON.stringify({ ...t, updatedAt: localStamp() }, null, 2) + '\n')
+  원자JSON쓰기(등록부, { ...t, updatedAt: localStamp() })
 }
 
 /** 대상 하나를 켜고 끈다. 없으면 만든다 */
@@ -78,7 +85,22 @@ export const 재시작대상 = (t = loadTargets()) =>
 
 /* ── 세션별 상태 파일 경로 ───────────────────────────────────── */
 
+/**
+ * 세션 id 로 쓸 수 있는 문자열인가.
+ *
+ * 🔴 이 값은 HTTP 요청 본문에서도 들어온다. 그대로 경로에 붙이면
+ *   `../../..` 하나로 state/ 바깥에 폴더를 만들고 파일을 쓴다.
+ *   실제 id 는 UUID 다(실측: 794c2aee-ed0e-4e1c-a08f-8a0656dd54da) — 그 형태만 받는다.
+ *   막연히 "구분자만 거른다"가 아니라 **아는 형태만 통과**시킨다.
+ */
+export const 세션id인가 = (id) =>
+  typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+
 export function statePaths(sessionId) {
+  // 경로를 만들기 전에 막는다 — 만든 뒤에 검사하면 이미 만들어진 뒤다
+  if (!세션id인가(sessionId)) {
+    throw new Error(`세션 id 형태가 아니다: ${JSON.stringify(String(sessionId).slice(0, 80))}`)
+  }
   const dir = join(RS_HOME, 'state', 'sessions', sessionId)
   mkdirSync(dir, { recursive: true })
   return {

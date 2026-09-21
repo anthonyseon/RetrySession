@@ -27,15 +27,15 @@
  *   node src/resume.mjs --rearm      회로 차단·연속실패 해제
  *   node src/resume.mjs --force      조용한시간·활동·예산 무시 (실행 중 확인과 락은 지킨다)
  */
-import { appendFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { localStamp } from './lib/stamp.mjs'
+import { 덧붙이기 } from './lib/io.mjs'
 import { readTracker, resumePrompt } from './lib/tracker.mjs'
 import {
   loadRunState, saveRunState, budgetVerdict, recordRun, rearm,
-  acquireLock, releaseLock, quietNow,
+  acquireLock, releaseLock, quietNow, 세션실행중,
 } from './lib/guard.mjs'
-import { loadTargets, statePaths, resolveRepo, trackerPath } from './lib/targets.mjs'
+import { loadTargets, statePaths, resolveRepo, trackerPath, 세션id인가 } from './lib/targets.mjs'
 import { runningSessions, account, claudeBin, 셸필요, 계정환경, 살아있나 } from './lib/cli.mjs'
 import { scanSessions } from './lib/sessions.mjs'
 import { 단일실행 } from './lib/single.mjs'
@@ -45,12 +45,22 @@ const flag = (n) => argv.includes(n)
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : null }
 const DRY = flag('--dry-run'), FORCE = flag('--force')
 
-const 로그 = (P, line) => { try { appendFileSync(P.재개로그, line + '\n') } catch { /* 로그 실패로 재개를 막지 않는다 */ } }
+const 로그 = (P, line) => { try { 덧붙이기(P.재개로그, line) } catch { /* 로그 실패로 재개를 막지 않는다 */ } }
 
 function 대상들() {
   const t = loadTargets()
   const one = opt('--session')
   let list = Object.entries(t.targets).map(([id, v]) => ({ sessionId: id, ...v }))
+
+  // 형태가 아닌 id 는 경로가 될 수 없다. 조용히 버리지 않고 알린 뒤 건너뛴다 —
+  // 한 줄이 이상하다고 나머지 대상까지 못 돌게 하면 그게 더 나쁘다.
+  const 나쁜 = list.filter((x) => !세션id인가(x.sessionId))
+  if (나쁜.length) {
+    console.warn(`⚠ 등록부에 세션 id 형태가 아닌 항목이 ${나쁜.length}개 있다 — 건너뛴다: ` +
+      나쁜.map((x) => JSON.stringify(String(x.sessionId).slice(0, 40))).join(', '))
+    list = list.filter((x) => 세션id인가(x.sessionId))
+  }
+
   if (one) list = list.filter((x) => x.sessionId === one || x.sessionId.startsWith(one))
   else list = list.filter((x) => x.재시작)
   return list
@@ -116,11 +126,10 @@ function 판정(대상, ctx) {
    * 🔴 실행 중 확인은 FORCE 로도 건너뛰지 않는다.
    *   사람이 켜둔 세션을 --resume 으로 동시에 밀면 같은 대화에 두 주체가 쓴다.
    *   pid 로 보는 것이 정확하다 — mtime 추측이 아니다.
+   *   판정 자체는 guard.mjs 에 있다(fail-closed: 모르면 "돌고 있다"). 거기서 시험한다.
    */
-  const run = ctx.실행중맵.get(대상.sessionId)
-  if (run && 살아있나(run.pid)) {
-    return stop(`세션이 실행 중이다 (pid ${run.pid}) — 사람이 쓰는 중이므로 건드리지 않는다`)
-  }
+  const 실행 = 세션실행중(ctx.실행중, 대상.sessionId, 살아있나)
+  if (실행.실행중) return stop(실행.why)
 
   const s = ctx.세션맵.get(대상.sessionId)
   if (!s) return stop('세션을 찾을 수 없다 — 트랜스크립트가 정리된 것으로 보인다')
@@ -262,17 +271,53 @@ if (!목록.length) {
   process.exit(0)
 }
 
-// 실행 중 목록과 세션 스캔은 한 번만
-const run = runningSessions()
-const scan = scanSessions()
+/**
+ * 🔴 "실행 중인가"를 **모르면 재개하지 않는다.**
+ *
+ *   결함이었다: 예전에는 `runningSessions()` 의 `ok` 를 보지 않고 `sessions` 만 썼다.
+ *   CLI 호출이 실패하면(claude 가 없거나·타임아웃·JSON 이 아님) 그 목록은 **빈 배열**이
+ *   되고, 그러면 모든 세션이 "안 돌고 있다"로 보여 판정 ③번 관문이 통째로 열린다.
+ *   사람이 쓰고 있는 대화에 `--resume` 을 밀어넣게 되는데, 그 관문은 이 파일이
+ *   `--force` 로도 못 건너뛴다고 못박은 바로 그 관문이다.
+ *   목록이 없는 것과 "아무도 안 돈다"는 다르다. 모르면 멈춘다.
+ */
+const 실행중읽기 = () => runningSessions({ ttlMs: 0 })   // 판정용이라 캐시를 쓰지 않는다
+
+const 첫읽기 = 실행중읽기()
+if (!첫읽기.ok) {
+  console.error(`⛔ 실행 중 세션을 확인할 수 없다 — ${첫읽기.오류}`)
+  console.error('   모르는 채로 밀면 사람이 쓰는 대화에 끼어든다. 이번 회차는 건너뛴다.')
+  for (const 대상 of 목록) {
+    로그(statePaths(대상.sessionId), `${localStamp()} · SKIP · 실행 중 여부를 확인할 수 없다 (claude agents --json 실패: ${첫읽기.오류})`)
+  }
+  process.exit(0)
+}
+
 const ctx = {
-  실행중맵: new Map(run.sessions.map((s) => [s.sessionId, s])),
-  세션맵: new Map(scan.sessions.map((s) => [s.sessionId, s])),
+  실행중: 첫읽기,
+  세션맵: new Map(scanSessions().sessions.map((s) => [s.sessionId, s])),
+  읽은시각: Date.now(),
 }
 
 let 종료코드 = 0
 
 for (const 대상 of 목록) {
+  /**
+   * 🔴 판정 직전에 다시 읽는다.
+   *
+   *   결함이었다: 두 맵을 루프 **밖에서 한 번만** 만들었다. 한 회차는 최대 30분이라
+   *   (타임아웃분 기본값), 앞 세션을 미는 동안 사람이 다음 세션을 열었을 수 있다.
+   *   그러면 30분 묵은 목록을 보고 "안 돌고 있다"고 판정해 --resume 을 밀어넣는다.
+   *   한 대상이 끝날 때마다 시간이 흘렀으면 다시 읽는다 — 이 확인은 싸고(~0.7초),
+   *   틀렸을 때의 대가는 사람과 같은 대화에 동시에 쓰는 것이다.
+   */
+  if (Date.now() - ctx.읽은시각 > 60_000) {
+    ctx.실행중 = 실행중읽기()
+    ctx.세션맵 = new Map(scanSessions().sessions.map((s) => [s.sessionId, s]))
+    ctx.읽은시각 = Date.now()
+    // 다시 읽다 실패하면 판정이 fail-closed 로 막는다(세션실행중) — 여기서 따로 뚫지 않는다
+  }
+
   const v = 판정(대상, ctx)
   const 짧은 = 대상.sessionId.slice(0, 8)
 

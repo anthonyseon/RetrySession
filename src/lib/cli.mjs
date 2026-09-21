@@ -72,8 +72,28 @@ function callJson(args, { timeout = 20000, bin = null } = {}) {
     })
     return { ok: true, data: JSON.parse(out) }
   } catch (e) {
-    return { ok: false, 오류: (e.stderr || e.message || String(e)).toString().slice(0, 500), data: null }
+    return { ok: false, 오류: 실패설명(exe, e), data: null }
   }
+}
+
+/**
+ * 실패 이유를 **읽을 수 있는 한 줄**로.
+ *
+ * 🔴 실측 (2026-09-21): 셸로 물러선 경로에서 claude 를 못 찾자 이렇게 찍혔다 —
+ *     "'claude'��(��) ���� �Ǵ� �ܺ� ����, ..."
+ *   Windows 가 cp949 로 낸 메시지를 UTF-8 로 읽어 깨진 것이다. 이 문자열은
+ *   재개 로그에 그대로 남고, 재개가 왜 멈췄는지 보러 온 사람이 읽을 수 없다.
+ *   깨진 글자를 옮기느니 **우리가 아는 사실**을 적는다. 이 도구는 고장 났을 때
+ *   읽히려고 있는 것이다.
+ */
+export function 실패설명(exe, e) {
+  const raw = (e.stderr || e.message || String(e)).toString()
+  const 깨짐 = raw.includes('�')   // 디코딩이 어긋났다는 확실한 표시
+  if (깨짐 || e.code === 'ENOENT') {
+    return `claude CLI 를 실행할 수 없다 (${exe}) — 설치와 경로를 확인하라` +
+      (e.status != null ? ` [exit ${e.status}]` : '')
+  }
+  return raw.slice(0, 500)
 }
 
 /* ── TTL 캐시 ────────────────────────────────────────────────── */

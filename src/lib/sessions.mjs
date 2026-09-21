@@ -15,10 +15,11 @@
  *   매번 전체를 다시 파싱하면 디스크와 CPU 를 태운다. 파일별로 (크기·mtime·오프셋)을
  *   캐시해두고 **자란 부분만** 읽어 접는다. 파일이 줄었으면(정리·회전) 전체를 다시 읽는다.
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
 import { claudeProjectsRoot, RS_HOME, 경로키 } from './config.mjs'
 import { 빈토큰, 총비용 } from './pricing.mjs'
+import { 원자쓰기 } from './io.mjs'
 
 const 캐시파일 = join(RS_HOME, 'state', 'sessions-cache.json')
 
@@ -222,7 +223,8 @@ export function scanSessions({ slugs = null, useCache = true } = {}) {
     }
   }
 
-  try { writeFileSync(캐시파일, JSON.stringify(새캐시)) } catch { /* 캐시 실패로 조회를 막지 않는다 */ }
+  // 원자적으로 쓴다 — 찢어진 캐시는 다음 회차에 전량 재스캔을 부른다(실측: 186ms vs 3ms)
+  try { 원자쓰기(캐시파일, JSON.stringify(새캐시)) } catch { /* 캐시 실패로 조회를 막지 않는다 */ }
 
   // 가장 최근 활동 순
   out.sort((a, b) => b.수정epoch - a.수정epoch)

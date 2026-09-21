@@ -63,7 +63,28 @@ export function 락상태(이름, 낡음분 = 60) {
 export function 잡기(이름, { 낡음분 = 60 } = {}) {
   const p = 락경로(이름)
 
-  if (existsSync(p)) {
+  /**
+   * 🔴 만들기 자체가 잠금이어야 한다.
+   *   예전에는 `existsSync` 로 보고 나서 `writeFileSync` 로 썼다. 그 두 줄 사이에
+   *   다른 프로세스가 끼어들면 **둘 다 "없다"를 보고 둘 다 쓴다** — 둘 다 통과한다.
+   *   예약 실행과 사람의 "지금 실행"이 같은 순간에 겹치는 것이 정확히 이 경우인데,
+   *   그 구멍을 막으려고 만든 것이 이 파일이었다.
+   *   `wx` 는 "없을 때만 만든다"를 운영체제가 한 동작으로 처리한다 — 틈이 없다.
+   */
+  const 만들기 = () => {
+    try {
+      writeFileSync(p, JSON.stringify({
+        이름, pid: process.pid, at: localStamp(), atEpoch: Date.now(),
+        argv: process.argv.slice(2).join(' '),
+      }, null, 2) + '\n', { flag: 'wx' })
+      return true
+    } catch (e) {
+      if (e.code === 'EEXIST') return false
+      throw e
+    }
+  }
+
+  if (!만들기()) {
     const s = 락상태(이름, 낡음분)
     if (s.점유) {
       return {
@@ -72,13 +93,13 @@ export function 잡기(이름, { 낡음분 = 60 } = {}) {
         이전: s,
       }
     }
-    // 여기까지 오면 회수한다 — 죽은 프로세스이거나 한계를 넘겼다
+    // 죽은 프로세스이거나 한계를 넘겼다 — 회수하고 딱 한 번 다시 잡는다
+    try { rmSync(p, { force: true }) } catch { /* 못 지우면 아래에서 실패로 답한다 */ }
+    if (!만들기()) {
+      // 회수하는 사이에 남이 잡았다. 양보한다 — 모르면 안 도는 쪽이 안전하다.
+      return { ok: false, why: '낡은 락을 회수하는 사이에 다른 프로세스가 잡았다', 이전: 락상태(이름, 낡음분) }
+    }
   }
-
-  writeFileSync(p, JSON.stringify({
-    이름, pid: process.pid, at: localStamp(), atEpoch: Date.now(),
-    argv: process.argv.slice(2).join(' '),
-  }, null, 2) + '\n')
 
   // 🔴 끝날 때 반드시 푼다. 안 풀면 다음 실행이 낡음분을 기다려야 한다.
   //   강제 종료(taskkill /F)는 잡을 수 없지만, 그때는 pid 생존 확인이 받아낸다.

@@ -19,10 +19,11 @@
  *   node src/heartbeat.mjs --check   살아있는지 판정만 (기록 안 함. 낡으면 exit 1)
  *   node src/heartbeat.mjs --list    감시 대상 목록
  */
-import { writeFileSync, appendFileSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { localStamp } from './lib/stamp.mjs'
 import { heartbeatVerdict } from './lib/guard.mjs'
-import { loadTargets, statePaths } from './lib/targets.mjs'
+import { loadTargets, statePaths, 세션id인가 } from './lib/targets.mjs'
+import { 원자JSON쓰기, 덧붙이기 } from './lib/io.mjs'
 import { fullStatus } from './lib/status.mjs'
 import { sessionDetail } from './lib/detail.mjs'
 import { 작업이름 } from './lib/scheduler.mjs'
@@ -53,6 +54,12 @@ if (flag('--check')) {
   }
   let 죽음 = 0
   for (const [id, v] of 감시) {
+    // 형태가 아닌 id 는 판정할 수 없다 = 살아있다고 말할 수 없다 (fail-closed)
+    if (!세션id인가(id)) {
+      죽음++
+      console.error(`✖ '${String(id).slice(0, 40)}' — 세션 id 형태가 아니다. 등록부를 확인하라`)
+      continue
+    }
     const P = statePaths(id)
     let hb = null
     try { hb = JSON.parse(readFileSync(P.하트비트, 'utf8')) } catch { hb = null }
@@ -83,7 +90,14 @@ if (flag('--check')) {
 단일실행('heartbeat', { 낡음분: 30 })
 
 const 등록 = loadTargets()
-const 감시대상 = Object.entries(등록.targets).filter(([, v]) => v.감시).map(([id]) => id)
+const 켜진것 = Object.entries(등록.targets).filter(([, v]) => v.감시).map(([id]) => id)
+
+// 세션 id 형태가 아닌 항목은 경로가 될 수 없다. 알린 뒤 건너뛴다 —
+// 한 줄이 이상하다고 나머지 감시까지 멈추면 그게 더 나쁘다.
+const 감시대상 = 켜진것.filter(세션id인가)
+for (const 나쁜 of 켜진것.filter((id) => !세션id인가(id))) {
+  console.warn(`⚠ 등록부의 '${String(나쁜).slice(0, 40)}' 는 세션 id 형태가 아니다 — 건너뛴다`)
+}
 
 if (!감시대상.length) {
   console.log(`하트비트 ${localStamp()} — 감시 대상이 없다. 기록할 것이 없다.`)
@@ -118,8 +132,8 @@ for (const id of 감시대상) {
       at: localStamp(), atEpoch: Date.now(), sessionId: id,
       오류: '이 세션을 찾을 수 없다 — 트랜스크립트가 정리됐거나 claude project purge 된 것으로 보인다',
     }
-    writeFileSync(P.하트비트, JSON.stringify(없음, null, 2) + '\n')
-    appendFileSync(P.하트비트로그, `${없음.at} · (세션 없음) · ${없음.오류}\n`)
+    원자JSON쓰기(P.하트비트, 없음)
+    덧붙이기(P.하트비트로그, `${없음.at} · (세션 없음) · ${없음.오류}`)
     console.warn(`⚠ ${id.slice(0, 8)} — 세션을 찾을 수 없다`)
     continue
   }
@@ -153,10 +167,15 @@ for (const id of 감시대상) {
     사용량: { 토큰합: s.토큰합, 비용USD: s.비용USD, 메시지: `u${s.사용자메시지}/a${s.어시스턴트메시지}`, 도구호출: s.도구호출 },
     할당량: S.할당량,
   }
-  writeFileSync(P.하트비트, JSON.stringify(snap, null, 2) + '\n')
+  /**
+   * 🔴 원자적으로 쓴다. 이 파일은 "살아 있나"의 정본이고, 판정은 fail-closed 라
+   *   반쯤 쓰인 JSON 은 곧바로 "감시 끊김" 경보가 된다. 5분마다 쓰는 파일이니
+   *   그 창을 없애 두지 않으면 언젠가 그 순간에 맞는다.
+   */
+  원자JSON쓰기(P.하트비트, snap)
 
   const 도구 = 미완결.length ? `도구중 ${미완결.map((t) => t.이름).join(',')}` : (진행?.마지막종류 || '-')
-  appendFileSync(P.하트비트로그, [
+  덧붙이기(P.하트비트로그, [
     snap.at,
     s.실행중 ? '실행중' : '정지',
     snap.현재단계.id,

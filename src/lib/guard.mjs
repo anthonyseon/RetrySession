@@ -11,6 +11,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { localStamp, dayKey, minutesSince, minuteOfDay, parseHhmm } from './stamp.mjs'
+import { 원자JSON쓰기 } from './io.mjs'
 
 /* ── 하트비트 낡음 판정 ───────────────────────────────────────── */
 
@@ -29,6 +30,35 @@ export function heartbeatVerdict(hb, limitMin = 15, now = Date.now()) {
   if (ageMin > limitMin) return { alive: false, ageMin, why: `마지막 기록이 ${ageMin}분 전 (한계 ${limitMin}분)` }
   if (ageMin < -5) return { alive: false, ageMin, why: `마지막 기록이 미래다(${ageMin}분) — 시계가 어긋났다` }
   return { alive: true, ageMin, why: null }
+}
+
+/* ── 세션이 돌고 있는가 ─────────────────────────────────────── */
+
+/**
+ * 이 세션에 지금 사람이 붙어 있는가. **fail-closed 다 — 모르면 "돌고 있다"로 답한다.**
+ *
+ * 🔴 실측 결함 (2026-09-21, 고치기 전)
+ *   resume.mjs 가 `runningSessions()` 의 `ok` 를 보지 않고 `sessions` 배열만 썼다.
+ *   CLI 호출이 실패하면(claude 없음·타임아웃·JSON 아님) 그 배열은 **빈 배열**이 되고,
+ *   그러면 모든 세션이 "안 돌고 있다"로 보여 관문이 통째로 열린다.
+ *   `--force` 로도 못 건너뛴다고 못박은 그 관문이, 목록 조회 실패 한 번으로 열렸다.
+ *
+ *   **목록이 비어 있는 것과 "아무도 안 돈다"는 다르다.** 전자는 모른다는 뜻일 수 있다.
+ *
+ * @param 목록 {{ok:boolean, 오류:string|null, sessions:Array<{sessionId,pid}>}} runningSessions() 결과
+ * @param 살아있나 pid 생존 확인 함수 — 목록이 낡았을 수 있으므로 한 번 더 본다
+ */
+export function 세션실행중(목록, sessionId, 살아있나 = () => true) {
+  if (!목록 || 목록.ok !== true) {
+    return {
+      실행중: true, 확실한가: false,
+      why: `실행 중 여부를 확인할 수 없다 — ${목록?.오류 || '목록을 받지 못했다'}. 모르는 채로 밀면 사람이 쓰는 대화에 끼어든다`,
+    }
+  }
+  const s = (목록.sessions || []).find((x) => x.sessionId === sessionId)
+  if (!s) return { 실행중: false, 확실한가: true, why: null }
+  if (!살아있나(s.pid)) return { 실행중: false, 확실한가: true, why: null }
+  return { 실행중: true, 확실한가: true, why: `세션이 실행 중이다 (pid ${s.pid}) — 사람이 쓰는 중이므로 건드리지 않는다` }
 }
 
 /* ── 조용한 시간 ─────────────────────────────────────────────── */
@@ -67,8 +97,13 @@ export function loadRunState(path) {
   }
 }
 
+/**
+ * 🔴 원자적으로 쓴다. 이 파일이 찢어지면 loadRunState 가 `손상` 을 달고,
+ *   budgetVerdict 가 그걸 보고 재개를 막는다 — 고쳐줄 사람이 올 때까지.
+ *   쓰다 죽었다는 이유로 자율 재개가 멈추면 안 된다.
+ */
 export function saveRunState(path, state) {
-  writeFileSync(path, JSON.stringify(state, null, 2) + '\n')
+  원자JSON쓰기(path, state)
 }
 
 /**
@@ -160,24 +195,40 @@ export function rearm(state) {
  * PID 는 재사용되므로 그것만 믿을 수 없다.
  */
 export function acquireLock(path, staleMin = 60) {
-  if (existsSync(path)) {
-    let held = null
-    try { held = JSON.parse(readFileSync(path, 'utf8')) } catch { /* 깨진 락은 낡은 것으로 본다 */ }
-
-    const ageMin = held?.atEpoch ? minutesSince(held.atEpoch) : Infinity
-    let 살아있음 = false
-    if (held?.pid) {
-      try { process.kill(held.pid, 0); 살아있음 = true } catch { 살아있음 = false }
+  /**
+   * 🔴 `wx` — "없을 때만 만든다"를 운영체제가 한 동작으로 한다.
+   *   보고 나서 쓰면 그 사이에 남이 끼어들어 둘 다 통과한다(lib/single.mjs 와 같은 함정).
+   */
+  const 만들기 = () => {
+    try {
+      writeFileSync(path, JSON.stringify({ pid: process.pid, at: localStamp(), atEpoch: Date.now() }, null, 2) + '\n',
+        { flag: 'wx' })
+      return true
+    } catch (e) {
+      if (e.code === 'EEXIST') return false
+      throw e
     }
-
-    if (살아있음 && ageMin < staleMin) {
-      return { ok: false, why: `이미 돌고 있다 (pid ${held.pid}, ${ageMin}분 전 시작)` }
-    }
-    // 여기까지 오면 회수한다 — 죽은 프로세스이거나 한계를 넘겼다
   }
 
-  writeFileSync(path, JSON.stringify({ pid: process.pid, at: localStamp(), atEpoch: Date.now() }, null, 2) + '\n')
-  return { ok: true, why: null }
+  if (만들기()) return { ok: true, why: null }
+
+  let held = null
+  try { held = JSON.parse(readFileSync(path, 'utf8')) } catch { /* 깨진 락은 낡은 것으로 본다 */ }
+
+  const ageMin = held?.atEpoch ? minutesSince(held.atEpoch) : Infinity
+  let 살아있음 = false
+  if (held?.pid) {
+    try { process.kill(held.pid, 0); 살아있음 = true } catch { 살아있음 = false }
+  }
+
+  if (살아있음 && ageMin < staleMin) {
+    return { ok: false, why: `이미 돌고 있다 (pid ${held.pid}, ${ageMin}분 전 시작)` }
+  }
+
+  // 죽은 프로세스이거나 한계를 넘겼다 — 회수하고 딱 한 번 다시 잡는다
+  try { rmSync(path, { force: true }) } catch { /* 못 지우면 아래에서 실패로 답한다 */ }
+  if (만들기()) return { ok: true, why: null }
+  return { ok: false, why: '낡은 락을 회수하는 사이에 다른 프로세스가 잡았다' }
 }
 
 export function releaseLock(path) {

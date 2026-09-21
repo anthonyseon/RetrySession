@@ -22,11 +22,12 @@ import { spawn } from 'node:child_process'
 import { RS_HOME } from '../lib/config.mjs'
 import { fullStatus, trayStatus, tail } from '../lib/status.mjs'
 import { sessionDetail } from '../lib/detail.mjs'
-import { loadTargets, setMany, removeTarget, statePaths, resolveRepo, trackerPath } from '../lib/targets.mjs'
+import { loadTargets, setMany, removeTarget, statePaths, resolveRepo, trackerPath, 세션id인가 } from '../lib/targets.mjs'
 import { loadRunState, saveRunState, budgetVerdict, rearm } from '../lib/guard.mjs'
 import { readTracker } from '../lib/tracker.mjs'
 import { localStamp } from '../lib/stamp.mjs'
 import { 단일실행 } from '../lib/single.mjs'
+import { 로컬인가, 출처괜찮나 } from '../lib/http.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
@@ -75,13 +76,9 @@ function 본문읽기(req) {
   })
 }
 
-/** 로컬 요청만 받는다 */
-function 로컬인가(req) {
-  const ra = req.socket.remoteAddress || ''
-  if (!(ra === '127.0.0.1' || ra === '::1' || ra === '::ffff:127.0.0.1')) return false
-  const host = (req.headers.host || '').split(':')[0]
-  return host === '127.0.0.1' || host === 'localhost' || host === '[::1]' || host === '::1'
-}
+/* 접근 판정은 lib/http.mjs 의 순수 함수다 — 왜 그렇게 막는지는 거기에 적혀 있다 */
+const 로컬요청인가 = (req) => 로컬인가({ remoteAddress: req.socket.remoteAddress, host: req.headers.host })
+const 출처통과 = (req) => 출처괜찮나(req.headers.origin, HOST, PORT)
 
 /* ── 지금 실행 (하트비트·재시작 수동 발동) ───────────────────── */
 
@@ -134,9 +131,13 @@ function 상세(sessionId, { turns = 40 } = {}) {
 /* ── 라우팅 ──────────────────────────────────────────────────── */
 
 const server = createServer(async (req, res) => {
-  if (!로컬인가(req)) {
+  if (!로컬요청인가(req)) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
     return res.end('RetrySession UI 는 로컬(127.0.0.1) 에서만 쓴다.\n')
+  }
+  if (!출처통과(req)) {
+    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
+    return res.end('다른 사이트에서 온 요청이다 — 거절한다 (CSRF).\n')
   }
 
   const url = new URL(req.url, `http://${HOST}:${PORT}`)
@@ -172,6 +173,8 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && p.startsWith('/api/session/')) {
       const id = decodeURIComponent(p.slice('/api/session/'.length))
       if (!id) return json(res, 400, { 오류: 'sessionId 가 없다' })
+      // 🔴 이 값은 경로가 된다. 형태를 확인하고 들여보낸다 (lib/targets.mjs 의 세션id인가 참조)
+      if (!세션id인가(id)) return json(res, 400, { 오류: 'sessionId 형태가 아니다' })
       const turns = Math.min(200, Number(url.searchParams.get('turns')) || 40)
       return json(res, 200, 상세(id, { turns }))
     }
@@ -181,6 +184,9 @@ const server = createServer(async (req, res) => {
       const b = await 본문읽기(req)
       const ids = Array.isArray(b.sessionIds) ? b.sessionIds : []
       if (!ids.length) return json(res, 400, { 오류: 'sessionIds 가 비었다' })
+      // 하나라도 형태가 아니면 전부 거절한다 — 일부만 적용하면 무엇이 켜졌는지 알 수 없다
+      const 나쁜 = ids.filter((id) => !세션id인가(id))
+      if (나쁜.length) return json(res, 400, { 오류: 'sessionId 형태가 아니다', 잘못된값: 나쁜.slice(0, 5) })
 
       /**
        * 🔴 ASCII 별칭을 함께 받는다 (`watch` / `resume` / `instruction`).
@@ -213,23 +219,29 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && p === '/api/targets/remove') {
       const b = await 본문읽기(req)
-      for (const id of b.sessionIds || []) removeTarget(id)
-      return json(res, 200, { ok: true })
+      const ids = (b.sessionIds || []).filter(세션id인가)
+      for (const id of ids) removeTarget(id)
+      return json(res, 200, { ok: true, 지움: ids.length })
     }
 
     if (req.method === 'POST' && p === '/api/rearm') {
       const b = await 본문읽기(req)
-      for (const id of b.sessionIds || []) {
+      const ids = (b.sessionIds || []).filter(세션id인가)
+      for (const id of ids) {
         const P = statePaths(id)
         saveRunState(P.재개상태, rearm(loadRunState(P.재개상태)))
       }
-      return json(res, 200, { ok: true })
+      return json(res, 200, { ok: true, 해제: ids.length })
     }
 
     if (req.method === 'POST' && p === '/api/run') {
       const b = await 본문읽기(req)
       const kind = b.kind === 'resume' ? 'resume' : 'heartbeat'
-      return json(res, 200, 지금실행(kind, b.sessionId || null))
+      // 🔴 이 값은 자식 프로세스의 인자가 된다. 형태를 확인하지 않으면 `--session a` 처럼
+      //   앞글자만 주어 의도하지 않은 세션까지 걸리게 할 수 있다(대상들() 은 앞자리로 맞춘다).
+      const sid = b.sessionId || null
+      if (sid && !세션id인가(sid)) return json(res, 400, { 오류: 'sessionId 형태가 아니다' })
+      return json(res, 200, 지금실행(kind, sid))
     }
 
     return json(res, 404, { 오류: `없는 경로: ${p}` })
