@@ -90,7 +90,10 @@ export function 할당량보기(q) {
 
 /* ── 세션 하나의 감시·재시작 상태 ────────────────────────────── */
 
-function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = new Map()) {
+/**
+ * @param 실행중앎 실행 중 목록 조회가 성공했는가. false 면 "정지"라고 말할 수 없다.
+ */
+function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = new Map(), 실행중앎 = true) {
   const run = 실행중맵.get(s.sessionId) || null
   const 대상 = 등록.targets[s.sessionId] || null
 
@@ -176,7 +179,18 @@ function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = ne
     gitBranch: s.gitBranch,
     cli버전: s.version,
 
-    실행중: !!run?.살아있음,
+    /**
+     * 🔴 "정지"와 "모름"은 다르다.
+     *
+     *   실측 결함 (2026-09-21): `runningSessions()` 의 ok 를 보지 않고 목록만 썼다.
+     *   CLI 조회가 실패하면 목록이 비어서 **모든 세션이 조용히 '정지'로** 보였다 —
+     *   화면에도, 하트비트 기록에도, 트레이 개수에도. 조회 실패는 `agents조회` 에
+     *   담기고 있었지만 **아무도 읽지 않았다.**
+     *   resume.mjs 에서 고친 것과 같은 부류다(guard.mjs 의 세션실행중 참조).
+     *   모를 때는 모른다고 말한다.
+     */
+    실행중: 실행중앎 ? !!run?.살아있음 : false,
+    실행여부앎: 실행중앎,
     pid: run?.pid ?? null,
     kind: run?.kind ?? null,
     시작시각: run?.startedAtEpoch ? localStamp(new Date(run.startedAtEpoch)) : null,
@@ -244,7 +258,8 @@ export function fullStatus() {
   const ide = ideWindows()
   const procs = claudeProcesses()
   const 프로세스맵 = new Map(procs.목록.map((p) => [p.pid, p]))
-  const 세션 = [...scan.sessions, ...추가].map((s) => 세션상태(s, 등록, 실행중맵, ide.창, 프로세스맵))
+  const 세션 = [...scan.sessions, ...추가]
+    .map((s) => 세션상태(s, 등록, 실행중맵, ide.창, 프로세스맵, run.ok))
 
   /**
    * 🔴 세션 행에 짝지어지지 않은 claude.exe — "목록에 없는 것"의 정체다.
@@ -301,6 +316,9 @@ export function fullStatus() {
     합계: {
       세션수: 세션.length,
       실행중: 세션.filter((s) => s.실행중).length,
+      // 🔴 조회가 실패했으면 "0개 실행 중"이 아니라 "모른다"다. 화면이 이 값을 보고 구별한다.
+      실행여부앎: run.ok,
+      실행여부오류: run.ok ? null : run.오류,
       감시켜짐: 세션.filter((s) => s.감시.켜짐).length,
       재시작켜짐: 세션.filter((s) => s.재시작.켜짐).length,
       // 열려 있지만 그 폴더에서 시작된 세션이 없는 곳 — 목록에 "없어 보이는" 이유다
@@ -360,9 +378,13 @@ export function trayStatus() {
     .filter(([k]) => k !== '캐시됨')
     .filter(([, v]) => v.등록됨 === false).length
 
+  // 실행 여부를 모르면 자율 재개가 멈춘 상태다(fail-closed). 조용히 넘기면 안 된다.
+  const unknownRun = d.합계.실행여부앎 === false
+
   // 나쁜 것이 먼저다 — 가장 급한 하나를 아이콘이 나른다
   let kind = 'good', state = 'ok'
   if (dead > 0) { kind = 'crit'; state = 'stalled' }
+  else if (unknownRun) { kind = 'crit'; state = 'unknown' }
   else if (blocked > 0) { kind = 'crit'; state = 'blocked' }
   else if (limited) { kind = 'warn'; state = 'limited' }
   else if (watched === 0) { kind = 'off'; state = 'none' }
@@ -372,6 +394,8 @@ export function trayStatus() {
     at: d.at,
     sessions: d.합계.세션수,
     running: d.합계.실행중,
+    // 🔴 running:0 과 "모른다"는 다르다. ASCII 키 — tray.ps1 이 코드에 적는다.
+    runningKnown: !unknownRun,
     watched,
     resumeOn: d.합계.재시작켜짐,
     dead, blocked, limited,

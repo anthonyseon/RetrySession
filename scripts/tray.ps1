@@ -261,6 +261,9 @@ function Show-TrayState([string]$body) {
     # and the window would disagree about what is wrong.
     switch ($s.state) {
       'stalled' { $kind = 'crit'; $head = (Lbl 'status.stalled' 'monitor stalled') + " ($($s.dead))" }
+      # Cannot tell whether sessions are running - autonomous resume is
+      # fail-closed, so it has stopped. Quiet-looking, but nothing is working.
+      'unknown' { $kind = 'crit'; $head = Lbl 'status.unknown' 'run state unknown' }
       'blocked' { $kind = 'crit'; $head = (Lbl 'status.blocked' 'resume blocked') + " ($($s.blocked))" }
       'limited' { $kind = 'warn'; $head = Lbl 'status.limited' 'usage limited' }
       'none'    { $kind = 'off';  $head = Lbl 'status.none' 'nothing watched' }
@@ -270,8 +273,10 @@ function Show-TrayState([string]$body) {
     # Unread alert count belongs in the tooltip, not in a popup.
     if ($s.alerts -and $s.alerts -gt 0) { $head = "$head - " + (Lbl 'status.alerts' 'alerts') + " $($s.alerts)" }
 
+    # "0 running" and "cannot tell" are not the same claim - do not print 0.
+    $runTxt = if ($s.runningKnown -eq $false) { '?' } else { "$($s.running)" }
     $tip = "$AppName - $head`n" +
-           (Lbl 'tip.sessions' 'sessions') + " $($s.running)/$($s.sessions)  " +
+           (Lbl 'tip.sessions' 'sessions') + " $runTxt/$($s.sessions)  " +
            (Lbl 'tip.watch' 'watch') + " $($s.watched)  " +
            (Lbl 'tip.resume' 'resume') + " $($s.resumeOn)"
   } catch {

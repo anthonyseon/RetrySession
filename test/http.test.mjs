@@ -157,3 +157,36 @@ test('알아볼 수 있는 stderr 는 보존한다', async () => {
   const r = 실패설명('claude.exe', { stderr: 'Error: not logged in', status: 2 })
   assert.equal(r, 'Error: not logged in')
 })
+
+/* ── "정지"와 "모름"을 구별하는가 ────────────────────────────── */
+
+/**
+ * 조회 실패를 '정지'로 표시하면 사람이 "아무것도 안 돌고 있구나"라고 **정확히 반대로**
+ * 이해한다. 실제로는 돌고 있는데 확인만 못 한 것일 수 있다.
+ */
+test('🔴 화면·기록·트레이가 조회 실패를 "정지"라고 말하지 않는다', () => {
+  const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
+  const hb = readFileSync(join(ROOT, 'src', 'heartbeat.mjs'), 'utf8')
+  const tray = readFileSync(join(ROOT, 'scripts', 'tray.ps1'), 'utf8')
+
+  assert.match(app, /실행여부앎 === false/, '화면이 "모름"을 구별해야 한다')
+  assert.match(hb, /실행여부모름/, '하트비트 기록이 "모름"을 남겨야 한다')
+  assert.match(tray, /runningKnown/, '트레이가 "모름"을 구별해야 한다')
+})
+
+test('🔴 status.mjs 가 조회 성공 여부를 세션 판정에 넘긴다', () => {
+  const st = readFileSync(join(ROOT, 'src', 'lib', 'status.mjs'), 'utf8')
+  assert.match(st, /세션상태\(s, 등록, 실행중맵, ide\.창, 프로세스맵, run\.ok\)/,
+    'run.ok 를 넘기지 않으면 세션은 실패와 정지를 구별할 수 없다')
+  assert.match(st, /실행여부앎: run\.ok/, '합계에도 담겨야 화면이 읽는다')
+})
+
+test('트레이가 읽는 새 키도 ASCII 다 (tray.ps1 이 코드에 적는다)', () => {
+  const st = readFileSync(join(ROOT, 'src', 'lib', 'status.mjs'), 'utf8')
+  const i = st.indexOf('export function trayStatus')
+  const 반환 = st.slice(st.indexOf('return {', i), st.indexOf('\n}', i))
+  for (const m of 반환.matchAll(/^\s*([^\s:,{}()]+):/gm)) {
+    // eslint-disable-next-line no-control-regex
+    assert.match(m[1], /^[\x20-\x7e]+$/, `trayStatus 의 키 '${m[1]}' 가 ASCII 가 아니다`)
+  }
+})
