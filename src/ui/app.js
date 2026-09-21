@@ -121,15 +121,32 @@ function 경보그리기(d) {
 }
 
 /* ── 타일 ────────────────────────────────────────────────────── */
+/**
+ * 요약 타일 한 장.
+ *
+ * 🔴 설명은 화면에서 한 줄로 잘린다(CSS). 그래서 **전체 내용을 title 에 남긴다** —
+ *   마우스를 올리면 그대로 읽힌다. 자르면서 title 을 안 달면 정보를 버리는 것이 된다.
+ *   라벨·값도 좁은 칸에서 잘릴 수 있으므로 함께 담는다.
+ */
 function 타일(label, value, sub, meter) {
   const t = el('div', 'tile')
-  t.append(el('div', 'label', label), el('div', 'value', value))
+  const lab = el('div', 'label', label)
+  const val = el('div', 'value', value)
+  val.title = String(value)
+  t.append(lab, val)
   if (meter) {
     const m = el('div', 'meter' + (meter.kind ? ' ' + meter.kind : ''))
     const i = el('i'); i.style.width = Math.max(0, Math.min(100, meter.pct)) + '%'
     m.append(i); t.append(m)
   }
-  if (sub) { const s = el('div', 'sub'); s.textContent = sub; t.append(s) }
+  if (sub) {
+    const s = el('div', 'sub')
+    s.textContent = sub
+    s.title = sub            // 여러 줄이던 설명이 여기 온전히 남는다
+    t.append(s)
+  }
+  // 타일 어디에 올려도 전체를 읽을 수 있게 한다
+  t.title = sub ? `${label} — ${value}\n${sub}` : `${label} — ${value}`
   return t
 }
 
@@ -611,6 +628,38 @@ $('#btnTheme').addEventListener('click', () => {
   document.documentElement.dataset.theme = 밝게 ? 'light' : 'dark'
   $('#btnTheme').textContent = 밝게 ? '어둡게' : '밝게'
 })
+
+/* ── 요약 접기 ───────────────────────────────────────────────── */
+
+/**
+ * 요약 타일 묶음을 한 번에 접고 편다.
+ *
+ * 🔴 경보(.alerts-wrap)는 건드리지 않는다. 접힌 채로 '감시 끊김'이 숨으면
+ *   이 도구가 막으려는 일이 정확히 일어난다.
+ *
+ * 화살표 모양만으로 말하지 않는다 — 옆에 '요약 접기/펴기'를 글자로 적고
+ * aria-expanded 로도 알린다. 상태는 기억해 둔다(다시 열 때마다 접지 않아도 되게).
+ */
+const 접힘키 = 'rs.요약접힘'
+
+function 요약적용(접힘, { 저장 = true } = {}) {
+  $('#top').classList.toggle('hide', 접힘)
+  $('#btnTop').setAttribute('aria-expanded', String(!접힘))
+  $('#btnTopIc').textContent = 접힘 ? '▸' : '▾'
+  $('#btnTopTx').textContent = 접힘 ? '요약 펴기' : '요약 접기'
+  $('#btnTop').title = 접힘
+    ? '요약을 펴면 계정·사용량·OS 트리거를 볼 수 있습니다'
+    : '요약을 접으면 세션과 상세가 넓어집니다'
+  if (저장) { try { localStorage.setItem(접힘키, 접힘 ? '1' : '0') } catch { /* 저장 못 해도 동작은 한다 */ } }
+}
+
+$('#btnTop').addEventListener('click', () => {
+  요약적용($('#btnTop').getAttribute('aria-expanded') === 'true')
+})
+
+// 기억해 둔 상태로 시작한다
+try { 요약적용(localStorage.getItem(접힘키) === '1', { 저장: false }) }
+catch { 요약적용(false, { 저장: false }) }
 $('#onlyReg').addEventListener('change', (e) => { S.등록만 = e.target.checked; 그리기() })
 
 /* ── 시작 ────────────────────────────────────────────────────── */

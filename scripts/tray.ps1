@@ -25,6 +25,20 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Net.Http
+
+# ---- win32: let an outside click dismiss the menu ------------------------
+# A NotifyIcon menu belongs to a process that is not the foreground window, so
+# Windows does not always send it the "you lost focus" message - the menu can
+# sit there after the user clicks elsewhere. Making our menu the foreground
+# window first is the documented fix (KB135788).
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public class RsTrayWin {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+}
+'@
 
 $Root    = Split-Path -Parent $PSScriptRoot
 $BaseUrl = "http://127.0.0.1:$Port"
@@ -139,6 +153,47 @@ Add-Item (Lbl 'menu.quit' 'Quit tray') {
 $icon.ContextMenuStrip = $menu
 $icon.Add_MouseDoubleClick({ Open-Window })
 
+# ---- menu dismissal -----------------------------------------------------
+#
+# Two ways out of the menu, because a tray menu that will not go away is worse
+# than no menu - it sits on top of whatever the user is doing.
+#
+# 1. CLICK ELSEWHERE.
+#    AutoClose does this, but only if the menu is told it lost focus. A tray
+#    menu belongs to a process that is not in the foreground, so Windows may
+#    never send that message and the menu stays put. Making the menu the
+#    foreground window when it opens is the documented fix (KB135788).
+#
+# 2. WALK AWAY.
+#    If the user opens the menu and does nothing, it closes on its own.
+#    Hovering it counts as doing something, so it will not vanish while being
+#    read. Only idle time closes it.
+$MenuIdleSeconds = 8
+$script:menuIdleFrom = $null
+
+$menu.AutoClose = $true
+$menu.Add_Opened({
+  [RsTrayWin]::SetForegroundWindow($menu.Handle) | Out-Null
+  $script:menuIdleFrom = [DateTime]::UtcNow
+})
+$menu.Add_Closed({ $script:menuIdleFrom = $null })
+# Any pointer movement over the menu means the user is still with it.
+$menu.Add_MouseMove({ $script:menuIdleFrom = [DateTime]::UtcNow })
+$menu.Add_ItemClicked({ $script:menuIdleFrom = [DateTime]::UtcNow })
+
+# A short timer, and only while the menu is open. Checking idle time on the
+# 5-second status tick would make "8 seconds" mean anywhere from 8 to 13.
+$menuTimer = New-Object System.Windows.Forms.Timer
+$menuTimer.Interval = 500
+$menuTimer.Add_Tick({
+  if ($null -eq $script:menuIdleFrom) { return }
+  if (([DateTime]::UtcNow - $script:menuIdleFrom).TotalSeconds -ge $MenuIdleSeconds) {
+    $script:menuIdleFrom = $null
+    $menu.Close()
+  }
+})
+$menuTimer.Start()
+
 # ---- polling ------------------------------------------------------------
 #
 # IMPORTANT: NO BALLOON NOTIFICATIONS.
@@ -153,13 +208,54 @@ $icon.Add_MouseDoubleClick({ Open-Window })
 #   header, all in words as well as colour. Alerts and their history live in
 #   the window (its alerts tab), which is where you can actually act on them.
 #   Do not add ShowBalloonTip back here.
+#
+# *** THE UI THREAD IS NEVER BLOCKED. *** (measured bug, 2026-09-21)
+#
+#   This used to call `Invoke-RestMethod` straight from the timer tick. A
+#   WinForms timer ticks ON THE UI THREAD, so for as long as that request was in
+#   flight the thread could not pump messages - and an open context menu is
+#   drawn by that same thread. Result: right-click the tray icon, and within 5
+#   seconds the menu froze mid-display.
+#
+#   It was not a rare hazard. /api/tray builds the whole status: measured
+#   0.65s, 0.70s and 1.86s warm on this machine, and 11.3s on a cold cache.
+#   The menu was therefore frozen for a large part of the time it was open,
+#   which is exactly what the user reported.
+#
+#   So the request is started and then only CHECKED for completion on later
+#   ticks. Each tick does a handful of microseconds of work, whatever the
+#   server is doing. HttpClient is in-box (.NET Framework) - no new dependency.
 $script:lastKind = $null
+$script:http = New-Object System.Net.Http.HttpClient
+$script:http.Timeout = [TimeSpan]::FromSeconds(20)
+$script:task = $null      # the request in flight
+$script:taskKind = $null  # 'tray' or 'ping'
 
-function Poll {
-  $kind = 'off'; $head = ''; $tip = ''
-
+function Start-Request([string]$path, [string]$kind) {
   try {
-    $s = Invoke-RestMethod -Uri "$BaseUrl/api/tray" -TimeoutSec 20
+    $script:taskKind = $kind
+    $script:task = $script:http.GetStringAsync("$BaseUrl$path")
+  } catch {
+    # Could not even start the request. Leave nothing in flight so the next
+    # tick tries again - a tray that stops asking is a tray that lies.
+    $script:task = $null
+    $script:taskKind = $null
+  }
+}
+
+function Render([string]$kind, [string]$head, [string]$tip) {
+  $icon.Icon = Get-StatusIcon $kind
+  # NotifyIcon.Text is capped at 63 characters; a longer string throws.
+  if ($tip.Length -gt 62) { $tip = $tip.Substring(0, 62) }
+  $icon.Text = $tip
+  $hdr.Text  = $head
+  $script:lastKind = $kind
+}
+
+function Show-TrayState([string]$body) {
+  $kind = 'off'; $head = ''; $tip = ''
+  try {
+    $s = $body | ConvertFrom-Json
 
     # The server decided `state`; the tray must not re-derive it, or the tray
     # and the window would disagree about what is wrong.
@@ -179,47 +275,86 @@ function Poll {
            (Lbl 'tip.watch' 'watch') + " $($s.watched)  " +
            (Lbl 'tip.resume' 'resume') + " $($s.resumeOn)"
   } catch {
-    # Slow is not dead.
-    #
-    # Measured: a cold /api/tray took 11.3 seconds. Treating that timeout as
-    # "server down" would paint the tray red while the server is fine - the
-    # same cry-wolf failure this tool exists to avoid. Ask the cheap endpoint
-    # before making that claim, and keep the previous state if it answers.
-    $alive = $false
-    try {
-      $null = Invoke-RestMethod -Uri "$BaseUrl/api/ping" -TimeoutSec 5
-      $alive = $true
-    } catch { $alive = $false }
-
-    if ($alive) {
-      $kind = if ($script:lastKind) { $script:lastKind } else { 'off' }
-      $head = Lbl 'status.slow' 'status slow'
-      $tip = "$AppName - $head"
-    } else {
-      $kind = 'crit'; $head = Lbl 'status.down' 'status server down'
-      $tip = "$AppName - $head"
-    }
+    # The body was not the shape we expect - ask the cheap endpoint what is
+    # really going on rather than guessing (see Resolve-Failure).
+    Start-Request '/api/ping' 'ping'
+    return
   }
 
-  $icon.Icon = Get-StatusIcon $kind
-  # NotifyIcon.Text is capped at 63 characters; a longer string throws.
-  if ($tip.Length -gt 62) { $tip = $tip.Substring(0, 62) }
-  $icon.Text = $tip
-  $hdr.Text  = $head
-  $script:lastKind = $kind
+  Render $kind $head $tip
+}
+
+# Slow is not dead.
+#
+# Measured: a cold /api/tray took 11.3 seconds. Treating that timeout as "server
+# down" would paint the tray red while the server is fine - the same cry-wolf
+# failure this tool exists to avoid. So a failed /api/tray does not decide
+# anything; it starts a /api/ping, and the ANSWER to that decides.
+function Resolve-Failure {
+  if ($script:taskKind -eq 'tray') {
+    Start-Request '/api/ping' 'ping'   # still asynchronous - no blocking
+    return
+  }
+  # ping failed too: nothing is listening.
+  Render 'crit' (Lbl 'status.down' 'status server down') ("$AppName - " + (Lbl 'status.down' 'status server down'))
+}
+
+function Resolve-Ping {
+  # The server answers, so it is alive and merely slow. Keep the last known
+  # state instead of inventing a worse one.
+  $kind = if ($script:lastKind) { $script:lastKind } else { 'off' }
+  $head = Lbl 'status.slow' 'status slow'
+  Render $kind $head "$AppName - $head"
+}
+
+# The timer tick. Must stay cheap - see the block comment above.
+#
+# Everything is wrapped: an error escaping a WinForms event handler can take the
+# whole tray down, and a watchdog that quietly disappears is the worst outcome
+# this repo has - the icon would simply stop being there and nobody is told.
+function Poll {
+  try {
+    # A request is in flight: look, do not wait.
+    if ($null -ne $script:task) {
+      if (-not $script:task.IsCompleted) { return }   # <- this is what keeps the menu alive
+
+      $t = $script:task
+      $kindWas = $script:taskKind
+      $script:task = $null
+      $script:taskKind = $null
+
+      if ($t.IsFaulted -or $t.IsCanceled) {
+        $script:taskKind = $kindWas
+        Resolve-Failure
+      } elseif ($kindWas -eq 'ping') {
+        Resolve-Ping
+      } else {
+        Show-TrayState $t.Result
+      }
+      return
+    }
+
+    Start-Request '/api/tray' 'tray'
+  } catch {
+    $script:task = $null
+    $script:taskKind = $null
+  }
 }
 
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = [Math]::Max(2, $IntervalSeconds) * 1000
+# Halved: a tick is now microseconds, and completed requests are noticed sooner.
+$timer.Interval = [Math]::Max(1, [int]([Math]::Max(2, $IntervalSeconds) / 2)) * 1000
 $timer.Add_Tick({ Poll })
 $timer.Start()
 
-Poll   # first reading right away instead of after one interval
+Poll   # start the first request right away instead of after one interval
 
 $ctx = New-Object System.Windows.Forms.ApplicationContext
 [System.Windows.Forms.Application]::Run($ctx)
 
 $timer.Stop()
+$menuTimer.Stop()
+$script:http.Dispose()
 $icon.Dispose()
 [System.GC]::KeepAlive($global:RSTrayMutex)
 $global:RSTrayMutex.ReleaseMutex()
