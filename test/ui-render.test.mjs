@@ -72,12 +72,22 @@ function 그리기준비() {
   }
 }
 
-/** 묶음 → { 이름, 줄: [[이름, 값]] } */
+/**
+ * 묶음 → { 이름, 줄: [[이름, 값]], 세부: [보이는 세부 줄] }
+ *
+ * `세부` 는 **화면에 그려진** 것만 읽는다(.gd). title 은 따로 본다 —
+ * 그래야 "세부가 보인다"와 "title 에만 있다"를 구별할 수 있다.
+ */
 const 읽기 = (칸) => 칸.get('tiles').children.map((g) => {
   const [h3, ...rows] = g.children
+  const 칸찾기 = (r, cls) => r.children.find((c) => c.className === cls) || null
   return {
     이름: h3.textContent,
-    줄: rows.map((r) => [r.children[0].textContent, r.children[1].textContent.trim()]),
+    줄: rows.map((r) => {
+      const top = 칸찾기(r, 'gtop')
+      return [top.children[0].textContent, top.children[1].textContent.trim()]
+    }),
+    세부: rows.map((r) => 칸찾기(r, 'gd')?.textContent ?? null),
     설명: rows.map((r) => r.title || ''),
   }
 })
@@ -161,6 +171,50 @@ test('🔴 조회가 실패하면 0 이 아니라 ? 를 그리고 배지를 붙�
   } finally { h.복원() }
 })
 
+/**
+ * 🔴 값만 있고 근거가 없으면 판단할 수 없다.
+ *   "해제됨"만 보이고 언제 기록된 것인지 안 보이면 지금 상태인지 알 수 없다.
+ *   "6개"만 보이고 세션/보조 구분이 없으면 많은 건지 알 수 없다.
+ *   한 번 세부를 title(hover) 로만 남겼다가 "너무 심플하다"는 말을 들었다.
+ */
+test('🔴 항목마다 근거가 화면에 그려진다 (hover 로 숨기지 않는다)', () => {
+  const h = 그리기준비()
+  try {
+    h.타일들(정상())
+    const g = 읽기(h.칸)
+    for (const 묶 of g) {
+      묶.줄.forEach(([k], i) => {
+        assert.ok(묶.세부[i] && 묶.세부[i].length > 0,
+          `'${k}' 의 근거가 화면에 없다 — 값만 보고 판단할 수 없다`)
+      })
+    }
+  } finally { h.복원() }
+})
+
+test('근거의 내용이 실제로 쓸모 있다 (기존 수준을 지킨다)', () => {
+  const h = 그리기준비()
+  try {
+    h.타일들(정상())
+    const g = 읽기(h.칸)
+    const 찾기 = (이름) => {
+      for (const 묶 of g) {
+        const i = 묶.줄.findIndex(([k]) => k === 이름)
+        if (i >= 0) return 묶.세부[i]
+      }
+      return null
+    }
+    assert.match(찾기('계정'), /max/, '구독 종류를 알려야 한다')
+    assert.match(찾기('사용량 제한'), /기록/, '언제 기록된 것인지 알려야 한다 — 지금 상태가 아닐 수 있다')
+    assert.match(찾기('세션'), /감시 2/, '감시·재시작 수가 보여야 한다')
+    assert.match(찾기('VS Code'), /포트 1/, '창의 근거가 보여야 한다')
+    assert.match(찾기('claude 프로세스'), /세션 1 · 보조 0/, '세션과 보조를 구별해야 한다')
+    assert.match(찾기('누적 토큰'), /7개 세션/, '무엇의 합계인지 알려야 한다')
+    assert.match(찾기('정가 환산'), /정가 환산 참고값/, '청구액이 아니라는 것을 말해야 한다')
+    assert.match(찾기('UI'), /Running/, '작업 상태가 보여야 한다')
+    assert.match(찾기('감시'), /마지막/, '마지막 실행 시각이 보여야 한다')
+  } finally { h.복원() }
+})
+
 test('🔴 OS 트리거는 배지로만 말하고, 긴 결과뜻은 설명으로 내린다', () => {
   const h = 그리기준비()
   try {
@@ -205,6 +259,64 @@ test('요지는 제한에 걸렸을 때 그것도 말한다', () => {
     d.할당량 = { 있음: true, 이미해제됨: false, 해제_남은분: 42, 설명: '제한 중' }
     h.타일들(d)
     assert.match(h.칸.get('sumdigest').textContent, /사용량 제한 중/)
+  } finally { h.복원() }
+})
+
+/* ── 시각 줄이기 (좁은 칸의 자리 다툼) ─────────────────────── */
+
+/**
+ * 🔴 요약의 좁은 칸에서 `2026-09-21 13:31:01` 은 자리를 너무 먹는다 —
+ *   OS 트리거 네 줄에 시각이 여덟 개 들어가면 그것만으로 줄이 넘쳤다.
+ *   초는 버리되 **다른 날이면 날짜는 남긴다.** 그 구별이 사라지면 오래된 기록을
+ *   방금으로 오해하는데, 그건 이 도구가 막으라고 있는 오판이다.
+ */
+test('오늘 시각은 HH:MM 으로 줄인다', () => {
+  const h = 그리기준비()
+  try {
+    const t = new Date()
+    const 오늘 = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+    const d = 정상()
+    d.작업.UI = { ...d.작업.UI, 마지막실행: `${오늘} 09:05:33`, 다음실행: null }
+    h.타일들(d)
+    const 묶 = 읽기(h.칸)[3]
+    const i = 묶.줄.findIndex(([k]) => k === 'UI')
+    assert.match(묶.세부[i], /마지막 09:05(?!:)/, `초와 날짜를 버려야 한다: ${묶.세부[i]}`)
+  } finally { h.복원() }
+})
+
+test('🔴 다른 날이면 날짜를 남긴다 (오래된 기록을 방금으로 오해하면 안 된다)', () => {
+  const h = 그리기준비()
+  try {
+    const d = 정상()
+    d.작업.UI = { ...d.작업.UI, 마지막실행: '2026-09-18 11:29:18', 다음실행: null }
+    h.타일들(d)
+    const 묶 = 읽기(h.칸)[3]
+    const i = 묶.줄.findIndex(([k]) => k === 'UI')
+    assert.match(묶.세부[i], /마지막 09-18 11:29/, `날짜가 사라지면 안 된다: ${묶.세부[i]}`)
+  } finally { h.복원() }
+})
+
+test('시각이 없으면 "없음" 이라고 한다 (빈 칸은 뜻이 갈린다)', () => {
+  const h = 그리기준비()
+  try {
+    const d = 정상()
+    d.작업.UI = { ...d.작업.UI, 마지막실행: null, 다음실행: null }
+    h.타일들(d)
+    const 묶 = 읽기(h.칸)[3]
+    const i = 묶.줄.findIndex(([k]) => k === 'UI')
+    assert.match(묶.세부[i], /마지막 없음/)
+  } finally { h.복원() }
+})
+
+test('🔴 세부에 강제 줄바꿈을 넣지 않는다 — 항목마다 한 줄씩 더 먹는다', () => {
+  const h = 그리기준비()
+  try {
+    h.타일들(정상())
+    const 묶 = 읽기(h.칸)[3]
+    for (const [i, s] of 묶.세부.entries()) {
+      assert.ok(!s.includes('\n'),
+        `'${묶.줄[i][0]}' 세부에 줄바꿈이 있다 — 칸 폭에 맞춰 흐르게 두면 한 줄로 끝난다: ${JSON.stringify(s)}`)
+    }
   } finally { h.복원() }
 })
 

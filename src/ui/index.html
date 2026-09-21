@@ -120,28 +120,39 @@ button.sm{padding:3px 8px; font-size:12px}
      네 묶음으로 나눈다(계정 · 실행 중 · 사용량 · OS 트리거). 묶음 안은 카드가
      아니라 `이름 — 값` 줄이다. 값은 오른쪽에 모아 세로로 훑을 수 있게 한다.
      자세한 설명은 title 로 남긴다 — 정보를 버리는 것이 아니라 접어두는 것이다. */
-.groups{display:grid; grid-template-columns:repeat(auto-fit,minmax(232px,1fr)); gap:8px; padding:8px 16px}
+.groups{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:8px; padding:8px 16px}
 .grp{
   background:var(--surface); border:1px solid var(--grid); border-radius:8px;
-  padding:7px 10px 8px; min-width:0;
+  padding:7px 11px 8px; min-width:0;
 }
 .grp > h3{
   font-size:10px; font-weight:700; letter-spacing:.07em; color:var(--muted);
-  margin:0 0 5px; padding-bottom:4px; border-bottom:1px solid var(--grid);
+  margin:0 0 4px; padding-bottom:4px; border-bottom:1px solid var(--grid);
 }
-/* 이름은 왼쪽, 값은 오른쪽 — 값이 한 줄에 모여 세로로 훑힌다 */
-.grow{
-  display:grid; grid-template-columns:auto 1fr; gap:8px;
-  align-items:baseline; padding:2.5px 0; min-width:0;
-}
+
+/* ── 묶음 안의 한 항목 ──
+   🔴 두 줄이다: `이름 — 값` 그리고 **보이는 세부**.
+     한때 세부를 title(hover) 로만 남겼더니 "너무 심플하다"는 말을 들었다 —
+     맞다. 근거를 감춘 요약은 숫자만 던지는 것과 같고, 이 화면은 무엇이 잘못됐는지
+     판단하는 자리다. 세부는 보여야 한다.
+     대신 세 줄에서 멈춘다(line-clamp) — 창이 여러 개인 VS Code 처럼 긴 것도 있어
+     상한이 없으면 요약이 다시 화면을 먹는다. 넘치는 부분은 title 에 남는다. */
+.grow{padding:3px 0; min-width:0}
 .grow + .grow{border-top:1px solid var(--grid)}
-.grow > .k{color:var(--ink-2); font-size:11.5px; white-space:nowrap}
-.grow > .v{
-  font-size:12.5px; font-weight:600; text-align:right; min-width:0;
+.gtop{display:flex; align-items:baseline; gap:8px; min-width:0}
+.gtop > .k{color:var(--ink-2); font-size:11.5px; white-space:nowrap}
+.gtop > .v{
+  flex:1; min-width:0; font-size:13px; font-weight:600; text-align:right;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 /* 상태는 색만으로 말하지 않는다 — 배지가 아이콘+라벨을 함께 나른다 */
-.grow > .v .badge{font-size:11px; padding:1px 6px; vertical-align:baseline}
+.gtop > .v .badge{font-size:11px; padding:1px 6px; vertical-align:baseline}
+.gd{
+  color:var(--muted); font-size:11px; line-height:1.45; margin-top:1px;
+  /* 줄바꿈이 있는 세부(창 목록 등)를 그대로 보여준다 */
+  white-space:pre-line; word-break:break-word;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+}
 
 /* ── 요약 머리 띠 = 접기 단추 ──
    화살표를 머리말 구석에 두었더니 눈에 띄지 않았다. 무엇을 접는지 옆에 적힌

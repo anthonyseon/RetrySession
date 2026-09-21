@@ -166,17 +166,34 @@ test('🔴 요약은 묶음으로 나뉜다 — 같은 질문에 답하는 것�
   }
 })
 
-test('🔴 묶음 안은 이름·값 두 칸이고 값은 오른쪽에 모인다 (세로로 훑힌다)', () => {
-  assert.match(html, /\.grow\{[^}]*grid-template-columns:\s*auto 1fr/,
-    '이름과 값 두 칸이어야 한다')
-  assert.match(html, /\.grow > \.v\{[^}]*text-align:\s*right/,
+test('🔴 이름과 값은 한 줄에 마주 놓이고 값은 오른쪽에 모인다 (세로로 훑힌다)', () => {
+  assert.match(html, /\.gtop\{[^}]*display:\s*flex/, '이름과 값이 한 줄에 마주 놓여야 한다')
+  assert.match(html, /\.gtop > \.v\{[^}]*text-align:\s*right/,
     '값이 오른쪽에 정렬돼야 눈이 한 줄로 훑는다')
-  assert.match(html, /\.grow > \.v\{[^}]*text-overflow:\s*ellipsis/,
+  assert.match(html, /\.gtop > \.v\{[^}]*text-overflow:\s*ellipsis/,
     '긴 값은 잘라야 줄이 무너지지 않는다')
 })
 
-test('🔴 화면에 안 보이는 설명은 title 로 남는다 (자르면서 버리면 안 된다)', () => {
-  assert.match(appjs, /r\.title = 설명/, '줄마다 설명 전체를 title 에 남겨야 한다')
+/**
+ * 🔴 세부를 hover 로만 남기면 안 된다.
+ *   한 번 그렇게 했다가 "너무 심플하다"는 말을 들었고, 그 말이 맞다. 이 화면은
+ *   무엇이 잘못됐는지 **판단하는** 자리다 — "해제됨"만 보이고 언제 기록된 것인지
+ *   안 보이면 지금 상태인지 알 수 없다. 값만 던지고 근거를 감추면 판단할 수 없다.
+ */
+test('🔴 세부 설명이 화면에 보인다 (title 에만 두면 근거가 감춰진다)', () => {
+  assert.match(appjs, /if \(설명\) r\.append\(el\('div', 'gd', 설명\)\)/,
+    '설명을 실제 줄로 그려야 한다')
+  assert.match(html, /\.gd\{/, '세부 줄 스타일이 있어야 한다')
+  // 근거에 줄바꿈이 있는 것(창 목록 등)은 그대로 보여야 한다
+  assert.match(html, /\.gd\{[^}]*white-space:\s*pre-line/, '줄바꿈을 살려야 한다')
+})
+
+test('🔴 세부에는 상한이 있다 — 없으면 요약이 다시 화면을 먹는다', () => {
+  const m = /-webkit-line-clamp:\s*(\d+)/.exec(html)
+  assert.ok(m, '세부 줄 수 상한이 있어야 한다')
+  assert.ok(Number(m[1]) >= 2 && Number(m[1]) <= 4,
+    `세부 상한이 ${m[1]}줄이다 — 2~4줄이어야 근거를 보여주면서 자리를 지킨다`)
+  assert.match(appjs, /r\.title = 설명/, '상한을 넘친 부분은 title 에 남아야 한다')
 })
 
 test('🔴 상태는 색만으로 나르지 않는다 — 배지가 아이콘과 라벨을 함께 담는다', () => {
