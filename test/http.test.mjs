@@ -165,7 +165,7 @@ test('알아볼 수 있는 stderr 는 보존한다', async () => {
  * 이해한다. 실제로는 돌고 있는데 확인만 못 한 것일 수 있다.
  */
 test('🔴 화면·기록·트레이가 조회 실패를 "정지"라고 말하지 않는다', () => {
-  const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
+  const app = ['app.js','common.js','summary.js','list.js','detail.js'].map((x) => readFileSync(join(ROOT, 'src', 'ui', x), 'utf8')).join(String.fromCharCode(10))
   const hb = readFileSync(join(ROOT, 'src', 'heartbeat.mjs'), 'utf8')
   const tray = readFileSync(join(ROOT, 'scripts', 'tray.ps1'), 'utf8')
 

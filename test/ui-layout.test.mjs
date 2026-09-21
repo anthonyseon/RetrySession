@@ -17,7 +17,16 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const html = readFileSync(join(ROOT, 'src', 'ui', 'index.html'), 'utf8')
-const appjs = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
+/**
+ * 화면 스크립트 **전체**를 하나로 본다.
+ *
+ * 🔴 app.js 한 파일만 읽으면 안 된다. 781줄이던 app.js 를 조각으로 나눈 뒤
+ *   (common·summary·list·detail) 이 시험들이 통째로 깨졌다 — '화면이 X 를 한다'를
+ *   확인하려던 것인데 '어느 파일에 X 가 있다'를 확인하고 있었기 때문이다.
+ *   앞으로 조각을 더 나눠도 이 시험은 그대로 통한다.
+ */
+export const UI = ['app.js', 'common.js', 'summary.js', 'list.js', 'detail.js']
+const appjs = UI.map((f) => readFileSync(join(ROOT, 'src', 'ui', f), 'utf8')).join('\n')
 
 test('🔴 스크롤 영역이 둘 있다 — 목록(#slist)과 상세(#dscroll)', () => {
   assert.match(html, /id="slist"/, '#slist 가 있어야 한다')

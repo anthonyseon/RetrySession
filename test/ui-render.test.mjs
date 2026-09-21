@@ -1,116 +1,12 @@
 /**
  * ui-render.test.mjs — 요약을 **실제로 그려본다.**
  *
- * 🔴 왜 이게 따로 필요한가
- *   나머지 화면 시험은 소스에 정규식을 걸어 "그렇게 쓰여 있는가"를 본다. 되돌림은
- *   막지만 **런타임 오류는 못 잡는다** — `h.총USD.toFixed` 가 undefined 인 경우,
- *   없는 묶음에 줄을 붙이는 경우, 배지 인자를 빠뜨린 경우는 모두 통과한다.
- *   그러면 화면이 빈 채로 뜨고, 감시 장치가 아무것도 안 보여주게 된다.
- *
- *   그래서 최소 DOM 을 만들어 app.js 의 요약 그리기를 정말 호출한다.
- *   브라우저를 띄우지 않으므로 의존성은 그대로 0 이다.
+ * 최소 DOM 과 표본은 _ui-harness.mjs 에 있다(이 파일이 400줄을 넘어 나눴다).
+ * 하네스를 첫 줄에서 가져와야 한다 — 전역 DOM 을 깔고 나서 화면 모듈이 평가된다.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const ROOT = fileURLToPath(new URL('..', import.meta.url))
-
-/* ── 최소 DOM ────────────────────────────────────────────────── */
-
-class 노드 {
-  constructor(tag) { this.tag = tag; this.children = []; this.attrs = {}; this._text = '' }
-  set className(v) { this.attrs.class = v }
-  get className() { return this.attrs.class || '' }
-  set textContent(v) { this._text = String(v); this.children = [] }
-  get textContent() { return this._text + this.children.map((c) => c.textContent).join('') }
-  set title(v) { this.attrs.title = v }
-  get title() { return this.attrs.title }
-  append(...xs) { for (const x of xs) this.children.push(typeof x === 'string' ? new 글(x) : x) }
-  setAttribute(k, v) { this.attrs[k] = String(v) }
-  getAttribute(k) { return this.attrs[k] ?? null }
-  addEventListener() { }
-  get classList() { return { toggle() { }, add() { }, remove() { }, contains: () => false } }
-  querySelector() { return null }
-  querySelectorAll() { return [] }
-}
-class 글 extends 노드 { constructor(t) { super('#text'); this._text = t } }
-
-/** app.js 를 최소 DOM 위에서 불러 요약 그리기 함수를 꺼낸다 */
-function 그리기준비() {
-  const 칸 = new Map()
-  const 원래 = { Node: globalThis.Node, document: globalThis.document, localStorage: globalThis.localStorage }
-
-  globalThis.Node = 노드
-  globalThis.document = {
-    createElement: (t) => new 노드(t),
-    createTextNode: (t) => new 글(t),
-    documentElement: { dataset: {} },
-    querySelector: (s) => {
-      const id = s.startsWith('#') ? s.slice(1) : s
-      if (!칸.has(id)) 칸.set(id, new 노드('div'))
-      return 칸.get(id)
-    },
-    querySelectorAll: () => [],
-    addEventListener: () => { },
-  }
-  globalThis.localStorage = { getItem: () => null, setItem: () => { } }
-
-  const src = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
-  // 최상위에서 도는 것들(폴링·fetch)은 막는다 — 시험이 네트워크를 건드리면 안 된다
-  const 타일들 = new Function(
-    'setInterval', 'setTimeout', 'fetch', 'confirm',
-    `${src}\n; return 타일들`,
-  )(() => 0, () => 0, () => new Promise(() => { }), () => false)
-
-  return {
-    타일들,
-    칸,
-    복원() { Object.assign(globalThis, 원래) },
-  }
-}
-
-/**
- * 묶음 → { 이름, 줄: [[이름, 값]], 세부: [보이는 세부 줄] }
- *
- * `세부` 는 **화면에 그려진** 것만 읽는다(.gd). title 은 따로 본다 —
- * 그래야 "세부가 보인다"와 "title 에만 있다"를 구별할 수 있다.
- */
-const 읽기 = (칸) => 칸.get('tiles').children.map((g) => {
-  const [h3, ...rows] = g.children
-  const 칸찾기 = (r, cls) => r.children.find((c) => c.className === cls) || null
-  return {
-    이름: h3.textContent,
-    줄: rows.map((r) => {
-      const top = 칸찾기(r, 'gtop')
-      return [top.children[0].textContent, top.children[1].textContent.trim()]
-    }),
-    세부: rows.map((r) => 칸찾기(r, 'gd')?.textContent ?? null),
-    설명: rows.map((r) => r.title || ''),
-  }
-})
-
-/* ── 표본 ────────────────────────────────────────────────────── */
-
-const 정상 = () => ({
-  at: '2026-09-21 13:00:00',
-  계정: { ok: true, email: 'a@b.c', subscriptionType: 'max', authMethod: 'oauth', orgName: 'Org' },
-  할당량: { 있음: true, 이미해제됨: true, 설명: '해제됨', 종류: 'unified', status: 'ok' },
-  ide: { 창: [{ 살아있음: true, 포트: 1, pid: 2, workspaceFolders: ['x'] }], 살아있는창: 1, 낡은lock: 0, 폴더: [] },
-  프로세스: { ok: true, 목록: [{ 출처: 'VS Code' }], 세션수: 1, 보조수: 0, 짝없음: [] },
-  작업: {
-    하트비트: { 이름: 'H', 등록됨: true, 상태: 'Ready', 정상: true, 돌고있음: false, 중지됨: false, 결과뜻: '성공' },
-    재시작: { 이름: 'R', 등록됨: true, 상태: 'Ready', 정상: true, 돌고있음: false, 중지됨: false, 결과뜻: '성공' },
-    UI: { 이름: 'U', 등록됨: true, 상태: 'Running', 정상: true, 돌고있음: true, 중지됨: false, 결과뜻: '실행 중' },
-    트레이: { 이름: 'T', 등록됨: true, 상태: 'Running', 정상: true, 돌고있음: true, 중지됨: false, 결과뜻: '실행 중' },
-  },
-  합계: {
-    세션수: 7, 실행중: 4, 실행여부앎: true, 감시켜짐: 2, 재시작켜짐: 0,
-    세션없는폴더: 0, 권한우회세션: 0, 총토큰: 1234567, 총USD: 4.21, 비용해석: '정가 환산 참고값',
-  },
-})
+import { 그리기준비, 읽기, 정상 } from './_ui-harness.mjs'
 
 /* ── 시험 ────────────────────────────────────────────────────── */
 
@@ -401,44 +297,3 @@ test('🔴 로그인 실패·조회 실패를 각각 배지로 말한다', () =>
   } finally { h.복원() }
 })
 
-/* ── 서버가 오류로 답했을 때 화면이 말하는가 ─────────────────── */
-
-/**
- * 🔴 실측 결함 (2026-09-21, 전수 검증 중)
- *   `throw new Error('HTTP ' + r.status)` 였다. 서버는 본문에
- *   `{"오류":"등록부가 깨졌다 (…): Expected property name…"}` 를 담아 보내는데
- *   화면은 그걸 버리고 "HTTP 500" 만 보여줬다 — 고칠 수 있는 이유를 숫자로
- *   바꿔 놓은 셈이다. 코드 4294967295 와 같은 부류의 실수다.
- */
-test('🔴 서버가 보낸 이유를 버리지 않는다 (HTTP 500 만 보여주면 조치할 수 없다)', () => {
-  const src = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
-  assert.match(src, /async function 오류이유/, '본문에서 이유를 꺼내는 함수가 있어야 한다')
-  assert.match(src, /await 오류이유\(r\)/, '상태 읽기가 그 함수를 써야 한다')
-  // 🔴 주석을 뺀 코드만 본다. 옛 코드를 설명하는 주석이 검사에 걸려서는 안 된다
-  //   (이 저장소에서 같은 함정에 두 번 걸렸다 — 근거를 적으면 그 근거가 걸린다).
-  const 코드 = src.split('\n')
-    .filter((l) => { const t = l.trim(); return t && !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*') })
-    .join('\n')
-  assert.ok(!/throw new Error\('HTTP ' \+ r\.status\)/.test(코드),
-    '상태 코드만 던지면 이유가 사라진다')
-  // JSON 이 아닐 때의 대비도 있어야 한다
-  const i = src.indexOf('async function 오류이유')
-  assert.match(src.slice(i, i + 400), /HTTP \$\{r\.status\}/, 'JSON 이 아니면 코드로 물러서야 한다')
-})
-
-test('🔴 상태를 못 읽으면 그것을 가장 급한 경보로 띄운다', () => {
-  const src = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
-  const i = src.indexOf('function 경보그리기')
-  const 구간 = src.slice(i, i + 1200)
-  assert.match(구간, /S\.오류/, '읽기 실패를 경보 목록에 넣어야 한다')
-  assert.match(구간, /unshift/, '가장 위에 놓아야 한다 — 나머지 전부가 낡았다는 뜻이다')
-  assert.match(구간, /critical/, '치명으로 다뤄야 한다')
-  // 상태가 없을 때도 경보는 그려야 한다(첫 요청부터 실패한 경우)
-  assert.match(src, /경보그리기\(null\)/, '상태가 없어도 경보는 그려야 빈 화면이 안 된다')
-})
-
-test('세션 상세를 못 읽으면 그 이유를 적는다 (조용히 넘기면 멈춘 줄 안다)', () => {
-  const src = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
-  assert.match(src, /S\.상세오류/, '상세 읽기 실패를 기억해야 한다')
-  assert.match(src, /이 세션의 상세를 읽을 수 없습니다/, '화면에 이유를 적어야 한다')
-})

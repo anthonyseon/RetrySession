@@ -395,6 +395,8 @@ table.models td:first-child{text-align:left; color:var(--ink)}
   </section>
 </main>
 
-<script src="/app.js"></script>
+<!-- type="module" — app.js 가 summary/list/detail/common 을 import 한다.
+     번들러는 쓰지 않는다(의존성 0). 브라우저가 직접 불러온다. -->
+<script type="module" src="/app.js"></script>
 </body>
 </html>

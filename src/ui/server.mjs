@@ -146,7 +146,18 @@ const server = createServer(async (req, res) => {
   try {
     /* 정적 */
     if (req.method === 'GET' && (p === '/' || p === '/index.html')) return 파일(res, join(HERE, 'index.html'), 'text/html; charset=utf-8')
-    if (req.method === 'GET' && p === '/app.js') return 파일(res, join(HERE, 'app.js'), 'text/javascript; charset=utf-8')
+
+    /**
+     * 화면 스크립트. app.js 가 common/summary/list/detail 을 import 하므로
+     * 한 파일만 열어주면 안 된다.
+     *
+     * 🔴 이름 규칙으로 막는다 — 슬래시·점·상위 경로가 들어갈 수 없는 정규식이다.
+     *   `join(HERE, p.slice(1))` 에 임의 문자열을 넘기면 `../../` 로 저장소 바깥
+     *   파일을 읽어낼 수 있다. 화이트리스트 성격의 패턴만 통과시킨다.
+     */
+    if (req.method === 'GET' && /^\/[a-z][a-z0-9-]{0,30}\.js$/.test(p)) {
+      return 파일(res, join(HERE, p.slice(1)), 'text/javascript; charset=utf-8')
+    }
 
     /**
      * 🔴 살아있음 확인은 여기로 한다 — 값싸야 한다.
