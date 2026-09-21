@@ -77,6 +77,20 @@ test('🔴 트레이가 읽는 라벨 파일의 키는 ASCII 다 (tray.ps1 이 �
   검사(j)
 })
 
+test('🔴 ASCII 스크립트가 읽는 엔드포인트의 응답 키는 ASCII 다', () => {
+  const server = readFileSync(join(ROOT, 'src', 'ui', 'server.mjs'), 'utf8')
+
+  // /api/ping 과 /api/tray 는 .ps1 이 직접 속성명을 적는다. 한글 키를 넣으면
+  // 그 .ps1 이 비ASCII 가 되어 PowerShell 5.1 파서가 죽는다(실측: 가동초).
+  const ping = /p === '\/api\/ping'\) \{([\s\S]*?)\n    \}/.exec(server)
+  assert.ok(ping, '/api/ping 핸들러를 찾을 수 없다')
+  for (const m of ping[1].matchAll(/^\s*([^\s:,{}()]+):/gm)) {
+    // eslint-disable-next-line no-control-regex
+    assert.match(m[1], /^[\x20-\x7e]+$/,
+      `/api/ping 의 키 '${m[1]}' 가 ASCII 가 아니다 — status.ps1 이 참조할 수 없다`)
+  }
+})
+
 test('🔴 트레이는 /api/status 가 아니라 /api/tray 를 읽는다 (한글 속성명을 못 적는다)', () => {
   const src = readFileSync(join(ROOT, 'scripts', 'tray.ps1'), 'utf8')
   assert.ok(src.includes('/api/tray'), 'tray.ps1 은 /api/tray 를 읽어야 한다')

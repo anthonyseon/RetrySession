@@ -147,6 +147,22 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && (p === '/' || p === '/index.html')) return 파일(res, join(HERE, 'index.html'), 'text/html; charset=utf-8')
     if (req.method === 'GET' && p === '/app.js') return 파일(res, join(HERE, 'app.js'), 'text/javascript; charset=utf-8')
 
+    /**
+     * 🔴 살아있음 확인은 여기로 한다 — 값싸야 한다.
+     *
+     * 실측 사고: 상태 점검이 /api/tray 를 4초 타임아웃으로 불렀는데, 캐시가 식었을 때
+     * 그 응답이 11.3초 걸려서(웜 0.65~3.3초) **멀쩡한 서버를 "응답 없음"으로 보고**했다.
+     * 살아있음 판정이 무거운 집계에 얹혀 있으면, 느린 것과 죽은 것을 구별하지 못한다.
+     * 이 엔드포인트는 아무것도 계산하지 않는다.
+     */
+    // 🔴 키는 ASCII 다 — /api/tray 와 같은 이유로 ASCII 스크립트(status.ps1)가 읽는다
+    if (req.method === 'GET' && p === '/api/ping') {
+      return json(res, 200, {
+        ok: true, at: localStamp(), pid: process.pid,
+        uptimeSec: Math.round(process.uptime()),
+      })
+    }
+
     /* 상태 */
     if (req.method === 'GET' && p === '/api/status') return json(res, 200, fullStatus())
 
@@ -225,6 +241,19 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`RetrySession UI — http://${HOST}:${PORT}`)
   console.log(`  로컬 전용이다. 이 화면은 재시작(claude --resume)을 띄울 수 있다.`)
+
+  /**
+   * 캐시를 미리 데운다.
+   *
+   * 실측: 캐시가 식은 첫 요청은 11.3초 걸렸다(schtasks 조회 ~4초, CLI 호출 ~2초,
+   * 프로세스 열거 ~0.7초, 트랜스크립트 초회 스캔). 창을 처음 열었을 때 그 시간을
+   * 사람이 기다리게 되고, 짧은 타임아웃을 쓰는 점검은 죽었다고 오판한다.
+   * 기동 직후 한 번 돌려두면 첫 요청이 웜 경로를 탄다. 실패해도 무시한다 —
+   * 데우기가 안 됐다고 서버가 못 뜰 이유는 없다.
+   */
+  setTimeout(() => {
+    try { fullStatus() } catch { /* 첫 요청이 대신 계산한다 */ }
+  }, 100)
 })
 
 server.on('error', (e) => {

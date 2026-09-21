@@ -34,9 +34,19 @@ foreach ($e in $Names) {
 # "registered" is not "serving" - check the two live pieces for real.
 Write-Host ''
 Write-Host '== actually running =='
+
+# Liveness goes to /api/ping, which computes nothing.
+#
+# Measured mistake: this used to call /api/tray with a 4 second timeout. That
+# endpoint builds the whole status, and on a cold cache it took 11.3 seconds
+# (0.65-3.3s warm) - so a perfectly healthy server was reported as "NOT
+# answering". A monitor that cries wolf is worse than no monitor.
 try {
-  $r = Invoke-WebRequest -Uri 'http://127.0.0.1:7345/api/tray' -TimeoutSec 4 -UseBasicParsing
-  if ($r.StatusCode -eq 200) { Write-Host 'server  : answering on 127.0.0.1:7345' -ForegroundColor Green }
+  $r = Invoke-WebRequest -Uri 'http://127.0.0.1:7345/api/ping' -TimeoutSec 10 -UseBasicParsing
+  if ($r.StatusCode -eq 200) {
+    $up = ($r.Content | ConvertFrom-Json).uptimeSec
+    Write-Host ("server  : answering on 127.0.0.1:7345 (up {0}s)" -f $up) -ForegroundColor Green
+  }
 } catch {
   Write-Host 'server  : NOT answering on 127.0.0.1:7345' -ForegroundColor Red
 }

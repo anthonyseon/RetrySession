@@ -159,7 +159,7 @@ function Poll {
   $kind = 'off'; $head = ''; $tip = ''
 
   try {
-    $s = Invoke-RestMethod -Uri "$BaseUrl/api/tray" -TimeoutSec 8
+    $s = Invoke-RestMethod -Uri "$BaseUrl/api/tray" -TimeoutSec 20
 
     # The server decided `state`; the tray must not re-derive it, or the tray
     # and the window would disagree about what is wrong.
@@ -179,8 +179,26 @@ function Poll {
            (Lbl 'tip.watch' 'watch') + " $($s.watched)  " +
            (Lbl 'tip.resume' 'resume') + " $($s.resumeOn)"
   } catch {
-    $kind = 'crit'; $head = Lbl 'status.down' 'status server down'
-    $tip = "$AppName - $head"
+    # Slow is not dead.
+    #
+    # Measured: a cold /api/tray took 11.3 seconds. Treating that timeout as
+    # "server down" would paint the tray red while the server is fine - the
+    # same cry-wolf failure this tool exists to avoid. Ask the cheap endpoint
+    # before making that claim, and keep the previous state if it answers.
+    $alive = $false
+    try {
+      $null = Invoke-RestMethod -Uri "$BaseUrl/api/ping" -TimeoutSec 5
+      $alive = $true
+    } catch { $alive = $false }
+
+    if ($alive) {
+      $kind = if ($script:lastKind) { $script:lastKind } else { 'off' }
+      $head = Lbl 'status.slow' 'status slow'
+      $tip = "$AppName - $head"
+    } else {
+      $kind = 'crit'; $head = Lbl 'status.down' 'status server down'
+      $tip = "$AppName - $head"
+    }
   }
 
   $icon.Icon = Get-StatusIcon $kind
