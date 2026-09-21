@@ -231,10 +231,20 @@ $script:http.Timeout = [TimeSpan]::FromSeconds(20)
 $script:task = $null      # the request in flight
 $script:taskKind = $null  # 'tray' or 'ping'
 
+# GetAsync, not GetStringAsync.
+#
+#   Measured bug (2026-09-21): with GetStringAsync an HTTP 500 arrives as a
+#   faulted task, indistinguishable from a timeout. The tray then asked /api/ping,
+#   ping answered, and it concluded "slow" - keeping the last good state. But a
+#   500 is not slow; it is broken and will not fix itself. A corrupt
+#   state/targets.json does exactly this (loadTargets throws by design), so the
+#   tray would have sat there looking fine while the screen showed nothing.
+#   GetAsync hands back the status code instead of throwing, so "answered with an
+#   error" and "did not answer" stay different things.
 function Start-Request([string]$path, [string]$kind) {
   try {
     $script:taskKind = $kind
-    $script:task = $script:http.GetStringAsync("$BaseUrl$path")
+    $script:task = $script:http.GetAsync("$BaseUrl$path")
   } catch {
     # Could not even start the request. Leave nothing in flight so the next
     # tick tries again - a tray that stops asking is a tray that lies.
@@ -312,6 +322,14 @@ function Resolve-Ping {
   Render $kind $head "$AppName - $head"
 }
 
+# The server ANSWERED, with an error. That is not slow and not down - it is
+# broken in a way that will not clear on its own (corrupt state file, a bug).
+# Saying "slow" here would keep the last good colour forever.
+function Resolve-HttpError([int]$code) {
+  $head = (Lbl 'status.error' 'status error') + " ($code)"
+  Render 'crit' $head "$AppName - $head"
+}
+
 # The timer tick. Must stay cheap - see the block comment above.
 #
 # Everything is wrapped: an error escaping a WinForms event handler can take the
@@ -329,12 +347,23 @@ function Poll {
       $script:taskKind = $null
 
       if ($t.IsFaulted -or $t.IsCanceled) {
+        # No answer at all: refused, or the 20s timeout ran out.
         $script:taskKind = $kindWas
         Resolve-Failure
-      } elseif ($kindWas -eq 'ping') {
-        Resolve-Ping
       } else {
-        Show-TrayState $t.Result
+        $resp = $t.Result
+        if (-not $resp.IsSuccessStatusCode) {
+          # Answered with an error. Decided here for BOTH endpoints - a 500 from
+          # /api/ping is just as broken as one from /api/tray.
+          Resolve-HttpError ([int]$resp.StatusCode)
+        } elseif ($kindWas -eq 'ping') {
+          Resolve-Ping
+        } else {
+          # The body is already buffered (GetAsync reads it before completing),
+          # so reading it here does not wait on anything.
+          Show-TrayState $resp.Content.ReadAsStringAsync().Result
+        }
+        $resp.Dispose()
       }
       return
     }

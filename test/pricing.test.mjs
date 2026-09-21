@@ -6,7 +6,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { 모델비용, 총비용, 모델정규화, 단가표, 빈토큰, 토큰합, 압축 } from '../src/lib/pricing.mjs'
+import { 모델비용, 총비용, 모델정규화, 단가표, 빈토큰, 토큰합, 압축, 과금대상인가 } from '../src/lib/pricing.mjs'
 
 /** CLI 가 보고한 값과의 차이가 부동소수 오차 안인가 */
 const 일치 = (실제, 보고값) =>
@@ -103,4 +103,44 @@ test('압축 표기', () => {
   assert.equal(압축(12_345), '12.3K')
   assert.equal(압축(1_500_000), '1.5M')
   assert.equal(압축(2_000_000_000), '2.0B')
+})
+
+/* ── 모델이 아닌 엔트리 ─────────────────────────────────────── */
+
+/**
+ * 🔴 실측 (2026-09-21): 트랜스크립트에 `<synthetic>` 엔트리가 있다. 내용은
+ *   "You've hit your session limit · resets 1:30pm" 같은 **로컬 알림**이고
+ *   usage 는 전부 0 이다. 모델 호출이 아닌데 단가표에 없으니 추정으로 표시됐고,
+ *   그래서 7개 세션 중 2개가 "추정 단가 포함"으로 보였다 — 비용은 $0 인데
+ *   숫자를 의심하게 만드는 거짓 경고다.
+ */
+test('🔴 <synthetic> 는 모델이 아니다 — 비용 0, 추정도 아니다', () => {
+  const r = 모델비용('<synthetic>', 빈토큰())
+  assert.equal(r.usd, 0)
+  assert.equal(r.추정, false, '모델이 아닌 것을 추정으로 표시하면 거짓 경고가 된다')
+})
+
+test('🔴 <synthetic> 에 토큰이 붙어 있으면 추정으로 되돌린다 (조용히 감추지 않는다)', () => {
+  // 우리가 잘못 안 경우다. 0 으로 감추면 비용을 숨기는 것이 된다.
+  const r = 모델비용('<synthetic>', { ...빈토큰(), 출력: 1000 })
+  assert.equal(r.추정, true, '토큰이 있으면 계산해야 하고, 단가를 모르면 추정이다')
+  assert.ok(r.usd > 0, '토큰이 있으면 비용도 있어야 한다')
+})
+
+test('총비용 — <synthetic> 만 있으면 추정포함이 아니다', () => {
+  const r = 총비용({ '<synthetic>': 빈토큰() })
+  assert.equal(r.usd, 0)
+  assert.equal(r.추정포함, false)
+})
+
+test('총비용 — 진짜 모르는 모델은 여전히 추정으로 표시한다', () => {
+  const r = 총비용({ 'claude-미래-9': { ...빈토큰(), 입력: 1_000_000 } })
+  assert.equal(r.추정포함, true, '모르는 모델을 0 으로 감추면 비용을 숨기는 것이다')
+  assert.ok(r.usd > 0)
+})
+
+test('과금대상인가 — 접미사가 붙어도 가려낸다', () => {
+  assert.equal(과금대상인가('<synthetic>'), false)
+  assert.equal(과금대상인가('claude-opus-5'), true)
+  assert.equal(과금대상인가('claude-opus-5[1m]'), true)
 })

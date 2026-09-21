@@ -17,7 +17,8 @@
     "limited": "사용량 제한 중",
     "alerts": "알림",
     "slow": "상태 응답 느림",
-    "unknown": "실행 여부 확인 불가"
+    "unknown": "실행 여부 확인 불가",
+    "error": "상태 서버 오류"
   },
   "alert": {
     "stalledTitle": "감시가 끊겼습니다",

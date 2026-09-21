@@ -32,7 +32,40 @@ test('🔴 상태 조회가 UI 스레드를 붙잡지 않는다 (동기 호출 �
         `${경로} 를 동기로 부르면 메뉴가 그 시간만큼 멈춘다: ${l.trim()}`)
     }
   }
-  assert.match(코드, /GetStringAsync/, '비동기 요청을 써야 한다')
+  assert.match(코드, /Get(String)?Async\(/, '비동기 요청을 써야 한다')
+})
+
+/**
+ * 🔴 실측 결함 (2026-09-21, 전수 검증 중)
+ *   `GetStringAsync` 는 HTTP 500 도 예외로 던져서 **타임아웃과 구별할 수 없었다.**
+ *   그래서 트레이는 500 을 받고 /api/ping 을 물어보고, ping 이 답하니 "느림"으로
+ *   판정해 **직전의 초록 상태를 그대로 유지**했다. 500 은 느린 게 아니고 스스로
+ *   낫지도 않는다 — 깨진 state/targets.json 이 정확히 이 상태를 만든다
+ *   (loadTargets 가 일부러 던지므로 /api/status 와 /api/tray 가 둘 다 500 이다).
+ *   멀쩡해 보이는 트레이 + 아무것도 안 나오는 화면. 최악의 조합이다.
+ */
+test('🔴 서버가 오류로 "답한 것"과 "답하지 않은 것"을 구별한다', () => {
+  assert.match(코드, /IsSuccessStatusCode/,
+    '상태 코드를 봐야 500 과 타임아웃을 가를 수 있다')
+  assert.match(코드, /GetAsync\(/, 'GetStringAsync 는 500 도 예외로 던져 구별할 수 없다')
+  assert.match(코드, /Resolve-HttpError/, '오류 응답 전용 처리가 있어야 한다')
+
+  // 오류 응답은 crit 이어야 한다 — "느림"으로 흘리면 직전 색이 그대로 남는다
+  const i = 코드.indexOf('function Resolve-HttpError')
+  const 구간 = 코드.slice(i, i + 300)
+  assert.match(구간, /Render 'crit'/, '오류 응답은 치명으로 그려야 한다')
+  assert.ok(!/status\.slow/.test(구간), '오류를 "느림"으로 부르면 안 된다')
+})
+
+test('오류 응답 처리가 두 엔드포인트 모두에 걸린다', () => {
+  // ping 이 500 이면 그것도 깨진 것이다. tray 응답에만 검사를 걸면 새는 길이 남는다
+  const i = 코드.indexOf('function Poll')
+  const 구간 = 코드.slice(i, i + 1200)
+  const 성공검사 = 구간.indexOf('IsSuccessStatusCode')
+  const ping분기 = 구간.indexOf("-eq 'ping'")
+  assert.ok(성공검사 > 0 && ping분기 > 0, '두 판정을 모두 찾아야 한다')
+  assert.ok(성공검사 < ping분기,
+    '상태 코드 검사가 ping/tray 분기보다 먼저여야 두 엔드포인트에 모두 걸린다')
 })
 
 test('🔴 타이머는 기다리지 않고 완료 여부만 본다', () => {

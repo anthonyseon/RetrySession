@@ -100,7 +100,22 @@ const 경보라벨 = { critical: '치명', warning: '주의', info: '정보' }
 
 function 경보그리기(d) {
   const box = $('#alerts'); box.textContent = ''
-  const list = d.경보 || []
+  const list = [...(d?.경보 || [])]
+
+  /**
+   * 🔴 상태를 못 읽은 것 자체가 가장 급한 경보다.
+   *   서버가 오류로 답하면 `d` 는 낡은 것이거나 없다 — 그 말은 화면의 나머지 전부가
+   *   낡았다는 뜻이다. 머리말 구석의 작은 글씨로는 그 사실이 전달되지 않고,
+   *   긴 이유는 거기서 잘린다. 배너는 전폭이고 조치를 적는 자리다.
+   */
+  if (S.오류) {
+    list.unshift({
+      코드: '상태읽기실패', 수준: 'critical',
+      제목: '상태를 읽을 수 없습니다',
+      설명: `${S.오류} — 아래 내용은 마지막으로 성공한 시점의 것입니다.`,
+    })
+  }
+
   if (!list.length) { box.classList.add('hide'); return }
   box.classList.remove('hide')
 
@@ -483,6 +498,11 @@ function 상세그리기() {
     $('#dbody').classList.add('hide')
     // 알림 탭은 세션 없이도 보여준다
     $('#dempty').classList.toggle('hide', S.탭 === 'al')
+    // 🔴 세션을 골랐는데 못 읽은 것이면 그 이유를 적는다. 안내문만 두면 사람은
+    //   화면이 멈춘 줄 안다.
+    $('#dempty').textContent = S.열린세션 && S.상세오류
+      ? `이 세션의 상세를 읽을 수 없습니다 — ${S.상세오류}`
+      : '세션 행을 누르면 처리 상황과 내용이 실시간으로 표시됩니다.'
     $('#dtitle').textContent = S.탭 === 'al' ? '알림 이력' : '상세 — 왼쪽에서 세션을 고르세요'
     탭그리기()
     return
@@ -657,10 +677,27 @@ const 메타 = (s) => ({
   제목: s.제목, 실행cwd: s.실행cwd, 주작업cwd: s.주작업cwd, slug: s.slug,
 })
 
+/**
+ * 서버가 오류로 답했을 때 **이유를 꺼낸다.**
+ *
+ * 🔴 실측 결함 (2026-09-21): `throw new Error('HTTP ' + r.status)` 였다.
+ *   서버는 본문에 `{"오류":"등록부가 깨졌다 (…): Expected property name…"}` 를
+ *   담아 보내는데 화면은 그걸 버리고 "HTTP 500" 만 보여줬다. 고칠 수 있는 이유를
+ *   숫자로 바꿔 놓은 셈이다 — 이 저장소가 계속 고쳐 온 그 실수(코드 4294967295)와
+ *   같은 부류다. 감시 장치는 **무엇이 잘못됐는지**를 말해야 한다.
+ */
+async function 오류이유(r) {
+  try {
+    const j = await r.json()
+    if (j?.오류) return `${j.오류} (HTTP ${r.status})`
+  } catch { /* JSON 이 아니면 아래로 */ }
+  return `HTTP ${r.status}`
+}
+
 async function 상태읽기() {
   try {
     const r = await fetch('/api/status', { cache: 'no-store' })
-    if (!r.ok) throw new Error('HTTP ' + r.status)
+    if (!r.ok) throw new Error(await 오류이유(r))
     S.상태 = await r.json(); S.마지막성공 = Date.now(); S.오류 = null
   } catch (e) { S.오류 = e.message }
   그리기()
@@ -670,15 +707,20 @@ async function 상세읽기() {
   if (!S.열린세션) return
   try {
     const r = await fetch(`/api/session/${encodeURIComponent(S.열린세션)}?turns=60`, { cache: 'no-store' })
-    if (r.ok) S.상세 = await r.json()
-  } catch { /* 다음 회차에 다시 시도한다 */ }
+    // 🔴 조용히 넘기지 않는다. 상세가 안 열리는데 이유를 안 말하면 사람은 화면이
+    //   멈춘 줄 안다(실제로 겪은 부류의 실패다).
+    if (r.ok) { S.상세 = await r.json(); S.상세오류 = null }
+    else S.상세오류 = await 오류이유(r)
+  } catch (e) { S.상세오류 = e.message }
   상세다시그리기()
 }
 
 function 그리기() {
   const d = S.상태
   신선도갱신()
-  if (!d) return
+  // 🔴 상태가 없어도 경보는 그린다 — 첫 요청부터 실패했을 때 빈 화면만 뜨면
+  //   사람은 무엇이 잘못됐는지 알 길이 없다.
+  if (!d) { 경보그리기(null); return }
   $('#acct').textContent = d.계정.email ? `${d.계정.email} · ${d.계정.subscriptionType || ''}` : '계정 확인 실패'
   경보그리기(d); 타일들(d); 폴더그리기(d)
   스크롤유지('#slist', () => { 목록(d); 선택갱신() })
