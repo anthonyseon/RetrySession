@@ -105,7 +105,7 @@ test('세션·탭을 바꾸면 맨 위에서 시작한다', () => {
 /* ── 요약 접기 ───────────────────────────────────────────────── */
 
 /**
- * 요약 타일 10장이 큰 카드로 깔려 네 줄을 먹었고, 정작 일하는 곳인 세션 목록과
+ * 요약 열 항목이 큰 카드로 깔려 네 줄을 먹었고, 정작 일하는 곳인 세션 목록과
  * 상세가 아래로 밀렸다. 접을 수 있게 만들되 — **경보는 접히면 안 된다.**
  */
 test('🔴 경보는 접히는 묶음 바깥에 있다 (접은 채로 감시 끊김이 숨으면 안 된다)', () => {
@@ -123,27 +123,80 @@ test('🔴 요약을 접는 단추가 있고, 화살표 모양만으로 말하�
   assert.match(html, /id="btnTopTx"/, '상태를 글자로도 적어야 한다 — 화살표만으로는 뜻이 갈린다')
 })
 
+test('🔴 접기 단추는 요약 묶음 바로 위에 붙어 있다 (머리말 구석에 두니 눈에 안 띄었다)', () => {
+  const 단추 = html.indexOf('id="btnTop"')
+  const 묶음 = html.indexOf('<div class="top" id="top">')
+  const 머리끝 = html.indexOf('</header>')
+  assert.ok(단추 > 0 && 묶음 > 0 && 머리끝 > 0)
+  assert.ok(단추 > 머리끝, '접기 단추가 머리말 안에 있으면 무엇을 접는지 안 보인다')
+  assert.ok(단추 < 묶음, '접기 단추는 접히는 묶음 바로 앞에 있어야 한다')
+  assert.match(html, /class="sumbar"/, '띠 자체가 단추여야 누르기 쉽다')
+})
+
 test('접은 상태를 기억한다 — 열 때마다 다시 접게 하지 않는다', () => {
   assert.match(appjs, /localStorage/, '접힘 상태를 저장해야 한다')
   assert.match(appjs, /요약적용\(/, '적용 함수를 통해야 상태가 한 곳에서 관리된다')
   assert.match(appjs, /aria-expanded/, 'JS 도 aria 를 갱신해야 한다')
 })
 
-test('🔴 타일은 작고, 잘린 내용은 title 로 남는다 (자르면서 버리면 안 된다)', () => {
-  // 타일 최소 폭 — 크면 한 줄에 적게 들어가고 요약이 네 줄을 먹는다(그게 문제였다)
-  const 폭 = /\.tiles\{[^}]*minmax\((\d+)px/.exec(html)
-  assert.ok(폭, '.tiles 의 minmax 폭을 찾을 수 없다')
-  assert.ok(Number(폭[1]) <= 170,
-    `타일 최소 폭이 ${폭[1]}px 다 — 170px 이하여야 한 줄에 충분히 들어간다`)
+test('🔴 접었을 때도 한 줄 요지는 남는다 (접는 것은 자리를 비우는 것이지 포기가 아니다)', () => {
+  assert.match(html, /id="sumdigest"/, '요지를 담을 자리가 있어야 한다')
+  assert.match(html, /\.sumbar\[aria-expanded="true"\] \.sumdigest\{display:none\}/,
+    '펴 있을 때는 요지가 중복이므로 감춘다')
+  assert.match(appjs, /function 요지갱신/, '요지를 채우는 코드가 있어야 한다')
+  assert.match(appjs, /요지갱신\(d\)/, '상태를 받을 때마다 갱신해야 한다')
+})
 
-  // 값도 카드처럼 커지면 폭을 줄인 의미가 없다
-  const 값크기 = /\.tile \.value\{[^}]*font-size:\s*([\d.]+)px/.exec(html)
-  assert.ok(값크기, '.tile .value 의 font-size 를 찾을 수 없다')
-  assert.ok(Number(값크기[1]) <= 16, `값 글자가 ${값크기[1]}px 다 — 요약은 곁눈질용이다`)
-  assert.match(html, /\.tile \.sub\{[^}]*text-overflow:\s*ellipsis/,
-    '설명은 한 줄로 잘라야 요약이 화면을 먹지 않는다')
-  assert.match(appjs, /s\.title = sub/, '잘린 설명 전체를 title 에 남겨야 한다')
-  assert.match(appjs, /t\.title =/, '타일 전체에도 읽을 수 있는 title 이 있어야 한다')
+/* ── 묶음 배치: "한번에 파악"의 핵심 ────────────────────────── */
+
+/**
+ * 🔴 낱장을 줄이는 것으로는 안 됐다.
+ *   처음엔 큰 카드 열 장이 네 줄을 먹어서 작게 줄였다. 그런데도 사용자는
+ *   "한번에 파악하기 어렵다"고 했다 — 열 장이 **다 똑같이 생겨서** 어디를 봐야
+ *   할지 알 수 없었던 것이다. 계정 얘기와 OS 예약 얘기가 같은 무게로 나란히
+ *   있으면 눈이 붙잡을 곳이 없다. 크기 문제가 아니라 **묶음** 문제였다.
+ */
+test('🔴 요약은 묶음으로 나뉜다 — 같은 질문에 답하는 것끼리 모은다', () => {
+  assert.match(html, /class="groups"/, '묶음 컨테이너가 있어야 한다')
+  assert.match(html, /\.grp\{/, '묶음 칸 스타일이 있어야 한다')
+  assert.match(html, /\.grp > h3\{/, '묶음마다 이름이 있어야 한다 — 이름 없는 묶음은 묶음이 아니다')
+
+  for (const 이름 of ['계정', '실행 중', '사용량', 'OS 트리거']) {
+    assert.ok(appjs.includes(`묶음('${이름}')`), `'${이름}' 묶음이 없다`)
+  }
+})
+
+test('🔴 묶음 안은 이름·값 두 칸이고 값은 오른쪽에 모인다 (세로로 훑힌다)', () => {
+  assert.match(html, /\.grow\{[^}]*grid-template-columns:\s*auto 1fr/,
+    '이름과 값 두 칸이어야 한다')
+  assert.match(html, /\.grow > \.v\{[^}]*text-align:\s*right/,
+    '값이 오른쪽에 정렬돼야 눈이 한 줄로 훑는다')
+  assert.match(html, /\.grow > \.v\{[^}]*text-overflow:\s*ellipsis/,
+    '긴 값은 잘라야 줄이 무너지지 않는다')
+})
+
+test('🔴 화면에 안 보이는 설명은 title 로 남는다 (자르면서 버리면 안 된다)', () => {
+  assert.match(appjs, /r\.title = 설명/, '줄마다 설명 전체를 title 에 남겨야 한다')
+})
+
+test('🔴 상태는 색만으로 나르지 않는다 — 배지가 아이콘과 라벨을 함께 담는다', () => {
+  assert.match(appjs, /badge\('good', '●', w\.돌고있음/, '정상일 때도 말로 적어야 한다')
+  assert.match(appjs, /badge\('crit', '▲', '미등록'\)/, '미등록 배지가 있어야 한다')
+  assert.match(appjs, /badge\('warn', '■', '멈춰 있음'\)/, '멈춤 배지가 있어야 한다')
+  assert.match(appjs, /badge\('crit', '▲', '실패'\)/, '실패 배지가 있어야 한다')
+})
+
+test('🔴 OS 트리거 값은 배지 하나다 — 상태 글자와 겹쳐 적으면 좁은 칸에서 잘린다', () => {
+  const i = appjs.indexOf("묶음('OS 트리거')")
+  assert.ok(i > 0)
+  const 구간 = appjs.slice(i, appjs.indexOf('box.append(g4)', i))
+  // 배지를 다섯 번째 인자로 따로 넘기면 값 + 배지가 같은 칸에 둘 다 들어간다
+  assert.ok(/줄\(g4, 라벨, 값, 설명\)/.test(구간),
+    'OS 트리거 줄은 값(배지) 하나만 넘겨야 한다')
+  assert.ok(!/값 = w\.상태/.test(구간), '상태 글자를 값으로 쓰면 배지와 중복된다')
+  // 긴 결과뜻을 배지 라벨에 넣으면 칸을 넘친다 — title 과 경보 배너가 맡는다
+  assert.ok(!/badge\([^)]*\$\{w\.결과뜻\}/.test(구간), '결과뜻을 배지 라벨에 넣지 마라 — 칸을 넘친다')
+  assert.ok(/설명 = .*결과뜻/.test(구간), '결과뜻은 설명(title)에 남겨야 한다')
 })
 
 test('요약을 접으면 본문이 그 공간을 가져간다', () => {
