@@ -18,8 +18,12 @@ description: RetrySession(세션 감시·재시작 도구)의 코드·스크립�
 | `scripts/*.ps1` · `start.ps1` | **순수 ASCII** — 한글·이모지 금지 |
 | 예약 작업 등록 | action 은 `runhidden.exe` 경유 (콘솔 창) |
 | `src/ui/*` | 고쳐도 **자동 반영되지 않는다** (아래 2번) |
-| `tray.ps1` | `ShowBalloonTip` 금지 · `/api/tray` 만 읽는다 |
+| `tray.ps1` | `ShowBalloonTip` 금지 · `/api/tray` 만 읽는다 · **UI 스레드를 붙잡지 마라** |
 | 프로세스를 띄우는 코드 | `shell: 셸필요(exe)` — 무조건 `shell:true` 금지 |
+| 상태 파일을 쓰는 코드 | `lib/io.mjs` 의 `원자쓰기`/`덧붙이기` — `writeFileSync` 직접 금지 |
+| 락을 만드는 코드 | `{ flag: 'wx' }` — 보고-쓰기는 둘 다 통과시킨다 |
+| `src/ui/server.mjs` 의 라우팅 | 새 엔드포인트도 `출처괜찮나`·`세션id인가` 를 거친다 |
+| 화면 상단 영역 | 경보(`.alerts-wrap`)를 접히는 `#top` 안으로 옮기지 마라 |
 
 ## 1. 고친다
 
@@ -111,7 +115,11 @@ git add -A && git status --short | grep -i exe   # 비어 있어야 정상
 
 - `heartbeat.mjs` 에 `--loop`·`setInterval` 을 넣지 마라 (9시간 중단의 원인)
 - 판정을 fail-open 으로 바꾸지 마라 ("모르면 정상"은 감시가 아니다)
+- 목록이 비었다고 "아무도 안 돈다"로 읽지 마라 — `ok` 를 함께 봐라 (조회 실패가 가드를 열었다)
 - `tray.ps1` 에 `ShowBalloonTip` 을 되살리지 마라 (알림은 화면에서)
+- 트레이 타이머에서 동기 HTTP 를 부르지 마라 (메뉴가 최대 2.7초씩 얼었다)
 - UI 바인드 주소를 `0.0.0.0` 으로 바꾸지 마라 (재시작을 띄울 수 있는 화면이다)
+- Origin 검사를 빼지 마라 (아무 웹페이지나 `/api/run` 을 누를 수 있었다)
+- 상태 파일을 `writeFileSync` 로 직접 쓰지 마라 (찢어지면 감시가 통째로 멈춘다)
 - 단일 실행 락을 걷어내지 마라 (예약의 `MultipleInstances` 는 스케줄러끼리만 막는다)
 - API 키를 도입하지 마라 (VS Code 에 로그인된 계정을 쓴다)
