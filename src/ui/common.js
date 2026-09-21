@@ -50,9 +50,30 @@ function badge(kind, icon, label) {
  */
 const 바닥여유 = 24 // px. 스크롤바를 끝까지 내리지 않아도 "바닥"으로 본다
 
+/**
+ * 🔴 첫 렌더는 보존할 위치가 없다 — 맨 위에서 시작한다.
+ *
+ *   실측 결함 (2026-09-21): 화면을 새로 열면 세션 목록이 **맨 아래로** 내려가 있었다.
+ *   첫 렌더 때 상자는 비어 있어서
+ *     scrollHeight - clientHeight - scrollTop = 0  (<= 바닥여유)
+ *   이 되고, "바닥에 있었다"로 판정해 그린 뒤 바닥으로 보냈다.
+ *   **없던 바닥에 붙어 있을 수는 없다.** 스크롤할 것이 없었으면 보존할 위치도 없다.
+ *
+ *   상자마다 따로 센다 — 목록의 첫 렌더가 상세의 첫 렌더를 대신하면 안 된다.
+ */
+const 그린적있나 = new Set()
+
+/** 시험용 — 첫 렌더 기록을 지운다 */
+export const 첫렌더초기화 = () => 그린적있나.clear()
+
 function 스크롤유지(sel, 다시그리기, { 맨위로 = false } = {}) {
   const box = $(sel)
   if (!box) { 다시그리기(); return }
+
+  const 첫렌더 = !그린적있나.has(sel)
+  그린적있나.add(sel)
+  if (첫렌더) { 다시그리기(); box.scrollTop = 0; return }
+
   const 이전 = box.scrollTop
   const 바닥이었나 = box.scrollHeight - box.clientHeight - 이전 <= 바닥여유
 
@@ -80,3 +101,4 @@ export const 동작 = {
 }
 
 export { $, el, n, 압축, 짧은경로, S, badge, 스크롤유지 }
+

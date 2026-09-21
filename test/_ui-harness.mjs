@@ -19,7 +19,11 @@ export const ROOT = fileURLToPath(new URL('..', import.meta.url))
 /* ── 최소 DOM ────────────────────────────────────────────────── */
 
 class 노드 {
-  constructor(tag) { this.tag = tag; this.children = []; this.attrs = {}; this._text = '' }
+  constructor(tag) {
+    this.tag = tag; this.children = []; this.attrs = {}; this._text = ''
+    // 스크롤 관련 값. 실제 브라우저에서는 레이아웃이 정하지만 시험에서는 직접 준다.
+    this.scrollTop = 0; this.scrollHeight = 0; this.clientHeight = 0
+  }
   set className(v) { this.attrs.class = v }
   get className() { return this.attrs.class || '' }
   set textContent(v) { this._text = String(v); this.children = [] }
