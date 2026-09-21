@@ -82,12 +82,28 @@ PowerShell 5.1 이 `.ps1` 을 ANSI 로 읽는다. 한글 한 자로 파서가 �
 
 ### 3-3. 콘솔 창을 띄우지 마라
 
-예약 작업의 action 을 `node.exe` 로 두면 **콘솔 창이 뜬다.** 작업의 `-Hidden` 설정은
-작업 스케줄러 목록에서 작업을 숨기는 것이지 프로세스 창과 무관하다(실측: UI 서버에
-`conhost.exe` 가 붙어 창이 계속 떠 있었고, 5분 감시는 5분마다 번쩍였다).
+**숨기지 말고 만들지 마라.** 콘솔 프로그램(`node.exe` · `powershell.exe`)을 띄우는
+모든 자리는 **`runhidden.exe`** 를 거친다(`tools/RunHidden.cs`, `/target:winexe`,
+자식을 `CREATE_NO_WINDOW` 로 시작). 할당하지 않으면 보여줄 것도 없다.
 
-모든 예약 action 은 **`runhidden.exe`** 를 거친다(`tools/RunHidden.cs`, `/target:winexe`).
-등록 스크립트는 `runhidden.exe` 가 없으면 경고하고 물러선다 — 조용히 창을 띄우지 않는다.
+안 통하는 두 가지를 구별하라 — **둘 다 실측으로 틀렸다**:
+
+| 쓰고 싶어지는 것 | 실제로 하는 일 |
+|---|---|
+| 작업의 `-Hidden` | 작업 스케줄러 **목록**에서 작업을 숨긴다. 창과 무관하다 |
+| `-WindowStyle Hidden` | PowerShell **호스트** 설정이다. 콘솔은 그 전에 이미 할당됐다 |
+
+> 실측 ①: UI 서버에 `conhost.exe` 가 붙어 창이 계속 떠 있었고 5분 감시는 5분마다 번쩍였다.
+>
+> 실측 ② (2026-09-21): 사용자가 "command 창이 꼭 필요한가"를 **두 번** 물었다. 첫 번째에
+> node 작업 셋만 고치고 **트레이를 빼먹었다.** 트레이는 `powershell.exe -WindowStyle Hidden`
+> 이었는데 창이 보였다 — pid 39528, 호스팅은 `WindowsTerminal.exe`.
+> **Windows 11 기본 콘솔 호스트가 Windows Terminal 이라 그 플래그가 그 창을 제어하지 못한다.**
+> 트레이는 로그온 내내 살아 있어 하루 종일 떠 있었다. 고친 뒤 RetrySession 소유 콘솔 창 0개.
+
+네 예약 작업 + `tray.ps1` 의 창 열기 + 바로가기(`shortcut.ps1`) + `start.ps1` 의 직접 실행이
+모두 해당된다. `test/ascii.test.mjs` 가 네 곳을 다 센다 — 사람이 하나를 빼먹었으니 기계가 센다.
+`runhidden.exe` 가 없으면 경고하고 물러선다 — 조용히 창을 띄우지 않는다.
 
 ### 3-4. 중복 실행 금지
 

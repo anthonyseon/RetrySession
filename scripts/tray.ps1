@@ -101,11 +101,28 @@ function Get-StatusIcon([string]$kind) {
 # ---- helpers ------------------------------------------------------------
 $psExe = (Get-Process -Id $PID).Path   # the powershell.exe running this script
 
+# Opening the window must not flash a console of its own.
+#
+# `-WindowStyle Hidden` is a PowerShell HOST preference: the console is
+# allocated by Windows first, and on Windows 11 the default host is Windows
+# Terminal, whose window that preference does not control (measured - this is
+# what made the tray task itself show a window). Go through runhidden.exe,
+# which is /target:winexe and starts the child with CREATE_NO_WINDOW, so no
+# console is allocated at all.
+$runHidden = Join-Path $Root 'runhidden.exe'
+
 function Open-Window {
-  Start-Process -FilePath $psExe -WindowStyle Hidden -ArgumentList @(
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
-    '-File', (Join-Path $Root 'scripts\open-app.ps1'), '-NoWait'
-  )
+  $open = Join-Path $Root 'scripts\open-app.ps1'
+  if (Test-Path $runHidden) {
+    Start-Process -FilePath $runHidden -ArgumentList @(
+      $psExe, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $open, '-NoWait'
+    )
+  } else {
+    Start-Process -FilePath $psExe -WindowStyle Hidden -ArgumentList @(
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+      '-File', $open, '-NoWait'
+    )
+  }
 }
 
 # ---- tray icon and menu -------------------------------------------------

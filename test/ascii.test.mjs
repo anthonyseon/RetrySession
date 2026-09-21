@@ -141,3 +141,55 @@ test('.ps1 이 가리키는 작업 이름은 scheduler.mjs 와 일치한다', as
     assert.ok(un.includes(name), `unregister-all.ps1 에 '${name}' 이 없다 — 지워지지 않고 남는다`)
   }
 })
+
+/* ── 콘솔 창 ─────────────────────────────────────────────────── */
+
+/**
+ * 🔴 실측 결함 (2026-09-21) — 사용자가 "command 창이 꼭 필요한가" 를 **두 번** 물었다.
+ *
+ *   첫 번째에 node 작업 셋(하트비트·재개·UI)을 runhidden.exe 로 돌렸는데
+ *   **트레이 하나를 빼먹었다.** 트레이는 powershell.exe 를 직접 실행하고
+ *   `-WindowStyle Hidden` 을 믿었다.
+ *
+ *   찾은 것: pid 39528 `powershell.exe -WindowStyle Hidden -File ...\tray.ps1`,
+ *   창이 **보이는** 상태로 WindowsTerminal.exe 가 호스팅 중.
+ *
+ *   그 플래그로 안 되는 이유
+ *     1. `-WindowStyle Hidden` 은 PowerShell **호스트 설정**이다. 콘솔은 그 전에
+ *        Windows 가 이미 할당했고, Windows 11 기본 콘솔 호스트는 Windows Terminal
+ *        이라 그 설정이 그 창을 제어하지 못한다.
+ *     2. 트레이는 로그온 세션 내내 살아 있어서 창이 사라지지 않는다.
+ *        5분 작업은 잠깐 번쩍이지만 트레이는 하루 종일 떠 있다.
+ *
+ *   숨기는 게 아니라 **만들지 않는 것**이 답이다 — runhidden.exe 는 /target:winexe 이고
+ *   자식을 CREATE_NO_WINDOW 로 띄운다. 할당하지 않으면 보여줄 것도 없다.
+ *
+ *   사람이 네 곳 중 하나를 빼먹었으니, 기계가 네 곳을 다 센다.
+ */
+test('🔴 예약 작업 네 개 모두 runhidden.exe 를 거친다 (하나만 빼먹으면 창이 뜬다)', () => {
+  for (const f of ['register-heartbeat.ps1', 'register-resume.ps1', 'register-ui.ps1', 'register-tray.ps1']) {
+    const src = readFileSync(join(ROOT, 'scripts', f), 'utf8')
+    const 코드 = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+    assert.ok(/runhidden\.exe/.test(코드), `scripts/${f} 가 runhidden.exe 를 쓰지 않는다`)
+    // action 을 만드는 줄이 runhidden 을 가리켜야 한다
+    const action = 코드.split('\n').filter((l) => l.includes('New-ScheduledTaskAction'))
+    assert.ok(action.length >= 1, `${f} 에서 action 을 찾을 수 없다`)
+    assert.ok(action.some((l) => /\$hidden|\$RunHidden|runhidden/i.test(l)),
+      `${f} 의 action 이 runhidden 을 거치지 않는다: ${action[0]?.trim().slice(0, 80)}`)
+  }
+})
+
+test('🔴 콘솔 프로그램을 띄우는 곳은 -WindowStyle Hidden 만 믿지 않는다', () => {
+  // Windows Terminal 이 기본 호스트면 그 플래그로는 창이 남는다.
+  // 그 플래그를 쓰는 줄이 있어도 되지만, 반드시 runhidden 대안이 함께 있어야 한다.
+  for (const f of ['tray.ps1', 'shortcut.ps1']) {
+    const src = readFileSync(join(ROOT, 'scripts', f), 'utf8')
+    const 코드 = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+    if (!/WindowStyle Hidden|WindowStyle', 'Hidden/.test(코드)) continue
+    assert.ok(/runhidden\.exe/.test(코드),
+      `scripts/${f} 가 -WindowStyle Hidden 에만 기대고 있다 — runhidden.exe 경로를 함께 둬라`)
+  }
+  const start = readFileSync(join(ROOT, 'start.ps1'), 'utf8')
+  const 시작코드 = start.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+  assert.ok(/runhidden\.exe/.test(시작코드), 'start.ps1 도 runhidden.exe 를 알아야 한다')
+})

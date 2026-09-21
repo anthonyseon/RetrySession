@@ -35,6 +35,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $Root = $PSScriptRoot
 $Scripts = Join-Path $Root 'scripts'
+# Launcher that starts a child with CREATE_NO_WINDOW (tools/RunHidden.cs).
+# Used wherever we start a console program, because `-WindowStyle Hidden` does
+# not prevent a window when Windows Terminal is the default console host.
+$RunHidden = Join-Path $Root 'runhidden.exe'
 
 function Head($text) {
   Write-Host ''
@@ -169,11 +173,20 @@ if (Test-Server) {
     Start-ScheduledTask -TaskName 'EasyAI-RetrySession-UI'
   } else {
     # Not registered yet - run it directly so the user still gets a window.
-    # Hidden, so no console appears.
+    #
+    # Go through runhidden.exe. `-WindowStyle Hidden` is not enough: the console
+    # is allocated before the child runs, and on Windows 11 the default console
+    # host is Windows Terminal, whose window that flag does not control
+    # (measured - that is how the tray task ended up showing one all day).
     Write-Host 'server   : task not registered - starting it directly for now'
-    Start-Process -FilePath $node -WindowStyle Hidden `
-      -ArgumentList @("`"$(Join-Path $Root 'src\ui\server.mjs')`"", '--port', $Port) `
-      -WorkingDirectory $Root
+    $serverArgs = @("`"$(Join-Path $Root 'src\ui\server.mjs')`"", '--port', $Port)
+    if (Test-Path $RunHidden) {
+      Start-Process -FilePath $RunHidden -WorkingDirectory $Root `
+        -ArgumentList (@("`"$node`"") + $serverArgs)
+    } else {
+      Start-Process -FilePath $node -WindowStyle Hidden `
+        -ArgumentList $serverArgs -WorkingDirectory $Root
+    }
   }
 
   $up = $false
@@ -200,11 +213,19 @@ if (Get-TrayRunning) {
     Write-Host 'tray     : starting the registered task...'
     Start-ScheduledTask -TaskName 'EasyAI-RetrySession-Tray'
   } else {
+    # Same reason as the server above - no console at all, not a hidden one.
     $psExe = (Get-Process -Id $PID).Path
-    Start-Process -FilePath $psExe -WindowStyle Hidden -ArgumentList @(
-      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
-      '-File', (Join-Path $Scripts 'tray.ps1'), '-Port', $Port
-    )
+    if (Test-Path $RunHidden) {
+      Start-Process -FilePath $RunHidden -WorkingDirectory $Root -ArgumentList @(
+        $psExe, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+        '-File', (Join-Path $Scripts 'tray.ps1'), '-Port', $Port
+      )
+    } else {
+      Start-Process -FilePath $psExe -WindowStyle Hidden -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+        '-File', (Join-Path $Scripts 'tray.ps1'), '-Port', $Port
+      )
+    }
   }
   Start-Sleep -Seconds 3
   if (Get-TrayRunning) { Write-Host 'tray     : started' -ForegroundColor Green }

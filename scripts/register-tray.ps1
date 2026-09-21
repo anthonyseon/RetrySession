@@ -3,11 +3,15 @@
 # ASCII ONLY (PowerShell 5.1 reads .ps1 as ANSI).
 #
 # The tray is how you find out something broke without having a window open.
-# It polls /api/tray, colours its dot, and raises a balloon when the state
-# CHANGES (stalled monitor, blocked resume, usage limit, server down).
+# It polls /api/tray and colours its dot; the wording is always there too, in the
+# tooltip and the menu header.
 #
-# No cmd.exe: the action runs powershell.exe directly, with -WindowStyle Hidden
-# so no console ever appears.
+# NO BALLOON NOTIFICATIONS - they fired far too often and buried the real ones.
+# Alerts live in the window, where you can act on them.
+#
+# No cmd.exe. The action goes through runhidden.exe so no console is ever
+# allocated - see the comment on $action below for why -WindowStyle Hidden is
+# not enough.
 
 $ErrorActionPreference = 'Stop'
 
@@ -45,9 +49,38 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Silen
   }
 Start-Sleep -Milliseconds 500
 
-$action = New-ScheduledTaskAction -Execute $psExe -WorkingDirectory $Root -Argument (
-  '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $Script + '"'
-)
+# IMPORTANT: route through runhidden.exe, exactly like the node tasks.
+#
+# MEASURED BUG (2026-09-21) - this task was the console window the user kept
+# asking about. The other three tasks already went through runhidden.exe; this
+# one launched powershell.exe directly and trusted `-WindowStyle Hidden`.
+#
+#   Found: pid 39528, "powershell.exe -WindowStyle Hidden -File ...\tray.ps1",
+#          with a VISIBLE window hosted by WindowsTerminal.exe.
+#
+# Two reasons that flag is not enough:
+#   1. `-WindowStyle Hidden` is a PowerShell HOST preference. The console is
+#      allocated by Windows before PowerShell runs, so something must exist to
+#      be hidden - and on Windows 11 the default console host is Windows
+#      Terminal, whose window that preference does not control.
+#   2. The tray lives for the whole logon session, so the window never goes
+#      away. A 5-minute task at least only flashes.
+#
+# runhidden.exe is /target:winexe and starts the child with CREATE_NO_WINDOW,
+# so no console is ever allocated. Nothing to hide means nothing to show.
+$hidden = Join-Path $Root 'runhidden.exe'
+if (Test-Path $hidden) {
+  $action = New-ScheduledTaskAction -Execute $hidden -WorkingDirectory $Root -Argument (
+    '"' + $psExe + '" -NoProfile -ExecutionPolicy Bypass -File "' + $Script + '"'
+  )
+  Write-Host 'window : hidden (runhidden.exe)'
+} else {
+  # Say it out loud rather than quietly showing a window that stays all day.
+  $action = New-ScheduledTaskAction -Execute $psExe -WorkingDirectory $Root -Argument (
+    '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $Script + '"'
+  )
+  Write-Host 'window : VISIBLE - runhidden.exe is missing (.\scripts\build-exe.ps1)' -ForegroundColor Yellow
+}
 
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
 

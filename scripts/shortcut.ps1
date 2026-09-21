@@ -39,11 +39,30 @@ foreach ($dir in $targets) {
   $lnkPath = Join-Path $dir "$Name.lnk"
 
   $lnk = $wsh.CreateShortcut($lnkPath)
-  $lnk.TargetPath = $psExe
-  $lnk.Arguments  = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
-                    $Opener + '" -Port ' + $Port
+
+  # Point at runhidden.exe, not powershell.exe.
+  #
+  # `-WindowStyle Hidden` plus WindowStyle=7 (minimized) still leaves a console
+  # to minimise: Windows allocates it before PowerShell runs, and on Windows 11
+  # the default console host is Windows Terminal, whose window neither setting
+  # controls. Measured: the tray task, launched exactly this way, showed a
+  # visible Windows Terminal window for the whole logon session.
+  # runhidden.exe is /target:winexe and uses CREATE_NO_WINDOW - nothing is
+  # allocated, so there is nothing to show or minimise.
+  $runHidden = Join-Path $Root 'runhidden.exe'
+  if (Test-Path $runHidden) {
+    $lnk.TargetPath = $runHidden
+    $lnk.Arguments  = '"' + $psExe + '" -NoProfile -ExecutionPolicy Bypass -File "' +
+                      $Opener + '" -Port ' + $Port
+  } else {
+    Write-Host 'note   : runhidden.exe is missing - the shortcut may flash a window' -ForegroundColor Yellow
+    Write-Host '         build it with .\scripts\build-exe.ps1' -ForegroundColor Yellow
+    $lnk.TargetPath = $psExe
+    $lnk.Arguments  = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
+                      $Opener + '" -Port ' + $Port
+  }
   $lnk.WorkingDirectory = $Root
-  $lnk.WindowStyle = 7           # minimized, so the launcher never shows
+  $lnk.WindowStyle = 7           # minimized, in case we fell back to powershell
   $lnk.Description = 'RetrySession - watch and resume Claude Code sessions'
   if ($iconSrc) { $lnk.IconLocation = "$iconSrc,0" }
   $lnk.Save()
