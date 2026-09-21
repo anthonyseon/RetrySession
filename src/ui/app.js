@@ -26,7 +26,7 @@ const 짧은경로 = (p) => String(p || '').replace(/^.*[\\/]Cnthoth-Dev[\\/]/i,
 
 const S = {
   상태: null, 상세: null, 선택: new Set(), 열린세션: null,
-  탭: 'now', 자동: true, 마지막성공: 0, 오류: null, 등록만: false,
+  탭: 'now', 자동: true, 마지막성공: 0, 오류: null, 등록만: false, 마지막상세키: null,
 }
 
 /* ── 배지 ────────────────────────────────────────────────────── */
@@ -50,6 +50,41 @@ const 재시작배지 = (s) => {
   if (r.손상) return badge('crit', '▲', '상태 파일 손상')
   if (!r.예산통과) return badge('warn', '◔', '재시작 대기 · ' + (r.예산이유 || ''))
   return badge('good', '●', '재시작 준비')
+}
+
+/* ── 스크롤 보존 ─────────────────────────────────────────────── */
+/**
+ * 🔴 목록은 3초, 상세는 2초마다 통째로 다시 그린다.
+ *   그대로 두면 사용자가 스크롤할 때마다 맨 위로 튕겨 읽을 수가 없다.
+ *   다시 그리기 전에 위치를 재고, 그린 뒤 되돌린다.
+ *
+ * 바닥에 붙어 있었으면 **바닥에 붙인 채로** 둔다 — 로그·타임라인은 새 줄이
+ * 아래에 쌓이므로, 위치를 그대로 복원하면 새 내용이 화면 밖으로 밀려난다.
+ */
+const 바닥여유 = 24 // px. 스크롤바를 끝까지 내리지 않아도 "바닥"으로 본다
+
+function 스크롤유지(sel, 다시그리기, { 맨위로 = false } = {}) {
+  const box = $(sel)
+  if (!box) { 다시그리기(); return }
+  const 이전 = box.scrollTop
+  const 바닥이었나 = box.scrollHeight - box.clientHeight - 이전 <= 바닥여유
+
+  다시그리기()
+
+  // 다른 세션·다른 탭으로 옮겼으면 이전 위치를 되돌리는 게 오히려 이상하다
+  if (맨위로) { box.scrollTop = 0; return }
+
+  // 레이아웃이 확정된 뒤에 되돌린다
+  if (바닥이었나) box.scrollTop = box.scrollHeight
+  else box.scrollTop = Math.min(이전, Math.max(0, box.scrollHeight - box.clientHeight))
+}
+
+/** 상세를 다시 그린다. 보고 있던 세션·탭이 바뀌었으면 맨 위에서 시작한다 */
+function 상세다시그리기() {
+  const 키 = `${S.열린세션 || ''}|${S.탭}`
+  const 바뀜 = 키 !== S.마지막상세키
+  S.마지막상세키 = 키
+  스크롤유지('#dscroll', 상세그리기, { 맨위로: 바뀜 })
 }
 
 /* ── 경보 배너 ───────────────────────────────────────────────── */
@@ -509,7 +544,7 @@ async function 상세읽기() {
     const r = await fetch(`/api/session/${encodeURIComponent(S.열린세션)}?turns=60`, { cache: 'no-store' })
     if (r.ok) S.상세 = await r.json()
   } catch { /* 다음 회차에 다시 시도한다 */ }
-  상세그리기()
+  상세다시그리기()
 }
 
 function 그리기() {
@@ -517,7 +552,9 @@ function 그리기() {
   신선도갱신()
   if (!d) return
   $('#acct').textContent = d.계정.email ? `${d.계정.email} · ${d.계정.subscriptionType || ''}` : '계정 확인 실패'
-  경보그리기(d); 타일들(d); 폴더그리기(d); 목록(d); 선택갱신(); 상세그리기()
+  경보그리기(d); 타일들(d); 폴더그리기(d)
+  스크롤유지('#slist', () => { 목록(d); 선택갱신() })
+  상세다시그리기()
 }
 
 /**
@@ -561,7 +598,7 @@ document.querySelector('.actions').addEventListener('click', async (e) => {
 
 document.querySelector('#dtabs').addEventListener('click', (e) => {
   if (!e.target.dataset?.tab) return
-  S.탭 = e.target.dataset.tab; 탭그리기()
+  S.탭 = e.target.dataset.tab; 상세다시그리기()
 })
 
 $('#btnRefresh').addEventListener('click', () => { 상태읽기(); 상세읽기() })

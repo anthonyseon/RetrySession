@@ -34,16 +34,26 @@
   }
 }
 *{box-sizing:border-box}
+
+/* ── 틀: 화면 높이에 고정한다 ──
+   목록과 상세가 **각각** 스크롤되려면 페이지 전체가 스크롤되면 안 된다.
+   body 를 뷰포트 높이에 묶고, 남는 공간을 main 이 가져가고, 그 안에서
+   각 패널이 자기 스크롤 영역을 갖는다. */
+html, body{height:100%}
 body{
   margin:0; background:var(--plane); color:var(--ink);
   font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+  display:flex; flex-direction:column; overflow:hidden;
 }
 a{color:var(--accent)}
 .hide{display:none !important}
 
+/* 경보·타일 묶음. 경보가 많아도 패널을 0 높이로 밀어내지 않게 자체 한계를 둔다 */
+.top{flex:0 0 auto; max-height:46vh; overflow-y:auto}
+
 /* ── 머리 ── */
 header{
-  position:sticky; top:0; z-index:10; background:var(--surface);
+  flex:0 0 auto; background:var(--surface);
   border-bottom:1px solid var(--grid); padding:10px 16px;
   display:flex; align-items:center; gap:14px; flex-wrap:wrap;
 }
@@ -115,11 +125,21 @@ button.sm{padding:3px 8px; font-size:12px}
 .meter > i{display:block; height:100%; background:var(--accent); border-radius:3px}
 .meter.warn > i{background:var(--warn)} .meter.crit > i{background:var(--crit)}
 
-/* ── 본문 2단 ── */
-main{display:grid; grid-template-columns:minmax(420px,1.05fr) minmax(460px,1.35fr); gap:12px; padding:0 16px 16px; align-items:start}
-@media (max-width:1100px){ main{grid-template-columns:1fr} }
-.panel{background:var(--surface); border:1px solid var(--grid); border-radius:9px; overflow:hidden}
+/* ── 본문 2단 ──
+   align-items:stretch 로 두 패널이 같은 높이를 갖고, 각자 안에서 스크롤한다. */
+main{
+  flex:1 1 auto; min-height:0;
+  display:grid; grid-template-columns:minmax(420px,1.05fr) minmax(460px,1.35fr);
+  gap:12px; padding:0 16px 16px; align-items:stretch;
+}
+.panel{
+  background:var(--surface); border:1px solid var(--grid); border-radius:9px;
+  overflow:hidden;
+  /* 🔴 min-height:0 이 없으면 flex 자식이 내용 높이만큼 부풀어 스크롤이 생기지 않는다 */
+  display:flex; flex-direction:column; min-height:0;
+}
 .panel > h2{
+  flex:0 0 auto;
   font-size:12.5px; font-weight:600; color:var(--ink-2); margin:0;
   padding:9px 13px; border-bottom:1px solid var(--grid); background:var(--surface-2);
   display:flex; align-items:center; gap:9px; flex-wrap:wrap;
@@ -127,14 +147,31 @@ main{display:grid; grid-template-columns:minmax(420px,1.05fr) minmax(460px,1.35f
 .panel > h2 .spacer{flex:1}
 .pad{padding:12px 13px}
 
+/* 각 패널의 스크롤 영역 — 이 둘이 서로 독립으로 움직인다 */
+#slist, #dscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain}
+
+/* 좁은 화면에서는 두 패널이 세로로 쌓인다. 그때 각자 스크롤을 주면 둘 다 너무 낮아
+   쓸 수 없으므로, 페이지 스크롤로 되돌리고 패널에는 넉넉한 상한만 준다. */
+@media (max-width:1100px){
+  body{overflow:auto}
+  main{grid-template-columns:1fr; align-items:start}
+  .top{max-height:none; overflow:visible}
+  #slist, #dscroll{max-height:70vh}
+}
+
 /* ── 선택 작업 바 ── */
-.actions{display:flex; gap:7px; align-items:center; flex-wrap:wrap; padding:9px 13px; border-bottom:1px solid var(--grid)}
+/* flex:0 0 auto — 목록이 길어져도 이 줄이 눌리면 안 된다 */
+.actions{flex:0 0 auto; display:flex; gap:7px; align-items:center; flex-wrap:wrap; padding:9px 13px; border-bottom:1px solid var(--grid)}
 .actions .n{color:var(--ink-2); font-size:12px; margin-right:3px}
 .filter{font-weight:400; color:var(--muted); font-size:11.5px}
 .filter input{vertical-align:-2px}
 
 /* ── 열린 폴더 (VS Code 워크스페이스) ── */
-.folders{padding:8px 13px; border-bottom:1px solid var(--grid); background:var(--surface-2)}
+/* 폴더가 많아도 세션 목록을 밀어내지 않게 자체 상한을 둔다 */
+.folders{
+  flex:0 0 auto; max-height:26vh; overflow-y:auto;
+  padding:8px 13px; border-bottom:1px solid var(--grid); background:var(--surface-2);
+}
 .frow{display:flex; align-items:center; gap:7px; flex-wrap:wrap; padding:3px 0}
 .fname{
   font-family:ui-monospace,Consolas,monospace; font-size:11.5px; color:var(--ink-2);
@@ -174,8 +211,9 @@ code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11.5p
 }
 .tabs button.on{color:var(--ink); border-bottom-color:var(--accent); font-weight:500}
 
-/* 타임라인 */
-.tl{max-height:440px; overflow:auto; padding:4px 0}
+/* 타임라인 — 자체 스크롤을 주지 않는다. 바깥 #dscroll 하나로 굴린다.
+   스크롤 안에 스크롤이 있으면 휠이 어디로 갈지 예측할 수 없다. */
+.tl{padding:4px 0}
 .ti{padding:8px 13px; border-bottom:1px solid var(--grid)}
 .ti:last-child{border-bottom:0}
 .ti .hd{display:flex; gap:8px; align-items:baseline; font-size:11.5px; color:var(--muted)}
@@ -193,9 +231,9 @@ code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11.5p
 .tchip span{color:var(--muted); font-family:ui-monospace,Consolas,monospace; word-break:break-all}
 .tok{color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums}
 
-/* 로그 */
+/* 로그 — 위와 같은 이유로 자체 스크롤 없음 */
 pre.log{
-  margin:0; padding:11px 13px; max-height:400px; overflow:auto;
+  margin:0; padding:11px 13px;
   background:var(--surface); color:var(--ink-2);
   font-family:ui-monospace,Consolas,monospace; font-size:11.5px; line-height:1.55;
   white-space:pre-wrap; word-break:break-word;
@@ -228,9 +266,10 @@ table.models td:first-child{text-align:left; color:var(--ink)}
   <button type="button" class="sm" id="btnTheme">밝게</button>
 </header>
 
-<section id="alerts" class="alerts hide"></section>
-
-<section class="tiles" id="tiles"></section>
+<div class="top">
+  <section id="alerts" class="alerts hide"></section>
+  <section class="tiles" id="tiles"></section>
+</div>
 
 <main>
   <section class="panel">
@@ -263,16 +302,19 @@ table.models td:first-child{text-align:left; color:var(--ink)}
       <button type="button" data-tab="cfg">설정</button>
       <button type="button" data-tab="al">알림</button>
     </div>
-    <div class="empty" id="dempty">세션 행을 누르면 처리 상황과 내용이 실시간으로 표시됩니다.</div>
-    <div id="dbody" class="hide">
-      <div id="tab-now" class="pad"></div>
-      <div id="tab-tl" class="tl hide"></div>
-      <pre id="tab-hb" class="log hide"></pre>
-      <pre id="tab-rs" class="log hide"></pre>
-      <div id="tab-cfg" class="pad hide"></div>
+    <!-- 상세 전용 스크롤 영역. 세션 목록(#slist)과 독립으로 움직인다. -->
+    <div id="dscroll">
+      <div class="empty" id="dempty">세션 행을 누르면 처리 상황과 내용이 실시간으로 표시됩니다.</div>
+      <div id="dbody" class="hide">
+        <div id="tab-now" class="pad"></div>
+        <div id="tab-tl" class="tl hide"></div>
+        <pre id="tab-hb" class="log hide"></pre>
+        <pre id="tab-rs" class="log hide"></pre>
+        <div id="tab-cfg" class="pad hide"></div>
+      </div>
+      <!-- 알림은 세션을 고르지 않아도 볼 수 있어야 한다 — dbody 바깥에 둔다 -->
+      <pre id="tab-al" class="log hide"></pre>
     </div>
-    <!-- 알림은 세션을 고르지 않아도 볼 수 있어야 한다 — dbody 바깥에 둔다 -->
-    <pre id="tab-al" class="log hide"></pre>
   </section>
 </main>
 
