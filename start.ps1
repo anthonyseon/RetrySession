@@ -19,6 +19,10 @@
 # showing the OLD behaviour and nothing warns you. -Restart frees the port and
 # starts clean.
 #
+# It re-opens the status window too. The page holds the modules it loaded when
+# it opened, so restarting only the server leaves the old code on screen -
+# measured twice, and both times the user had to be told to press F5.
+#
 # Plain `.\start.ps1` is safe and spends nothing: the monitor and the UI only
 # read and record. The resumer is the only part that spends tokens, and it is
 # never registered unless you pass -WithResume.
@@ -286,9 +290,15 @@ if ($missing.Count -gt 0) {
 }
 
 # 5. window
+#    -Restart means "pick up code changes", so the window must be re-opened as
+#    well - a live page keeps the app.js it loaded before the restart.
 if (-not $NoWindow) {
   Head 'opening the window'
-  & (Join-Path $Scripts 'open-app.ps1') -Port $Port -NoWait
+  if ($Restart) {
+    & (Join-Path $Scripts 'open-app.ps1') -Port $Port -NoWait -Reload
+  } else {
+    & (Join-Path $Scripts 'open-app.ps1') -Port $Port -NoWait
+  }
 }
 
 Write-Host ''

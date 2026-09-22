@@ -28,7 +28,8 @@
 param(
   [int]$Port = 7345,
   [switch]$NoWait,        # skip waiting for the server to answer
-  [switch]$KeepExtra      # do not close duplicate windows (diagnostics)
+  [switch]$KeepExtra,     # do not close duplicate windows (diagnostics)
+  [switch]$Reload         # close the open window and open a fresh one (see below)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -106,6 +107,37 @@ function Show-Window($h) {
 
 # ---- already open? -----------------------------------------------------
 $existing = Get-AppWindows (Get-AppPids)
+
+# RELOAD (measured, 2026-09-22)
+#   A live page holds the modules it loaded at open time. After
+#   `start.ps1 -Restart` the server serves the fixed code while the window that
+#   is already open keeps running the old app.js / summary.js - the defect we
+#   just fixed is still on screen and nothing warns about it. Twice the user had
+#   to be told "press F5", which is not a fix, and the single-window rule means
+#   closing and re-opening by hand does not help either: we bring the same
+#   window back to the front.
+#
+#   So -Restart asks for -Reload: close the stale window, open a new one. The
+#   page is a read-only view that re-reads everything within 3 seconds, so
+#   nothing is lost. WM_CLOSE asks politely - it does not kill the process.
+if ($existing.Count -ge 1 -and $Reload) {
+  foreach ($h in $existing) {
+    [void][RsWin]::PostMessage($h, $WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero)
+  }
+  foreach ($i in 1..40) {
+    Start-Sleep -Milliseconds 250
+    if ((Get-AppWindows (Get-AppPids)).Count -eq 0) { break }
+  }
+  $left = Get-AppWindows (Get-AppPids)
+  if ($left.Count -gt 0) {
+    # Do not stack a second window on top of a stale one - say so instead.
+    Show-Window $left[0]
+    Write-Host 'the old window did not close - press F5 in it to load the new code.' -ForegroundColor Yellow
+    exit 0
+  }
+  Write-Host 'closed the old window (it was holding the code from before the restart).'
+  $existing = @()
+}
 
 if ($existing.Count -ge 1) {
   Show-Window $existing[0]

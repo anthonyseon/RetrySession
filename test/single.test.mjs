@@ -161,3 +161,26 @@ test('모든 진입점이 open-app.ps1 을 거친다 — 가드가 한 곳에만
       `${설명} 가 open-app.ps1 을 거치지 않으면 중복 창이 생긴다`)
   }
 })
+
+/**
+ * 🔴 실측 (2026-09-22, 사용자 보고 두 번): `start.ps1 -Restart` 로 서버는 새 코드를
+ *   들고 떴는데, 이미 열려 있던 창은 **기동 시점의 모듈**을 그대로 들고 있었다.
+ *   방금 고친 결함이 화면에 그대로 남아 있고 아무도 경고하지 않는다.
+ *   창을 하나만 띄우는 규칙 때문에 사람이 닫고 다시 열어도 같은 창이 앞으로 온다 —
+ *   그래서 "F5 를 누르세요"가 유일한 해결이었는데, 그건 해결이 아니다.
+ */
+test('🔴 -Restart 는 창도 다시 띄운다 (페이지는 열 때의 코드를 들고 있다)', () => {
+  const s = openApp()
+  assert.match(s, /\[switch\]\$Reload/, '창을 새로 띄우는 길이 있어야 한다')
+  const i = s.indexOf('$existing.Count -ge 1 -and $Reload')
+  assert.ok(i > 0, '기존 창이 있을 때의 분기여야 한다')
+  const 구간 = s.slice(i, i + 1200)
+  assert.match(구간, /WM_CLOSE/, '옛 창을 닫아야 한다')
+  assert.match(구간, /Get-AppWindows \(Get-AppPids\)\)\.Count -eq 0/, '닫힌 것을 확인해야 한다')
+  assert.match(구간, /did not close/, '못 닫았으면 그렇게 말해야 한다 — 창을 겹쳐 띄우면 안 된다')
+
+  const start = readFileSync(join(ROOT, 'start.ps1'), 'utf8')
+  assert.match(start, /open-app\.ps1'\) -Port \$Port -NoWait -Reload/,
+    '-Restart 가 -Reload 를 넘겨야 한다')
+  assert.match(start, /if \(\$Restart\) \{/, '재시작일 때만 다시 띄워야 한다')
+})

@@ -297,3 +297,27 @@ test('🔴 로그인 실패·조회 실패를 각각 배지로 말한다', () =>
   } finally { h.복원() }
 })
 
+
+/* ── 빈 목록이 무엇을 뜻하는지 화면이 말하는가 ───────────────── */
+
+/**
+ * 🔴 실측 (2026-09-22, 사용자 보고 두 번): 목록 자리가 통째로 비어 있었다.
+ *   원인은 요약이 던져 목록이 아예 그려지지 않은 것이었는데(서버는 세션 8개를
+ *   주고 있었다), 화면만 보고는 "세션이 없다"와 "목록이 고장났다"를 구별할 수
+ *   없었다. 빈 자리는 아무 말도 하지 않는다.
+ */
+test('🔴 목록이 비면 왜 비었는지 적는다 (빈 자리와 고장을 구별해야 한다)', async () => {
+  const { 목록 } = await import(new URL('../src/ui/list.js', import.meta.url).href)
+  const { S } = await import(new URL('../src/ui/common.js', import.meta.url).href)
+  const h = 그리기준비()
+  try {
+    const 글 = (d, 등록만 = false) => {
+      S.등록만 = 등록만
+      목록(d)
+      return h.칸.get('slist').textContent
+    }
+    assert.match(글({ 세션: [] }), /하나도 찾지 못했습니다/, '정말 없을 때')
+    assert.match(글({ 세션: [{ sessionId: 'a', 등록됨: false }] }, true),
+      /1개를 받았지만 등록된 것이 없습니다/, '필터 때문이면 그렇게 말해야 한다')
+  } finally { S.등록만 = false; h.복원() }
+})
