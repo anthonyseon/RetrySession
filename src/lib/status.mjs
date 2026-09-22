@@ -145,6 +145,13 @@ function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = ne
     kind: run?.kind ?? null,
     시작시각: run?.startedAtEpoch ? localStamp(new Date(run.startedAtEpoch)) : null,
 
+    /**
+     * 사용량 제한에 잘려 멈춰 있나 — 재개가 이것을 재개 지점으로 인정한다.
+     * '제한을 겪었다'가 아니라 '마지막 엔트리가 제한 알림이다' 이다(sessions.mjs).
+     */
+    제한으로멈춤: !!s.제한으로멈춤,
+    제한알림시각: s.제한알림at ? localStamp(new Date(s.제한알림at)) : null,
+
     마지막활동: s.마지막활동 ? localStamp(new Date(s.마지막활동)) : null,
     활성분: s.활성분,
     첫활동: s.첫활동 ? localStamp(new Date(s.첫활동)) : null,

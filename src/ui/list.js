@@ -15,6 +15,11 @@ const 감시배지 = (s) => {
     ? badge('good', '●', `감시 정상 · ${v.ageMin}분 전`)
     : badge('crit', '▲', `감시 끊김 · ${v.why}`)
 }
+/** 제한에 잘려 멈춰 있나 — 재개가 이어받을 수 있는 상태다 */
+const 제한배지 = (s) => (s.제한으로멈춤
+  ? badge('warn', '◔', '사용량 제한으로 중단됨' + (s.제한알림시각 ? ' · ' + s.제한알림시각 : ''))
+  : null)
+
 const 재시작배지 = (s) => {
   const r = s.재시작
   if (!r.켜짐) return badge('off', '○', '재시작 꺼짐')
@@ -105,6 +110,7 @@ function 목록(d) {
 
     const bb = el('div', 'sbadges')
     bb.append(감시배지(s), 재시작배지(s))
+    const 제한 = 제한배지(s); if (제한) bb.append(제한)
     if (s.추적기.있음) {
       bb.append(badge(s.추적기.전부완료 ? 'good' : 'off', '▤',
         `추적기 ${s.추적기.완료표기}${s.추적기.doing ? ` · doing ${s.추적기.doing.id}` : ''}`))

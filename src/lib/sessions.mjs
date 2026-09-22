@@ -18,7 +18,7 @@
 import { readFileSync, existsSync, readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
 import { claudeProjectsRoot, RS_HOME, 경로키 } from './config.mjs'
-import { 빈토큰, 총비용 } from './pricing.mjs'
+import { 빈토큰, 총비용, 모델정규화 } from './pricing.mjs'
 import { 원자쓰기 } from './io.mjs'
 
 const 캐시파일 = join(RS_HOME, 'state', 'sessions-cache.json')
@@ -37,7 +37,37 @@ export const 빈누적 = (sessionId, slug) => ({
   사용자메시지: 0, 어시스턴트메시지: 0, 도구호출: 0,
   모델별: {},
   할당량: null,
+  /**
+   * 🔴 이 세션이 **사용량 제한에 잘려서** 멈췄는가.
+   *
+   *   제한에 걸리면 트랜스크립트에 model `<synthetic>` 엔트리가 하나 들어간다.
+   *   실측 표본: "You've hit your session limit · resets 1:30pm (Asia/Seoul)"
+   *   토큰은 전부 0 이다 — 모델 호출이 아니라 로컬 알림이다(pricing.mjs 참조).
+   *
+   *   **마지막 엔트리가** 그것이면 "잘린 채 멈춰 있다"는 뜻이다. 그냥 놀고 있는
+   *   세션과 구별해야 한다 — 제한이 풀렸다고 놀던 세션을 깨우면 아무도 시키지
+   *   않은 일을 시작하는 것이다.
+   *
+   *   순차로 접으므로, 제한 알림을 만나면 켜고 다른 발화를 만나면 끈다.
+   *   마지막 값이 곧 "마지막 엔트리가 제한 알림이었나"다.
+   */
+  제한으로멈춤: false,
+  제한알림at: null,
 })
+
+/**
+ * `<synthetic>` 엔트리가 사용량 제한 알림인가. 순수 함수.
+ *
+ * 문구가 바뀔 수 있으므로 한 문장에 기대지 않고 몇 가지 신호를 함께 본다.
+ * 🔴 모르면 false 다 — 제한이라고 잘못 보면 놀던 세션을 깨운다.
+ */
+export function 제한알림인가(message) {
+  if (!message || 모델정규화(message.model) !== '<synthetic>') return false
+  const c = message.content
+  const 글 = typeof c === 'string' ? c
+    : Array.isArray(c) ? c.map((b) => (b && b.type === 'text' ? b.text : '')).join(' ') : ''
+  return /limit/i.test(글) && /(reset|usage|session|weekly)/i.test(글)
+}
 
 /** 분포 집계용 정규화 — config.mjs 의 공용 함수를 쓴다(제각기 정규화하면 키가 갈라진다) */
 const cwd키 = 경로키
@@ -91,11 +121,18 @@ export function foldEntry(acc, j) {
 
   if (j.type === 'ai-title' && j.aiTitle) acc.title = j.aiTitle
 
-  else if (j.type === 'user') acc.사용자메시지++
+  else if (j.type === 'user') { acc.사용자메시지++; acc.제한으로멈춤 = false }
 
   else if (j.type === 'assistant') {
     acc.어시스턴트메시지++
     const m = j.message || {}
+    // 마지막 엔트리가 제한 알림이면 "잘린 채 멈춰 있다"는 뜻이다(빈껍데기 주석 참조)
+    if (제한알림인가(m)) {
+      acc.제한으로멈춤 = true
+      if (Number.isFinite(ts)) acc.제한알림at = ts
+    } else {
+      acc.제한으로멈춤 = false
+    }
     if (Array.isArray(m.content)) {
       for (const b of m.content) if (b && b.type === 'tool_use') acc.도구호출++
     }

@@ -89,6 +89,59 @@ export function 세션실행중(목록, sessionId, 살아있나 = () => true) {
   return { 실행중: true, 확실한가: true, why: `세션이 실행 중이다 (pid ${s.pid}) — 사람이 쓰는 중이므로 건드리지 않는다` }
 }
 
+/* ── 사용량 제한 ─────────────────────────────────────────────── */
+
+/**
+ * 지금 사용량 제한에 걸려 있는가. 순수 함수.
+ *
+ * 🔴 왜 재개가 이것을 봐야 하나
+ *   제한 중에 `claude --resume` 을 띄우면 그냥 실패한다. 그리고 실패 3회면
+ *   회로가 차단된다 — **제한이 차단기를 태운다.** 기다려야 할 일이 고장으로 기록되고,
+ *   제한이 풀린 뒤에도 사람이 `--rearm` 을 해줄 때까지 재개가 멎는다.
+ *   제한은 고장이 아니라 **때가 아닌 것**이다. 때가 되면 저절로 풀린다.
+ *
+ * 🔴 "모르면 막는다"를 여기서는 쓰지 않는다.
+ *   할당량 기록은 **마지막으로 제한에 걸렸을 때** 남은 것이고, 새 제한에 걸리기
+ *   전까지 그대로 남아 있다. 해제 시각을 모른다고 막으면 그 기록 때문에 재개가
+ *   영원히 멎는다 — 끝이 없는 차단은 fail-open 만큼 나쁘다.
+ *   그래서 **확실히 제한 중일 때만** 막고, 나머지는 통과시킨다.
+ *   놓친 경우는 실행 결과가 받아낸다(제한실패인가 → 연속실패로 세지 않는다).
+ *
+ * @param 할당량 트랜스크립트에서 읽은 quotaLimits (resetsAt 은 **초** 단위)
+ */
+export function 제한상태(할당량, now = Date.now()) {
+  const 없음 = { 제한중: false, 해제됨: false, 남은분: null, 해제epoch: null, why: null }
+  if (!할당량 || typeof 할당량 !== 'object') return 없음
+
+  const resetsAt = 할당량.resetsAt
+  if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt)) {
+    return { ...없음, why: null, 모름: true }
+  }
+
+  const 해제epoch = resetsAt * 1000
+  const 남은분 = Math.ceil((해제epoch - now) / 60000)
+  if (남은분 > 0) {
+    return {
+      제한중: true, 해제됨: false, 남은분, 해제epoch,
+      why: `사용량 제한 중 (${할당량.rateLimitType || '?'}) — ${남은분}분 후 해제. 제한 중에 띄우면 실패로 기록돼 회로를 태운다`,
+    }
+  }
+  return { 제한중: false, 해제됨: true, 남은분, 해제epoch, why: null }
+}
+
+/**
+ * 이번 실행이 **사용량 제한 때문에** 실패했는가. 순수 함수.
+ *
+ * 제한 전 확인을 통과했더라도(기록이 낡았거나 방금 걸렸거나) 실제로는 막힐 수 있다.
+ * 그때 이것을 실패로 세면 세 번 만에 회로가 차단된다 — 기다리면 될 일에.
+ * 🔴 모르면 실패로 센다(false) — 진짜 고장을 제한으로 감추면 안 된다.
+ */
+export function 제한실패인가(글) {
+  const s = String(글 || '')
+  if (!s) return false
+  return /limit/i.test(s) && /(usage|rate|quota|reset|weekly|session limit)/i.test(s)
+}
+
 /* ── 조용한 시간 ─────────────────────────────────────────────── */
 
 /**
@@ -181,7 +234,17 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
   const { 결과, 요약, 소요초, 비용USD = 0 } = detail
   const today = dayKey(new Date(now))
   const 성공 = 결과 === 'ok'
-  const 연속실패 = 성공 ? 0 : (state.연속실패 || 0) + 1
+
+  /**
+   * 🔴 제한은 실패가 아니다 — 연속실패를 올리지 않는다.
+   *   제한 중에 띄운 회차를 실패로 세면 세 번 만에 회로가 차단되고, 제한이 풀린
+   *   뒤에도 사람이 --rearm 을 해줄 때까지 재개가 멎는다. 기다리면 될 일이었다.
+   *   그렇다고 성공도 아니다 — 연속실패를 **0 으로 되돌리지도 않는다.**
+   *   진짜 실패 두 번 뒤에 제한 한 번이 끼어도 그 두 번은 그대로 남아야 한다.
+   *   하루 횟수에는 센다(프로세스를 띄웠으니 시도는 시도다).
+   */
+  const 제한 = 결과 === '제한'
+  const 연속실패 = 성공 ? 0 : 제한 ? (state.연속실패 || 0) : (state.연속실패 || 0) + 1
   const 한계 = cfg.연속실패한계 ?? 3
   const 이전비용 = (state.비용일별 || {})[today] || 0
 

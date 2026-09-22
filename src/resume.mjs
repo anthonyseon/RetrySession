@@ -33,7 +33,7 @@ import { 덧붙이기 } from './lib/io.mjs'
 import { readTracker, resumePrompt } from './lib/tracker.mjs'
 import {
   loadRunState, saveRunState, budgetVerdict, recordRun, rearm,
-  acquireLock, releaseLock, quietNow, 세션실행중,
+  acquireLock, releaseLock, quietNow, 세션실행중, 제한상태, 제한실패인가,
 } from './lib/guard.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath, 세션id인가 } from './lib/targets.mjs'
 import { runningSessions, account, claudeBin, 셸필요, 계정환경, 살아있나 } from './lib/cli.mjs'
@@ -72,11 +72,19 @@ function 대상들() {
  * 재개 지시문. 세션을 이어받으므로 문맥 설명은 필요 없다 — **무엇을 계속할지와
  * 무인 실행의 한계**만 말한다.
  */
-function 지시문(대상, project) {
+function 지시문(대상, project, { 제한중단 = false } = {}) {
+  // 제한에 잘렸다면 그 사실을 먼저 알린다 — 대화 마지막 줄이 "limit" 알림이라
+  // 그것을 설명 없이 두면 무엇을 이어야 할지 헷갈린다.
+  const 머리 = 제한중단
+    ? ['이 대화는 **사용량 제한에 걸려 중간에 끊겼다.** 제한은 이제 풀렸다.',
+       '대화의 마지막 줄에 보이는 limit 알림은 네 답이 아니라 시스템 알림이다.', '']
+    : []
+
   if (대상.재개지시) {
     return [
       '이 실행은 OS 작업 스케줄러가 띄운 것이고 사람이 보고 있지 않다. 아래 지시를 이어서 수행하라.',
       '',
+      ...머리,
       대상.재개지시,
       '',
       ...안전규칙(),
@@ -84,14 +92,27 @@ function 지시문(대상, project) {
   }
 
   const tp = trackerPath(project)
-  if (tp) return resumePrompt(readTracker(tp), project)
+  if (tp) {
+    const 본문 = resumePrompt(readTracker(tp), project)
+    return 제한중단 ? [...머리, 본문].join('\n') : 본문
+  }
 
+  /**
+   * 제한으로 잘린 경우의 지시문.
+   *
+   * 🔴 이 갈래는 **제한중단일 때만** 도달한다. 추적기도 재개지시도 없고 제한도
+   *   아니면 판정이 먼저 막는다 — 무엇을 이어서 할지 정해지지 않은 채로
+   *   acceptEdits 권한의 무인 실행을 띄우지 않는다.
+   *   (예전에는 여기에 범용 "이어서 진행하라"가 있었지만 도달할 수 없는 죽은 코드였다.)
+   */
   return [
     '이 실행은 OS 작업 스케줄러가 띄운 것이고 사람이 보고 있지 않다.',
-    '이 세션에서 하던 작업을 이어서 진행하라.',
+    ...머리,
+    '끊기기 직전에 하던 일 하나를 이어서 끝내라.',
     '',
-    '1. 먼저 이 대화에서 무엇을 하던 중이었는지 확인하고, 마지막으로 끝내지 못한 일 하나를 고른다.',
+    '1. 이 대화에서 마지막으로 **끝내지 못한** 일이 무엇인지 먼저 확인한다.',
     '2. 그 하나만 끝낸다. 새 작업을 시작하지 않는다.',
+    '3. 끊기기 전에 이미 끝난 일이었다면 아무것도 하지 말고 그렇게 답하고 끝낸다.',
     ...안전규칙(),
   ].join('\n')
 }
@@ -134,6 +155,17 @@ function 판정(대상, ctx) {
   const s = ctx.세션맵.get(대상.sessionId)
   if (!s) return stop('세션을 찾을 수 없다 — 트랜스크립트가 정리된 것으로 보인다')
 
+  /**
+   * 🔴 사용량 제한 중에는 띄우지 않는다. FORCE 로도 건너뛰지 않는다.
+   *
+   *   제한 중에 `claude --resume` 을 띄우면 실패하고, 실패 3회면 회로가 차단된다 —
+   *   **제한이 차단기를 태운다.** 기다리면 될 일이 고장으로 기록되고, 풀린 뒤에도
+   *   사람이 --rearm 을 해줄 때까지 재개가 멎는다.
+   *   제한은 고장이 아니라 때가 아닌 것이다. 억지로 밀 이유가 없으므로 FORCE 도 막는다.
+   */
+  const 제한 = 제한상태(s.할당량 ?? ctx.할당량)
+  if (제한.제한중) return stop(제한.why)
+
   if (!FORCE) {
     const 한계 = cfg.세션활성분 ?? 10
     if (s.활성분 !== null && s.활성분 < 한계) {
@@ -141,14 +173,22 @@ function 판정(대상, ctx) {
     }
   }
 
-  /* 재개 지점이 있나 */
+  /**
+   * 재개 지점이 있나 — 셋 중 하나여야 한다.
+   *
+   * 🔴 제한에 잘려 멈춘 것도 **재개 지점이다.** 오히려 가장 분명하다 — 잘린 그 자리다.
+   *   반대로, 제한이 풀렸다고 **놀고 있던** 세션까지 깨우면 아무도 시키지 않은 일을
+   *   시작하는 것이다. 그래서 "제한을 겪었다"가 아니라 "**마지막 엔트리가** 제한
+   *   알림이다"를 본다(sessions.mjs 의 제한으로멈춤).
+   */
+  const 제한중단 = !!s.제한으로멈춤
   const tp = trackerPath(project)
   if (tp) {
     const t = readTracker(tp)
     if (t.error) return stop(`추적기를 읽을 수 없다 — ${t.error}`)
     if (t.전부완료) return stop(`할 일이 없다 (${t.완료표기} 전부 done)`)
     if (!t.doing && !t.다음todo) return stop('추적기에 doing 도 todo 도 없다 — 재개 지점을 말해주지 않는다')
-  } else if (!대상.재개지시) {
+  } else if (!대상.재개지시 && !제한중단) {
     return stop('추적기도 재개지시도 없다 — 무엇을 이어서 할지 정해지지 않았다 (UI 에서 재개지시를 넣어라)')
   }
 
@@ -157,8 +197,14 @@ function 판정(대상, ctx) {
     if (!b.ok) return stop(b.why)
   }
 
-  const 지점 = tp ? (() => { const t = readTracker(tp); return t.doing ? `doing ${t.doing.id}` : `todo ${t.다음todo.id}` })() : '재개지시'
-  return { go: true, why: `재개 지점 ${지점}`, P, project, state }
+  const 지점 = tp
+    ? (() => { const t = readTracker(tp); return t.doing ? `doing ${t.doing.id}` : `todo ${t.다음todo.id}` })()
+    : (대상.재개지시 ? '재개지시' : '제한으로 잘린 지점')
+  return {
+    go: true, 제한중단,
+    why: `재개 지점 ${지점}` + (제한중단 ? ' (사용량 제한으로 중단됐고 지금은 풀렸다)' : ''),
+    P, project, state,
+  }
 }
 
 /* ── claude 실행 ─────────────────────────────────────────────── */
@@ -293,9 +339,12 @@ if (!첫읽기.ok) {
   process.exit(0)
 }
 
+const 첫스캔 = scanSessions()
 const ctx = {
   실행중: 첫읽기,
-  세션맵: new Map(scanSessions().sessions.map((s) => [s.sessionId, s])),
+  세션맵: new Map(첫스캔.sessions.map((s) => [s.sessionId, s])),
+  // 세션별 기록이 없을 때 쓰는 전체 할당량(가장 최근 것)
+  할당량: 첫스캔.할당량,
   읽은시각: Date.now(),
 }
 
@@ -313,7 +362,9 @@ for (const 대상 of 목록) {
    */
   if (Date.now() - ctx.읽은시각 > 60_000) {
     ctx.실행중 = 실행중읽기()
-    ctx.세션맵 = new Map(scanSessions().sessions.map((s) => [s.sessionId, s]))
+    const 다시스캔 = scanSessions()
+    ctx.세션맵 = new Map(다시스캔.sessions.map((s) => [s.sessionId, s]))
+    ctx.할당량 = 다시스캔.할당량
     ctx.읽은시각 = Date.now()
     // 다시 읽다 실패하면 판정이 fail-closed 로 막는다(세션실행중) — 여기서 따로 뚫지 않는다
   }
@@ -327,7 +378,7 @@ for (const 대상 of 목록) {
     continue
   }
 
-  const prompt = 지시문(대상, v.project)
+  const prompt = 지시문(대상, v.project, { 제한중단: v.제한중단 })
 
   if (DRY) {
     console.log(`✅ ${짧은} 재개 가능 — ${v.why}`)
@@ -359,7 +410,17 @@ for (const 대상 of 목록) {
       sessionId: 대상.sessionId, cwd, prompt, cfg, addDirs: cfg.addDirs,
     })
     const p = parseResult(r.stdout)
-    const 결과 = r.timedOut ? 'timeout' : (r.code === 0 && p.ok) ? 'ok' : 'fail'
+    /**
+     * 🔴 제한 때문에 막힌 것은 실패가 아니다.
+     *   판정에서 미리 막지만(제한상태), 기록이 낡았거나 방금 걸렸으면 여기까지 온다.
+     *   그때 실패로 세면 세 번 만에 회로가 차단된다 — 기다리면 될 일에. 뒷받침 장치다.
+     */
+    const 실패했나 = r.timedOut || r.code !== 0 || !p.ok
+    // 타임아웃은 제한이 아니다 — 30분을 실제로 돌았다는 뜻이다
+    const 제한막힘 = 실패했나 && !r.timedOut && 제한실패인가(`${p.요약} ${r.stderr}`)
+    const 결과 = r.timedOut ? 'timeout'
+      : !실패했나 ? 'ok'
+      : 제한막힘 ? '제한' : 'fail'
 
     const next = recordRun(loadRunState(v.P.재개상태), {
       결과, 요약: p.요약, 소요초: r.소요초, 비용USD: p.비용USD,
@@ -379,8 +440,11 @@ for (const 대상 of 목록) {
       next.차단 ? `  🔴 연속 ${next.연속실패}회 실패로 회로 차단됨 — 고친 뒤 --rearm` : '',
     ].filter(Boolean).join('\n'))
 
-    console.log(`${결과 === 'ok' ? '✅' : '✖'} ${짧은} — ${결과} · ${r.소요초}초 · $${p.비용USD}`)
-    if (결과 !== 'ok') 종료코드 = 1
+    // 🔴 제한은 실패가 아니다 — 스케줄러 이력을 빨갛게 물들이지 않는다.
+    //   가드에 막힌 회차가 exit 0 인 것과 같은 이유다. 때가 아닌 것이지 고장이 아니다.
+    const 표시 = 결과 === 'ok' ? '✅' : 결과 === '제한' ? '◔' : '✖'
+    console.log(`${표시} ${짧은} — ${결과} · ${r.소요초}초 · $${p.비용USD}`)
+    if (결과 !== 'ok' && 결과 !== '제한') 종료코드 = 1
   } finally {
     releaseLock(v.P.재개락)
   }
