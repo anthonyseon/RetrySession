@@ -19,7 +19,7 @@ description: RetrySession(세션 감시·재시작 도구)의 코드·스크립�
 | 예약 작업 등록 | action 은 `runhidden.exe` 경유 (콘솔 창) |
 | `src/ui/*` | 고쳐도 **자동 반영되지 않는다** (아래 2번) |
 | `tray.ps1` | `ShowBalloonTip` 금지 · `/api/tray` 만 읽는다 · **UI 스레드를 붙잡지 마라** |
-| 프로세스를 띄우는 코드 | `shell: 셸필요(exe)` — 무조건 `shell:true` 금지 |
+| 프로세스를 띄우는 코드 | `shell: needsShell(exe)` — 무조건 `shell:true` 금지 |
 | 상태 파일을 쓰는 코드 | `lib/io.mjs` 의 `원자쓰기`/`덧붙이기` — `writeFileSync` 직접 금지 |
 | 락을 만드는 코드 | `{ flag: 'wx' }` — 보고-쓰기는 둘 다 통과시킨다 |
 | `src/ui/server.mjs` 의 라우팅 | 새 엔드포인트도 `출처괜찮나`·`세션id인가` 를 거친다 |
