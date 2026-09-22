@@ -5,6 +5,17 @@
 import { $, el, n, compact, shortPath, S, badge, actions } from './common.js'
 
 /* ── 세션 배지 (목록 전용) ──────────────────────────────────── */
+/**
+ * 🔴 배지는 **두 가지를 함께** 말한다: 스위치가 켜졌나(설정) · 지금 어떤가(상태).
+ *
+ *   실측 (2026-09-22, 사용자 보고): [재시작 시작] 을 눌렀는데 "적용이 안 된 것 같다"고
+ *   했다. 등록부에는 **8초 전에 제대로 써졌는데** 배지가 `⊘ 재개 안 함 · 세션이 실행
+ *   중이다` 로 바뀌어서, 누른 것이 먹혔는지 알 수 없었다. `재시작 꺼짐` 과
+ *   `재개 안 함` 은 **다른 축의 말**인데 같은 자리에 번갈아 나오니 구별이 안 된다.
+ *
+ *   그래서 켬/꺼짐을 **항상 앞에** 둔다. 누르면 `꺼짐` → `켬` 이 눈에 보이고,
+ *   그 뒤의 말이 "그래서 지금은 어떤가"다. 설정과 상태를 한 배지에 뭉개지 않는다.
+ */
 const watchBadge = (s) => {
   if (!s.watch.on) return badge('off', '○', '감시 꺼짐')
   const v = s.watch.verdict
@@ -12,8 +23,8 @@ const watchBadge = (s) => {
   // 🔴 첫 기록을 기다리는 중은 끊긴 것이 아니다 — 빨강으로 말하지 않는다
   if (v.waiting) return badge('warn', '◔', `감시 켬 · ${v.why}`)
   return v.alive
-    ? badge('good', '●', `감시 정상 · ${v.ageMin}분 전`)
-    : badge('crit', '▲', `감시 끊김 · ${v.why}`)
+    ? badge('good', '●', `감시 켬 · 정상 (${v.ageMin}분 전 기록)`)
+    : badge('crit', '▲', `감시 켬 · 끊김 — ${v.why}`)
 }
 /** 제한에 잘려 멈춰 있나 — 재개가 이어받을 수 있는 상태다 */
 const limitBadge = (s) => (s.stoppedByLimit
@@ -39,14 +50,15 @@ const interruptBadge = (s) => (s.stoppedByInterrupt
  */
 const resumeBadge = (s) => {
   const r = s.restart
+  // 🔴 꺼짐/켬이 **먼저** 온다 — 누른 것이 먹혔는지가 이 배지의 첫 임무다
   if (!r.on) return badge('off', '○', '재시작 꺼짐')
-  if (r.corrupt) return badge('crit', '▲', '상태 파일 손상')
+  if (r.corrupt) return badge('crit', '▲', '재시작 켬 · 상태 파일 손상')
   const g = r.gate
   if (!g) return badge('warn', '◔', '재시작 켬 · 판정할 수 없다 (저장소를 못 찾았다)')
-  if (g.go) return badge('good', '●', `재개 가능 · ${g.point}`)
+  if (g.go) return badge('good', '●', `재시작 켬 · 재개 가능 (${g.point})`)
   // 차단은 사람이 풀어야 한다 — 기다리면 되는 것들과 색을 달리한다
   const crit = g.stage === 'blocked' || g.stage === 'repeated'
-  return badge(crit ? 'crit' : 'off', crit ? '▲' : '⊘', `재개 안 함 · ${g.why}`)
+  return badge(crit ? 'crit' : 'warn', crit ? '▲' : '◔', `재시작 켬 · 지금은 대기 — ${g.why}`)
 }
 
 /** 오늘 과부하로 막힌 횟수 — 차단하지 않으므로 여기서라도 보여야 한다 */

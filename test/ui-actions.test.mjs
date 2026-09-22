@@ -41,9 +41,17 @@ const sample = {
 }
 
 const sent = []
+/**
+ * 🔴  가 **다시 읽히는 것까지** 흉내낸다.
+ *   post() 는 보낸 뒤 loadStatus() 를 부르므로, 누른 결과를 말할 때 보는 것은
+ *   **갱신된** 상태다. 그게 맞다 — 켜기 전에는 게이트가 아예 없으니(status.mjs 는
+ *   재시작을 켠 대상만 판정한다) 누르기 전 값으로는 "지금 대기"를 알 수 없다.
+ *   그래서 시험이 갈아끼울 수 있게 둔다.
+ */
+let statusBody = sample
 globalThis.fetch = async (url, opt) => {
   sent.push({ url: String(url), method: opt?.method || 'GET', body: opt?.body ? JSON.parse(opt.body) : null })
-  return { ok: true, status: 200, json: async () => (String(url).startsWith('/api/status') ? sample : { ok: true }) }
+  return { ok: true, status: 200, json: async () => (String(url).startsWith('/api/status') ? statusBody : { ok: true }) }
 }
 
 const { S } = await import('../src/ui/common.js')
@@ -101,4 +109,47 @@ test('고른 것이 없으면 아무것도 보내지 않는다', async () => {
 test('모르는 동작이면 아무것도 보내지 않는다', async () => {
   const posts = await press('no-such-action')
   assert.equal(posts.length, 0)
+})
+
+/* ── 누른 결과를 말한다 ──────────────────────────────────────── */
+
+/**
+ * 🔴 실측 (2026-09-22, 사용자 보고 두 번): [재시작 시작] 을 눌렀는데 "적용이 안 되는
+ *   것 같다"고 했다. 등록부에는 제대로 써졌지만 **화면이 아무 말도 하지 않았고**,
+ *   배지는 `지금은 대기 — 세션이 실행 중이다` 로 바뀌어 누른 것이 먹혔는지 알 수 없었다.
+ *   눌렀는데 아무 반응이 없는 화면은 고장난 화면과 구별되지 않는다.
+ */
+const msg = () => cell.get('actMsg').textContent
+
+test('🔴 누르면 결과를 화면에 적는다 (아무 말도 없으면 "안 먹었다"로 읽힌다)', async () => {
+  await press('watch-on')
+  assert.match(msg(), /✅/, `결과를 말하지 않았다: ${JSON.stringify(msg())}`)
+  assert.match(msg(), /1개/, '몇 개에 적용했는지 말해야 한다')
+  assert.match(msg(), /감시를 켰습니다/)
+})
+
+test('🔴 켜 놓고 "지금은 대기"인 것을 그 자리에서 알려준다', async () => {
+  // 켜자마자 돌지 않는 것이 정상인 경우 — 켰다고만 하면 곧 돌 것으로 기대한다.
+  // 갱신된 상태에서 게이트가 막혀 있는 모양을 만든다(서버가 그렇게 답한 셈).
+  const blocked = { ...session, restart: { on: true, gate: { go: false, stage: 'running', why: '실행 중' } } }
+  statusBody = { ...sample, sessions: [blocked] }
+  S.state = statusBody
+  S.picked = new Set([ID])
+  sent.length = 0
+  const bar = cell.get('.actions')
+  bar.dataset.act = 'resume-on'
+  await bar._on.click({ target: bar })
+  assert.match(msg(), /재시작을 켰습니다/, '켰다는 사실을 먼저 말한다')
+  assert.match(msg(), /대기/, '지금 돌지 않는다는 것도 함께 말해야 한다')
+  statusBody = sample
+})
+
+test('🔴 서버가 거절하면 성공이라고 하지 않는다 (post 는 실패해도 본문을 돌려준다)', async () => {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async () => ({ ok: false, status: 400, json: async () => ({ error: 'sessionId 형태가 아니다' }) })
+  try {
+    await press('watch-on')
+    assert.match(msg(), /✖/, `거절을 성공으로 말했다: ${JSON.stringify(msg())}`)
+    assert.match(msg(), /sessionId 형태가 아니다/, '왜 거절됐는지 그대로 보여야 한다')
+  } finally { globalThis.fetch = realFetch }
 })

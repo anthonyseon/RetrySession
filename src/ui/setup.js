@@ -21,7 +21,7 @@
  *   두 번째 경로가 생긴다.
  */
 'use strict'
-import { $, el, S, badge } from './common.js'
+import { $, el, S, badge, actions } from './common.js'
 
 const color = { crit: 'crit', warn: 'warn', unknown: 'off', info: 'off', ok: 'good' }
 const table = { crit: '▲', warn: '▲', unknown: '?', info: 'ℹ', ok: '●' }
@@ -302,4 +302,77 @@ export function drawSettings({ force = false } = {}) {
   c.type = 'button'
   c.dataset.setup = 'close'
   foot.append(c)
+}
+
+/**
+ * 🔴 바꾸는 길은 **모달과 같은 파일**에 둔다.
+ *   app.js 가 403줄이 되어 400줄 규칙을 넘겼고, 처음엔 pc-actions 라는 새 조각으로 뺐다 —
+ *   그런데 그 파일이 setup.js 를 import 해서 "조각끼리 엮지 않는다" 규칙을 깼다
+ *   (ui-modules 시험이 잡았다). 모달과 그 모달의 동작은 한 조각이다.
+ *
+ * 🔴 사건 배선(document click)은 app.js 에 남긴다. 이 파일은 **부작용이 없어야** 한다 —
+ *   하네스가 그 성질 위에 서 있다(가져와도 폴링·바인딩이 돌지 않는다).
+ */
+/**
+ * 🔴 남의 PC 설정을 바꾸는 일이라 반드시 확인을 받는다. 되돌릴 수 있다는 것도
+ *   함께 말한다 — 되돌릴 길을 모르면 사람은 누르지 못한다.
+ *   규칙(백업 먼저·배터리 제외·바꾼 뒤 재확인)은 서버가 src/pc.mjs 를 불러 지킨다.
+ */
+export async function pcAction(action) {
+  // 수동 안내는 모달에 접힌 채로 들어 있다 — 단추 하나로 열어준다
+  if (action === 'manual') { openSettings(); return }
+  if (action === 'set') { await pcApplyChosen(); return }
+
+  const question = action === 'apply'
+    ? [
+      'PC 전원 설정을 바꿉니다.',
+      '',
+      '· 전원이 연결된 상태에서 잠들지 않도록 합니다.',
+      '· 배터리 설정은 건드리지 않습니다 (배터리를 태우지 않기 위해).',
+      '· 바꾸기 전 값을 저장하므로 언제든 되돌릴 수 있습니다.',
+      '',
+      '계속할까요?',
+    ].join('\n')
+    : 'PC 전원 설정을 바꾸기 전 값으로 되돌립니다.\n\n계속할까요?'
+  if (!confirm(question)) return
+
+  const r = await actions.post('/api/pc', { action })
+  // 결과를 그대로 보여준다 — "바꿨다"만 말하고 실제로 안 바뀌면 그게 최악이다
+  if (r && r.output) alert(r.output)
+}
+
+/**
+ * 🔴 사람이 **직접 고른 값**을 보낸다 (권장값 적용과 다른 길이다).
+ *
+ *   무엇이 어떻게 바뀌는지 **줄 단위로** 적어 확인을 받는다 — "PC 설정을 바꿉니다"
+ *   같은 뭉뚱그린 물음은 읽히지 않고, 읽히지 않는 확인은 확인이 아니다.
+ *   고른 값이 감시를 멎게 할 수 있으면 그 사실을 함께 적는다. 이 도구의 전부는
+ *   예약 작업이고, 잠든 PC 는 예약 작업을 돌리지 않는다.
+ */
+async function pcApplyChosen() {
+  const { values, changed } = chosenValues()
+  if (!changed.length) {
+    alert('바꿀 값을 먼저 고르세요.\n\n손대지 않은 항목은 보내지 않습니다.')
+    return
+  }
+  const warnText = changed.filter((x) => x.warnText)
+  if (!confirm([
+    'PC 전원 설정을 바꿉니다.',
+    '',
+    ...changed.map((x) => `· ${x.name}: ${x.prev} → ${x.after}`),
+    ...(warnText.length ? ['', '⚠ 이 선택은 감시를 멎게 할 수 있습니다'] : []),
+    ...warnText.map((x) => `· ${x.name} — ${x.warnText}`),
+    '',
+    '바꾸기 전 값을 저장하므로 되돌릴 수 있습니다.',
+    '',
+    '계속할까요?',
+  ].join('\n'))) return
+
+  const r = await actions.post('/api/pc', { action: 'set', values })
+  // 고르던 값은 비운다 — 적용됐으면 그게 현재 값이고, 실패했으면 화면의 실제 값을 봐야 한다
+  clearChosen()
+  drawSettings({ force: true })
+  // 결과를 그대로 보여준다. powercfg 는 없는 항목에도 성공을 돌려주므로(실측)
+  // 서버가 바꾼 뒤 다시 읽어 대조한 결과를 사람이 봐야 한다.
+  if (r && r.output) alert(r.output)
 }

@@ -213,7 +213,8 @@ test('mayStopWatching — 0(안 함)만 안전하다', () => {
 /* ── 화면이 규칙을 두 벌로 만들지 않는다 ─────────────────────── */
 
 test('🔴 화면은 고른 값을 /api/pc 에 보내고, 무엇이 바뀌는지 적어 확인받는다', () => {
-  const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
+  // PC 를 바꾸는 길은 모달과 같은 조각에 있다 (setup.js) — 사건 배선만 app.js 다
+  const app = readFileSync(join(ROOT, 'src', 'ui', 'setup.js'), 'utf8')
   assert.match(app, /action: 'set', values/, "고른 값은 action:'set' 으로 나가야 한다")
   assert.match(app, /confirm\(\[/, '남의 PC 설정이다 — 확인을 받아야 한다')
   assert.match(app, /x\.name}: \$\{x\.prev} → \$\{x\.after}/,

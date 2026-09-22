@@ -70,6 +70,8 @@
       <button type="button" class="sm" data-act="resume-off">재시작 중지</button>
       <button type="button" class="sm" data-act="rearm">차단 해제</button>
       <button type="button" class="sm danger" data-act="remove">등록 해제</button>
+      <!-- 🔴 누른 결과를 여기서 말한다. 없으면 "적용이 안 된 것 같다"가 된다(실측). -->
+      <span class="actmsg" id="actMsg" role="status" aria-live="polite"></span>
     </div>
     <div id="folders" class="folders hide"></div>
     <div id="slist"></div>

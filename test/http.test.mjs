@@ -258,7 +258,13 @@ function acceptedKeys(path) {
 /** 화면이 보내는 (경로, 키들) — post('/api/x', { … }) 를 읽는다 */
 function uiPosts() {
   const out = []
-  for (const m of uiSource().matchAll(/post\(\s*['"`](\/api\/[^'"`]+)['"`]\s*,\s*\{([^}]*)\}/g)) {
+  /**
+   * 🔴 `post(경로, {…})` 과 `apply(경로, 문구, ids, {…})` 둘 다 읽는다.
+   *   동작줄이 결과 문구까지 말하도록 `apply` 로 감쌌는데, 그때 이 대조가
+   *   **6개만 읽혀 조용히 약해졌다**(8개 이상을 기대한 하한선이 잡아냈다).
+   *   경로와 본문은 반드시 **부르는 자리에 함께** 둔다 — 표로 빼면 이 검사가 눈을 감는다.
+   */
+  for (const m of uiSource().matchAll(/(?:post|apply)\(\s*['"`](\/api\/[^'"`]+)['"`]\s*,[^{]*\{([^}]*)\}/g)) {
     const keys = [...m[2].matchAll(/(?:^|,)\s*([A-Za-z_$][\w$]*)\s*:/g)].map((x) => x[1])
     out.push({ path: m[1], keys })
   }

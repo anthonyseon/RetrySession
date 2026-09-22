@@ -58,10 +58,36 @@ const drawPanel = (s) => {
 
 /* ── 목록 배지 ───────────────────────────────────────────────── */
 
+/**
+ * 🔴 배지는 **두 축을 함께** 말한다: 스위치(켬/꺼짐) · 지금 상태(돌 수 있나).
+ *
+ *   실측 (2026-09-22, 사용자 보고): [재시작 시작] 을 눌렀는데 "적용이 안 되는 것
+ *   같다"고 했다. 등록부에는 **8초 전에 제대로 써졌는데** 배지가 `⊘ 재개 안 함 ·
+ *   세션이 실행 중이다` 로 바뀌어서, 누른 것이 먹혔는지 알 수 없었다.
+ *   `재시작 꺼짐` 과 `재개 안 함` 은 **다른 축의 말**인데 같은 자리에 번갈아 나왔다.
+ *   그래서 켬/꺼짐을 항상 앞에 둔다 — 누르면 `꺼짐` → `켬` 이 눈에 보여야 한다.
+ */
+test('🔴 꺼짐/켬이 **항상** 보인다 (누른 것이 먹혔는지 알 수 있어야 한다)', () => {
+  const off = session(undefined); off.restart.on = false
+  assert.ok(drawList(off).includes('재시작 꺼짐'), '꺼진 것은 꺼졌다고')
+
+  for (const gate of [
+    { go: true, point: '재개지시', why: 'x' },
+    { go: false, stage: 'running', why: '세션이 실행 중이다 (pid 7)' },
+    { go: false, stage: 'blocked', why: '연속 3회 실패' },
+    { go: false, stage: 'point', why: '추적기도 재개지시도 없다' },
+    undefined,
+  ]) {
+    const txt = drawList(session(gate))
+    assert.ok(txt.includes('재시작 켬'), `켜 놓은 것을 켰다고 말하지 않는다: ${JSON.stringify(gate)}\n${txt}`)
+    assert.ok(!txt.includes('재시작 꺼짐'), '켠 것을 꺼졌다고 하면 안 된다')
+  }
+})
+
 test('🔴 막혀 있으면 "준비"라고 하지 않고 **막는 이유**를 말한다', () => {
   const why = '세션이 실행 중이다 (pid 4084) — 사람이 쓰는 중이므로 건드리지 않는다'
   const txt = drawList(session({ go: false, stage: 'running', why }))
-  assert.ok(txt.includes('재개 안 함'), '막혀 있다고 말해야 한다')
+  assert.ok(txt.includes('지금은 대기'), '지금 돌지 않는다고 말해야 한다')
   assert.ok(txt.includes(why), `막는 이유가 그대로 나와야 한다:\n${txt}`)
   assert.ok(!txt.includes('재시작 준비'), '🔴 예산만 보고 "준비"라고 말하던 그 버그다')
 })
@@ -78,11 +104,12 @@ test('판정이 없으면(저장소를 못 찾음) 모른다고 말한다 — �
   assert.ok(!txt.includes('재개 가능'), '모르는 것을 가능하다고 하면 안 된다')
 })
 
-test('🔴 사람이 풀어야 하는 것(차단)과 기다리면 되는 것을 색으로 가른다', () => {
+test('🔴 사람이 풀어야 하는 것(차단)과 기다리면 되는 것을 아이콘으로 가른다', () => {
   const blocked = drawList(session({ go: false, stage: 'blocked', why: '연속 3회 실패' }))
   assert.match(blocked, /▲/, '차단은 눈에 띄어야 한다')
   const waiting = drawList(session({ go: false, stage: 'active', why: '방금까지 활동이 있었다' }))
-  assert.match(waiting, /⊘/, '기다리면 되는 것은 경고가 아니다')
+  assert.match(waiting, /◔/, '기다리면 되는 것은 경고가 아니다')
+  assert.ok(!waiting.includes('▲'), '기다림에 경고 아이콘을 쓰면 진짜 경고가 묻힌다')
 })
 
 test('오늘 과부하로 막힌 횟수를 보여준다 (차단하지 않으므로 여기서라도 말해야 한다)', () => {

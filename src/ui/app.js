@@ -17,7 +17,8 @@ import { $, S, actions, keepScroll, drawPiece } from './common.js'
 import { drawAlerts, drawTiles } from './summary.js'
 import { drawFolders, items, syncSelection } from './list.js'
 import { redrawDetail } from './detail.js'
-import { openSettings, closeSettings, drawSettings, isSettingsOpen, chosenValues, clearChosen } from './setup.js'
+import { openSettings, closeSettings, drawSettings, isSettingsOpen, pcAction } from './setup.js'
+
 
 /* ── 통신 ────────────────────────────────────────────────────── */
 /**
@@ -180,20 +181,53 @@ document.querySelector('.actions').addEventListener('click', async (e) => {
     const s = S.state?.sessions.find((x) => x.sessionId === id)
     if (s) metaById[id] = meta(s)
   }
-  if (act === 'watch-on') await post('/api/targets', { sessionIds: ids, watch: true, meta: metaById })
-  else if (act === 'watch-off') await post('/api/targets', { sessionIds: ids, watch: false, meta: metaById })
+  if (act === 'watch-on') await apply('/api/targets', '감시를 켰습니다', ids, { sessionIds: ids, watch: true, meta: metaById })
+  else if (act === 'watch-off') await apply('/api/targets', '감시를 껐습니다', ids, { sessionIds: ids, watch: false, meta: metaById })
   else if (act === 'resume-on') {
     if (!confirm(`${ids.length}개 세션에 자율 재시작을 켭니다.\n\n사람이 보지 않는 상태에서 OS 예약이 claude --resume 을 띄워 토큰을 쓰고 파일을 고칠 수 있습니다. 가드(실행 중 확인·하루 횟수·비용 상한·연속실패 차단)는 걸려 있습니다.\n\n계속할까요?`)) return
-    await post('/api/targets', { sessionIds: ids, restart: true, meta: metaById })
+    await apply('/api/targets', '재시작을 켰습니다', ids, { sessionIds: ids, restart: true, meta: metaById })
   }
-  else if (act === 'resume-off') await post('/api/targets', { sessionIds: ids, restart: false, meta: metaById })
-  else if (act === 'rearm') await post('/api/rearm', { sessionIds: ids })
+  else if (act === 'resume-off') await apply('/api/targets', '재시작을 껐습니다', ids, { sessionIds: ids, restart: false, meta: metaById })
+  else if (act === 'rearm') await apply('/api/rearm', '차단을 해제했습니다', ids, { sessionIds: ids })
   else if (act === 'remove') {
     if (!confirm(`${ids.length}개 세션의 등록을 해제합니다. 감시·재시작이 모두 꺼집니다.`)) return
-    await post('/api/targets/remove', { sessionIds: ids })
+    await apply('/api/targets/remove', '등록을 해제했습니다', ids, { sessionIds: ids })
     S.picked.clear()
   }
 })
+
+/**
+ * 보내고 **결과를 화면에 말한다.**
+ *
+ * 🔴 실측 (2026-09-22, 사용자 보고 두 번): [재시작 시작] 을 눌렀는데 "적용이 안 되는
+ *   것 같다"고 했다. 등록부에는 제대로 써졌지만 화면이 아무 말도 하지 않았고, 배지는
+ *   `지금은 대기 — 세션이 실행 중이다` 로 바뀌어 **누른 것이 먹혔는지 알 수 없었다.**
+ *   설정이 바뀐 것과 지금 돌 수 있는 것은 다른 사실인데, 화면은 후자만 보여줬다.
+ *
+ * 🔴 켜 놓고 "지금은 안 돈다"를 함께 말한다. 켰다는 말만 하면 사람은 곧 돌 것으로
+ *   기대하고, 안 돌면 또 같은 것을 묻는다.
+ */
+async function apply(path, done, ids, body) {
+  const box = $('#actMsg')
+  box.textContent = '보내는 중…'
+  const r = await post(path, body)
+  /**
+   * 🔴 `post` 는 **실패해도 본문을 돌려준다**(null 은 연결 실패뿐이다).
+   *   그것을 성공으로 읽으면 "✅ 적용됐습니다" 라고 거짓말하게 된다 —
+   *   이 함수가 고치려는 바로 그 부류의 사고다. 오류가 담겨 있으면 오류라고 말한다.
+   */
+  if (r === null) { box.textContent = '✖ 보내지 못했습니다 — 위의 안내를 보세요'; return }
+  if (r.error) { box.textContent = `✖ 적용하지 못했습니다 — ${r.error}`; return }
+  let msg = `✅ ${ids.length}개 — ${done}`
+  // 켜자마자 돌지 않는 것이 정상인 경우를 그 자리에서 알려준다
+  if (body.restart === true) {
+    const waiting = ids
+      .map((id) => S.state?.sessions.find((x) => x.sessionId === id))
+      .filter((s) => s && !s.restart?.gate?.go).length
+    if (waiting) msg += ` (그중 ${waiting}개는 지금 조건이 안 맞아 대기 — 목록의 배지를 보세요)`
+  }
+  box.textContent = msg
+}
 
 document.querySelector('#dtabs').addEventListener('click', (e) => {
   if (!e.target.dataset?.tab) return
@@ -222,7 +256,8 @@ $('#btnTheme').addEventListener('click', () => {
  * 화살표 모양만으로 말하지 않는다 — 옆에 '요약 접기/펴기'를 글자로 적고
  * aria-expanded 로도 알린다. 상태는 기억해 둔다(다시 열 때마다 접지 않아도 되게).
  */
-const foldKey = 'rs.요약접힘'
+// 🔴 저장 키도 영어다 — 문자열로 들고 다니는 키는 이름 검사기가 못 본다(CLAUDE.md 2-2)
+const foldKey = 'rs.foldSummary'
 
 function applySummary(folded, { save = true } = {}) {
   $('#top').classList.toggle('hide', folded)
@@ -242,74 +277,10 @@ $('#btnTop').addEventListener('click', () => {
 // 기억해 둔 상태로 시작한다
 try { applySummary(localStorage.getItem(foldKey) === '1', { save: false }) }
 catch { applySummary(false, { save: false }) }
-/* ── PC 설정 바꾸기 ─────────────────────────────────────────── */
-/**
- * 🔴 남의 PC 설정을 바꾸는 일이라 반드시 확인을 받는다. 되돌릴 수 있다는 것도
- *   함께 말한다 — 되돌릴 길을 모르면 사람은 누르지 못한다.
- *   규칙(백업 먼저·배터리 제외·바꾼 뒤 재확인)은 서버가 src/pc.mjs 를 불러 지킨다.
- */
-async function pcAction(action) {
-  // 수동 안내는 모달에 접힌 채로 들어 있다 — 단추 하나로 열어준다
-  if (action === 'manual') { openSettings(); return }
-  if (action === 'set') { await pcApplyChosen(); return }
-
-  const question = action === 'apply'
-    ? [
-      'PC 전원 설정을 바꿉니다.',
-      '',
-      '· 전원이 연결된 상태에서 잠들지 않도록 합니다.',
-      '· 배터리 설정은 건드리지 않습니다 (배터리를 태우지 않기 위해).',
-      '· 바꾸기 전 값을 저장하므로 언제든 되돌릴 수 있습니다.',
-      '',
-      '계속할까요?',
-    ].join('\n')
-    : 'PC 전원 설정을 바꾸기 전 값으로 되돌립니다.\n\n계속할까요?'
-  if (!confirm(question)) return
-
-  const r = await post('/api/pc', { action })
-  // 결과를 그대로 보여준다 — "바꿨다"만 말하고 실제로 안 바뀌면 그게 최악이다
-  if (r && r.output) alert(r.output)
-}
-
-/**
- * 🔴 사람이 **직접 고른 값**을 보낸다 (권장값 적용과 다른 길이다).
- *
- *   무엇이 어떻게 바뀌는지 **줄 단위로** 적어 확인을 받는다 — "PC 설정을 바꿉니다"
- *   같은 뭉뚱그린 물음은 읽히지 않고, 읽히지 않는 확인은 확인이 아니다.
- *   고른 값이 감시를 멎게 할 수 있으면 그 사실을 함께 적는다. 이 도구의 전부는
- *   예약 작업이고, 잠든 PC 는 예약 작업을 돌리지 않는다.
- */
-async function pcApplyChosen() {
-  const { values, changed } = chosenValues()
-  if (!changed.length) {
-    alert('바꿀 값을 먼저 고르세요.\n\n손대지 않은 항목은 보내지 않습니다.')
-    return
-  }
-  const warnText = changed.filter((x) => x.warnText)
-  if (!confirm([
-    'PC 전원 설정을 바꿉니다.',
-    '',
-    ...changed.map((x) => `· ${x.name}: ${x.prev} → ${x.after}`),
-    ...(warnText.length ? ['', '⚠ 이 선택은 감시를 멎게 할 수 있습니다'] : []),
-    ...warnText.map((x) => `· ${x.name} — ${x.warnText}`),
-    '',
-    '바꾸기 전 값을 저장하므로 되돌릴 수 있습니다.',
-    '',
-    '계속할까요?',
-  ].join('\n'))) return
-
-  const r = await post('/api/pc', { action: 'set', values })
-  // 고르던 값은 비운다 — 적용됐으면 그게 현재 값이고, 실패했으면 화면의 실제 값을 봐야 한다
-  clearChosen()
-  drawSettings({ force: true })
-  // 결과를 그대로 보여준다. powercfg 는 없는 항목에도 성공을 돌려주므로(실측)
-  // 서버가 바꾼 뒤 다시 읽어 대조한 결과를 사람이 봐야 한다.
-  if (r && r.output) alert(r.output)
-}
-
+/* ── PC 설정·모달 단추 받기 ─────────────────────────────────── */
 /**
  * PC 관련 단추는 요약과 모달 두 곳에 있다 — 한 곳에서 받는다.
- * 규칙을 두 벌로 만들지 않는 것과 같은 이유다.
+ * 규칙을 두 벌로 만들지 않는 것과 같은 이유다. (하는 일은 setup.js 에 있다)
  */
 document.addEventListener('click', (e) => {
   const act = e.target?.dataset?.pc
