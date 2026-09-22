@@ -65,6 +65,12 @@ Write-Host '== record freshness (fail-closed: unknown counts as dead) =='
 $hb = $LASTEXITCODE
 
 Write-Host ''
+# A sleeping PC runs nothing at all, so this belongs in the routine check.
+# It only READS - nothing is changed by looking.
+& node (Join-Path $Root 'src\pc.mjs')
+$pc = $LASTEXITCODE
+
+Write-Host ''
 Write-Host '== resume budget =='
 & node (Join-Path $Root 'src\resume.mjs') --status
 
@@ -72,6 +78,11 @@ Write-Host ''
 if ($hb -ne 0) {
   Write-Host 'record is stale. If the task IS registered above, it is running but failing -' -ForegroundColor Red
   Write-Host 'read state\sessions\<id>\heartbeat.log and the Task Scheduler history.' -ForegroundColor Red
+} elseif ($pc -ne 0) {
+  # The records are fine right now, but the PC is set to sleep - so they will
+  # stop the moment nobody is looking. That is the failure this tool exists for.
+  Write-Host 'records are fine, but this PC is set to sleep - see the PC settings above.' -ForegroundColor Yellow
+  Write-Host '  fix it: .\start.ps1 -Pc -Apply   (reversible: -Pc -Restore)' -ForegroundColor Yellow
 } else {
   Write-Host 'ok.' -ForegroundColor Green
 }

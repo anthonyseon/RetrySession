@@ -10,6 +10,8 @@
 #   .\start.ps1 -Status          just print status, open nothing
 #   .\start.ps1 -Stop            stop the server and the tray (tasks stay registered)
 #   .\start.ps1 -Uninstall       remove every OS task and stop everything
+#   .\start.ps1 -Pc              check the PC power settings this tool needs
+#   .\start.ps1 -Pc -Apply       and set them (reversible: -Pc -Restore)
 #
 # -Restart exists because of a measured trap: a plain start finds the server
 # "already up" and leaves it alone, but a live node process keeps the modules it
@@ -29,6 +31,13 @@ param(
   [switch]$Stop,
   [switch]$Uninstall,
   [switch]$NoWindow,
+  # PC power settings - they decide whether any of this can run at all.
+  #   -Pc            check only (changes nothing)
+  #   -Pc -Apply     set the recommended values (the old ones are saved)
+  #   -Pc -Restore   put back what -Apply changed
+  [switch]$Pc,
+  [switch]$Apply,
+  [switch]$Restore,
   [int]$Port = 7345
 )
 
@@ -127,6 +136,22 @@ if ($Install) {
   }
   if (-not $NoWindow) { & (Join-Path $Scripts 'open-app.ps1') -Port $Port }
   exit 0
+}
+
+# ----------------------------------------------------------------- pc setup
+#
+# A sleeping PC runs nothing. Everything here is an OS scheduled task, so if
+# the machine sleeps the 5 minute monitor simply stops - and that gap looks
+# exactly like the 9 hour outage this tool was built after.
+#
+# Checking changes nothing. Applying is explicit, and the previous values are
+# saved so -Pc -Restore puts them back.
+if ($Pc) {
+  $pcArgs = @((Join-Path $Root 'src\pc.mjs'))
+  if ($Apply)   { $pcArgs += "--apply" }
+  if ($Restore) { $pcArgs += "--restore" }
+  & $node @pcArgs
+  exit $LASTEXITCODE
 }
 
 # ------------------------------------------------------------------- status
