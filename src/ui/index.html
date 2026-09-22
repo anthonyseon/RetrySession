@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RetrySession — 세션 감시·재시작</title>
 <link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/fold.css">
 </head>
 <body>
 
@@ -91,7 +92,11 @@
         <div id="tab-now" class="pad"></div>
         <div id="tab-tl" class="tl hide"></div>
         <pre id="tab-hb" class="log hide"></pre>
-        <pre id="tab-rs" class="log hide"></pre>
+        <!-- 재시작 탭 = 지금 판정 + 기록. "왜 안 도나"가 로그보다 위에 있어야 한다. -->
+        <div id="tab-rs" class="hide">
+          <div id="rsGate" class="pad"></div>
+          <pre id="rsLog" class="log"></pre>
+        </div>
         <div id="tab-cfg" class="pad hide"></div>
       </div>
       <!-- 알림은 세션을 고르지 않아도 볼 수 있어야 한다 — dbody 바깥에 둔다 -->

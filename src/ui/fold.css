@@ -1,0 +1,49 @@
+/**
+ * fold.css — **접고 펴는 것**과 재시작 판정 패널의 모양.
+ *
+ * 🔴 왜 파일을 나눴나 — app.css 가 405줄이 되어 400줄 규칙을 넘겼다.
+ *   자를 자리는 여기가 맞다: 접기는 한 가지 관심사이고 서로 붙어 있어야 읽힌다
+ *   (요약 띠 · 묶음마다 접기 · 열린 폴더 · 재시작 판정 패널).
+ *   index.html 이 두 파일을 함께 불러온다. 시험은 css 를 폴더에서 훑으므로 그대로 돈다.
+ */
+.sumbar{
+  width:100%; display:flex; align-items:center; gap:8px; text-align:left;
+  background:var(--surface-2); border:0; border-bottom:1px solid var(--grid);
+  border-radius:0; padding:6px 16px; color:var(--ink-2); font-size:11.5px;
+}
+.sumbar:hover{background:var(--surface)}
+.sumbar .chev{display:inline-block; width:9px; font-size:10px; color:var(--ink-2)}
+.sumbar .nm{font-weight:600}
+/* 접었을 때만 한 줄 요지를 보여준다 — 접었다고 아무것도 모르면 안 된다 */
+.sumdigest{
+  flex:1; min-width:0; color:var(--muted); font-size:11.5px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.sumbar[aria-expanded="true"] .sumdigest{display:none}
+
+/* 재시작 판정 패널 — "왜 안 도나"가 로그보다 위에 있어야 한다 */
+.gaterow { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap }
+.gatewhy { font-size: 12.5px; line-height: 1.5 }
+.gateacts { display: flex; align-items: center; gap: 7px; margin-top: 8px; flex-wrap: wrap }
+.gateacts .note { margin: 0 }
+
+/* ── 묶음마다 따로 접기 ──
+   🔴 화살표는 ::after 로만 그린다. h3 안에 글자로 넣으면 묶음 이름이 '▾계정' 이 되어
+     이름으로 찾는 코드·시험이 조용히 어긋난다. */
+.grp > h3{cursor:pointer; user-select:none; display:flex; align-items:center; gap:5px}
+.grp > h3::after{content:'▾'; margin-left:auto; font-size:9px; opacity:.55}
+.grp.folded > h3::after{content:'▸'}
+.grp > h3:hover{color:var(--ink-2)}
+.grp > h3:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}
+.grp.folded > h3{margin-bottom:0; padding-bottom:0; border-bottom:0}
+.grp.folded > .grow{display:none}
+
+/* ── 열린 폴더 접기 ── */
+.fhead{
+  display:flex; align-items:center; gap:7px; cursor:pointer; user-select:none;
+  padding:3px 0; font-size:11.5px; color:var(--muted);
+}
+.fhead::after{content:'▾'; margin-left:auto; font-size:9px; opacity:.55}
+.folders.folded .fhead::after{content:'▸'}
+.fhead:hover{color:var(--ink-2)}
+.fhead:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}

@@ -20,13 +20,39 @@ const limitBadge = (s) => (s.stoppedByLimit
   ? badge('warn', '◔', '사용량 제한으로 중단됨' + (s.limitNoticeTime ? ' · ' + s.limitNoticeTime : ''))
   : null)
 
+/**
+ * 응답이 끝까지 오지 못하고 끊긴 자리 (절전·연결 끊김).
+ * 사람이 "왜 여기서 멈췄지"를 묻는 바로 그 상태다 — 말해주지 않으면 원인을 못 찾는다.
+ */
+const interruptBadge = (s) => (s.stoppedByInterrupt
+  ? badge('warn', '◔', '응답이 끊김' + (s.interruptNoticeTime ? ' · ' + s.interruptNoticeTime : ''))
+  : null)
+
+/**
+ * 🔴 **재개가 내릴 판정을 그대로** 보여준다.
+ *
+ *   실측 결함 (2026-09-22): 여기서 예산만 보고 "재시작 준비"라고 말했다. 실제로는
+ *   여덟 가지가 더 막는다 — 실행 중 · 재개 지점 없음 · 저장소 잠금 · 조용한 시간 …
+ *   그래서 사람은 "준비"를 보고 자리를 비웠는데 15분마다 조용히 건너뛰었다.
+ *   **없는 것을 있다고 말하는 것은 있는 것을 없다고 하는 것만큼 나쁘다.**
+ *   판정은 lib/resume-gate.mjs 하나이고 재개도 같은 것을 쓴다.
+ */
 const resumeBadge = (s) => {
   const r = s.restart
   if (!r.on) return badge('off', '○', '재시작 꺼짐')
-  if (r.blocked) return badge('crit', '▲', '재시작 차단됨')
   if (r.corrupt) return badge('crit', '▲', '상태 파일 손상')
-  if (!r.budgetOk) return badge('warn', '◔', '재시작 대기 · ' + (r.budgetWhy || ''))
-  return badge('good', '●', '재시작 준비')
+  const g = r.gate
+  if (!g) return badge('warn', '◔', '재시작 켬 · 판정할 수 없다 (저장소를 못 찾았다)')
+  if (g.go) return badge('good', '●', `재개 가능 · ${g.point}`)
+  // 차단은 사람이 풀어야 한다 — 기다리면 되는 것들과 색을 달리한다
+  const crit = g.stage === 'blocked' || g.stage === 'repeated'
+  return badge(crit ? 'crit' : 'off', crit ? '▲' : '⊘', `재개 안 함 · ${g.why}`)
+}
+
+/** 오늘 과부하로 막힌 횟수 — 차단하지 않으므로 여기서라도 보여야 한다 */
+const overloadBadge = (s) => {
+  const nth = s.restart?.overloadToday || 0
+  return nth ? badge(nth >= 3 ? 'warn' : 'off', '⇅', `API 과부하로 막힘 · 오늘 ${nth}회`) : null
 }
 
 
@@ -39,11 +65,41 @@ const resumeBadge = (s) => {
  * 실측: Description 은 열려 있고 거기서 작업도 했지만, 세션은 EasyAI.Platform 에서
  * 시작해 옮겨온 것이라 `여기서시작` 이 0 이었다.
  */
+/**
+ * 열린 폴더 묶음도 **접힌다.**
+ *
+ * 🔴 왜 — 이 블록은 세션 목록 **위에** 있어서 폴더가 많으면 목록을 아래로 밀어낸다.
+ *   "왜 내 세션이 안 보이나"를 한 번 확인한 뒤에는 계속 펼쳐 둘 이유가 없다.
+ *   접어도 **머리줄에 요지가 남는다**(폴더 N · 세션 없는 폴더 N) — 접힌 것이
+ *   "없는 것"으로 보이면 접기가 정보를 지우는 셈이 된다.
+ */
+const FOLD_FOLDERS = 'rs.foldFolders'
+const foldersFolded = () => { try { return localStorage.getItem(FOLD_FOLDERS) === '1' } catch { return false } }
+
 function drawFolders(d) {
   const box = $('#folders'); box.textContent = ''
   const folders = d.ide?.folders || []
   if (!folders.length) { box.classList.add('hide'); return }
   box.classList.remove('hide')
+
+  const folded = foldersFolded()
+  box.classList.toggle('folded', folded)
+  const none = folders.filter((f) => !f.sessionCount).length
+  const head = el('div', 'fhead')
+  head.setAttribute('role', 'button')
+  head.setAttribute('tabindex', '0')
+  head.setAttribute('aria-expanded', folded ? 'false' : 'true')
+  head.title = folded ? '열린 폴더 펼치기' : '열린 폴더 접기'
+  head.append(el('span', 'fname', `열린 폴더 ${folders.length}개`))
+  if (none) head.append(badge('off', '○', `세션 없는 폴더 ${none}`))
+  const toggle = () => {
+    try { localStorage.setItem(FOLD_FOLDERS, folded ? '0' : '1') } catch { /* 저장 못 해도 동작은 한다 */ }
+    drawFolders(d)
+  }
+  head.addEventListener('click', toggle)
+  head.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } })
+  box.append(head)
+  if (folded) return
 
   for (const f of folders) {
     const row = el('div', 'frow')
@@ -129,7 +185,7 @@ function items(d) {
 
     const bb = el('div', 'sbadges')
     bb.append(watchBadge(s), resumeBadge(s))
-    const limitInfo = limitBadge(s); if (limitInfo) bb.append(limitInfo)
+    for (const b of [limitBadge(s), interruptBadge(s), overloadBadge(s)]) if (b) bb.append(b)
     if (s.tracker.exists) {
       bb.append(badge(s.tracker.allDone ? 'good' : 'off', '▤',
         `추적기 ${s.tracker.doneMark}${s.tracker.doing ? ` · doing ${s.tracker.doing.id}` : ''}`))

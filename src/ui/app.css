@@ -215,20 +215,6 @@ pre.manual{
 /* ── 요약 머리 띠 = 접기 단추 ──
    화살표를 머리말 구석에 두었더니 눈에 띄지 않았다. 무엇을 접는지 옆에 적힌
    띠 자체를 단추로 만든다. 접으면 이 띠만 남아 되돌릴 길이 늘 보인다. */
-.sumbar{
-  width:100%; display:flex; align-items:center; gap:8px; text-align:left;
-  background:var(--surface-2); border:0; border-bottom:1px solid var(--grid);
-  border-radius:0; padding:6px 16px; color:var(--ink-2); font-size:11.5px;
-}
-.sumbar:hover{background:var(--surface)}
-.sumbar .chev{display:inline-block; width:9px; font-size:10px; color:var(--ink-2)}
-.sumbar .nm{font-weight:600}
-/* 접었을 때만 한 줄 요지를 보여준다 — 접었다고 아무것도 모르면 안 된다 */
-.sumdigest{
-  flex:1; min-width:0; color:var(--muted); font-size:11.5px;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-.sumbar[aria-expanded="true"] .sumdigest{display:none}
 
 /* ── 상태 배지: 아이콘 + 라벨 + 색 ── */
 .badge{

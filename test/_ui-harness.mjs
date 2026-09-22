@@ -43,7 +43,31 @@ class FakeNode {
   addEventListener(kind, fn) { (this._on ||= {})[kind] = fn }
   /** 시험에서 사건을 흉내낸다 — 사람이 드롭다운을 고른 것과 같은 경로를 탄다 */
   fire(kind) { this._on?.[kind]?.({ target: this }) }
-  get classList() { return { toggle() { }, add() { }, remove() { }, contains: () => false } }
+  /**
+   * 🔴 classList 를 **진짜로** 움직인다.
+   *
+   *   예전에는 아무것도 하지 않는 껍데기였다(`toggle() {}`). 그래서 접기·펴기처럼
+   *   **클래스로만 표현되는 상태**는 시험해도 늘 통과했다 — 실측: 묶음 접기를 눌러도
+   *   `aria-expanded` 만 바뀌고 `folded` 클래스는 확인할 방법이 없었다.
+   *   감시 장치의 시험이 "그럴 것이다"로 넘어가면 시험이 아니다.
+   */
+  get classList() {
+    const self = this
+    const set = () => new Set(String(self.attrs.class || '').split(/\s+/).filter(Boolean))
+    const put = (s) => { self.attrs.class = [...s].join(' ') }
+    return {
+      add(...cs) { const s = set(); for (const c of cs) s.add(c); put(s) },
+      remove(...cs) { const s = set(); for (const c of cs) s.delete(c); put(s) },
+      contains: (c) => set().has(c),
+      toggle(c, force) {
+        const s = set()
+        const on = force === undefined ? !s.has(c) : !!force
+        if (on) s.add(c); else s.delete(c)
+        put(s)
+        return on
+      },
+    }
+  }
   /** `select.pcsel` · `.pcsel` · `select` 만 안다 — 그 이상은 시험에 필요 없다 */
   querySelectorAll(selector) {
     const [t, c] = String(selector).split('.')
@@ -80,7 +104,19 @@ globalThis.document = {
   querySelectorAll: () => [],
   addEventListener: () => { },
 }
-globalThis.localStorage = { getItem: () => null, setItem: () => { } }
+/**
+ * 🔴 localStorage 도 **진짜로** 기억한다.
+ *   `getItem: () => null` 이던 껍데기 때문에 "접어 두면 다음 렌더에도 접혀 있다"를
+ *   시험할 수 없었다 — 눌러도 상태가 안 남으니 다시 그리면 늘 펴진 모습이었다.
+ *   기억하는 것이 이 기능의 요점인데 그 요점만 시험에서 빠져 있었다.
+ */
+const store = new Map()
+globalThis.localStorage = {
+  getItem: (k) => (store.has(k) ? store.get(k) : null),
+  setItem: (k, v) => { store.set(k, String(v)) },
+  removeItem: (k) => { store.delete(k) },
+  clear: () => store.clear(),
+}
 
 const UI = (f) => import(pathToFileURL(join(ROOT, 'src', 'ui', f)).href)
 const { drawTiles } = await UI('summary.js')
@@ -96,6 +132,9 @@ const { S } = await UI('common.js')
 export function prepareRender() {
   cell.clear()
   S.state = null
+  // 🔴 기억해 둔 접힘 상태도 비운다 — 앞 시험이 접어 둔 것을 물려받으면
+  //   "처음에는 펴져 있다"를 시험할 수 없다.
+  store.clear()
   config.clearChosen()   // 지난 시험에서 고른 값·지문을 물려받지 않는다
   return { drawTiles, cell, S, config, restored() { /* 전역 DOM 은 파일 전체에서 공유한다 */ } }
 }

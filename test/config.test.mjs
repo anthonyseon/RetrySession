@@ -96,12 +96,13 @@ test('🔴 자율 재개는 기본으로 꺼져 있다 (모르고 켜지는 일�
 })
 
 test('🔴 resume.enabled 를 판정이 실제로 읽는다 (이게 없어서 스위치가 죽어 있었다)', () => {
-  const src = readFileSync(join(ROOT, 'src', 'resume.mjs'), 'utf8')
+  const src = readFileSync(join(ROOT, 'src', 'lib', 'resume-gate.mjs'), 'utf8')
   assert.match(src, /cfg\.enabled === false/, '저장소 단위 잠금을 보지 않는다')
+  // 정말 막는지는 test/resume-gate.test.mjs 가 **불러서** 확인한다
 })
 
 test('🔴 --force 로도 저장소 잠금을 못 뚫는다', () => {
-  const src = readFileSync(join(ROOT, 'src', 'resume.mjs'), 'utf8')
+  const src = readFileSync(join(ROOT, 'src', 'lib', 'resume-gate.mjs'), 'utf8')
   const at = src.indexOf('cfg.enabled === false')
   // 바로 앞의 `if (!FORCE) {` 블록 안에 들어 있으면 --force 가 건너뛴다
   const before = src.slice(Math.max(0, at - 400), at)

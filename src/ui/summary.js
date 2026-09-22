@@ -82,9 +82,51 @@ function shortTime(s) {
  *   계정 얘기와 OS 예약 얘기가 같은 무게로 나란히 있으면 어디를 볼지 알 수 없다.
  *   묶어서 이름을 붙이고, 값을 오른쪽에 모아 세로로 훑히게 한다.
  */
+/**
+ * 묶음마다 **따로 접힌다.**
+ *
+ * 🔴 왜 묶음마다인가 — 요약 전체를 접는 단추는 이미 있었지만, 그건 전부 아니면 전무다.
+ *   실제로는 사람마다 계속 보고 싶은 것이 다르다(계정은 한 번 확인하면 그만, OS 트리거는
+ *   늘 보고 싶다). 세로 공간이 이 화면의 가장 귀한 자원인데 관심 없는 묶음이 그것을 먹는다.
+ *
+ * 🔴 화살표는 **CSS ::after 로만** 그린다. h3 안에 글자로 넣으면 묶음 이름이
+ *   `▾계정` 이 되어 이름으로 찾는 코드와 시험이 조용히 어긋난다.
+ *   접힘 상태는 localStorage 에 남는다 — 3초마다 다시 그려도 튀지 않게.
+ */
+const FOLD_KEY = 'rs.foldedGroups'
+/**
+ * 🔴 접힘은 **저장된 것 하나만** 본다. 모듈에 Set 사본을 들고 있지 않는다.
+ *   실측: 사본을 캐싱했더니 저장소를 비워도 사본이 남아 "처음에는 펴져 있다"가
+ *   앞 시험의 결과에 따라 뒤집혔다. 상태를 두 곳에 두면 언젠가 갈라진다 —
+ *   이 저장소가 반복해서 고쳐 온 그 부류다. 값이 다섯 개뿐이라 매번 읽어도 공짜다.
+ */
+const foldedSet = () => {
+  try { return new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || '[]')) } catch { return new Set() }
+}
+const setFolded = (title, on) => {
+  const s = foldedSet()
+  if (on) s.add(title); else s.delete(title)
+  try { localStorage.setItem(FOLD_KEY, JSON.stringify([...s])) } catch { /* 저장 못 해도 동작은 한다 */ }
+}
+
 function group(title) {
-  const g = el('div', 'grp')
-  g.append(el('h3', null, title))
+  const folded = foldedSet().has(title)
+  const g = el('div', 'grp' + (folded ? ' folded' : ''))
+  const h = el('h3', null, title)
+  h.setAttribute('role', 'button')
+  h.setAttribute('tabindex', '0')
+  h.setAttribute('aria-expanded', folded ? 'false' : 'true')
+  h.title = folded ? `${title} 펼치기` : `${title} 접기`
+  const toggle = () => {
+    const nowFolded = !foldedSet().has(title)
+    setFolded(title, nowFolded)
+    g.classList.toggle('folded', nowFolded)
+    h.setAttribute('aria-expanded', nowFolded ? 'false' : 'true')
+    h.title = nowFolded ? `${title} 펼치기` : `${title} 접기`
+  }
+  h.addEventListener('click', toggle)
+  h.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } })
+  g.append(h)
   return g
 }
 

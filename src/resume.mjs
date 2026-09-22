@@ -42,6 +42,7 @@ import {
 import { loadTargets, statePaths, resolveRepo, trackerPath, isSessionId } from './lib/targets.mjs'
 import { runningSessions, isAlive } from './lib/cli.mjs'
 import { runClaude, parseResult } from './lib/claude-run.mjs'
+import { resumeGate } from './lib/resume-gate.mjs'
 import { printStatus, doRearm } from './lib/resume-report.mjs'
 import { scanSessions } from './lib/sessions.mjs'
 import { singleInstance } from './lib/single.mjs'
@@ -97,118 +98,22 @@ function verdict(target, ctx) {
   const P = statePaths(target.sessionId)
   const pairCwd2 = target.mainCwd || target.runCwd
   const { project } = pairCwd2 ? resolveRepo(pairCwd2) : { project: null }
-  const cfg = project?.resume || {}
   const state = loadRunState(P.resumeState)
-  const stop = (why) => ({ go: false, why, P, project, state })
-
-  if (!target.restart && !FORCE) return stop('재시작이 꺼져 있다 (UI 에서 켜라)')
-  if (!project) return stop('작업 디렉터리를 알 수 없다 — 재개를 띄울 자리가 없다')
-
-  /**
-   * 🔴 저장소 단위 잠금. **`--force` 로도 못 뚫는다.**
-   *
-   *   실측 결함 (2026-09-22): `config/projects.json` 은 `resume.enabled` 를 기본
-   *   false 로 두고 저장소마다 켜는 모양을 하고 있었는데, **아무도 그 값을 읽지
-   *   않았다.** targets.mjs 는 대체 프로젝트에 `enabled: true` 를 굳이 써 넣고
-   *   있었으니 읽으라고 둔 값이 분명하다. 끄둔 줄 알고 자리를 비우면 돈이 나간다 —
-   *   설정이 거짓말을 하는 것이 이 도구에서 가장 나쁜 고장이다.
-   *
-   *   UI 의 세션별 스위치와 층이 다르다: 여기는 "이 저장소는 무인으로 돌리지
-   *   않는다", 저기는 "이 세션을 무인으로 돌린다". 바깥 잠금이 이긴다.
-   */
-  if (cfg.enabled === false) {
-    return stop(`이 저장소는 자율 재개가 꺼져 있다 — config/projects.json 의 "${project.id}" 에서 resume.enabled 를 켜라`)
-  }
-
-  if (!FORCE) {
-    const qn = quietNow(cfg.quietHours)
-    if (qn.quiet) return stop(qn.why)
-  }
-
-  /**
-   * 🔴 실행 중 확인은 FORCE 로도 건너뛰지 않는다.
-   *   사람이 켜둔 세션을 --resume 으로 동시에 밀면 같은 대화에 두 주체가 쓴다.
-   *   pid 로 보는 것이 정확하다 — mtime 추측이 아니다.
-   *   판정 자체는 guard.mjs 에 있다(fail-closed: 모르면 "돌고 있다"). 거기서 시험한다.
-   */
-  const running = sessionRunning(ctx.running, target.sessionId, isAlive)
-  if (running.running) return stop(running.why)
-
   const s = ctx.sessionMap.get(target.sessionId)
-  if (!s) return stop('세션을 찾을 수 없다 — 트랜스크립트가 정리된 것으로 보인다')
+  const tp = project ? trackerPath(project) : null
 
   /**
-   * 🔴 사용량 제한 중에는 띄우지 않는다. FORCE 로도 건너뛰지 않는다.
-   *
-   *   제한 중에 `claude --resume` 을 띄우면 실패하고, 실패 3회면 회로가 차단된다 —
-   *   **제한이 차단기를 태운다.** 기다리면 될 일이 고장으로 기록되고, 풀린 뒤에도
-   *   사람이 --rearm 을 해줄 때까지 재개가 멎는다.
-   *   제한은 고장이 아니라 때가 아닌 것이다. 억지로 밀 이유가 없으므로 FORCE 도 막는다.
+   * 🔴 판정 자체는 **lib/resume-gate.mjs 한 곳에** 있다.
+   *   화면도 같은 함수로 같은 답을 낸다 — 예전에는 화면이 예산만 보고 "재시작 준비"라
+   *   말했고, 실제로는 여덟 가지가 더 막아 15분마다 조용히 건너뛰었다.
+   *   규칙을 두 벌 만들면 창구마다 다른 말을 한다.
    */
-  const limitInfo = limitState(s.quota ?? ctx.quota)
-  if (limitInfo.limited) return stop(limitInfo.why)
-
-  if (!FORCE) {
-    const limit = cfg.sessionActiveMin ?? 10
-    if (s.activeMin !== null && s.activeMin < limit) {
-      return stop(`방금까지 활동이 있었다 (${s.activeMin}분 전, 한계 ${limit}분) — 아직 사람이 붙어 있을 수 있다`)
-    }
-  }
-
-  /**
-   * 재개 지점이 있나 — 넷 중 하나여야 한다.
-   *
-   * 🔴 제한에 잘려 멈춘 것도 **재개 지점이다.** 오히려 가장 분명하다 — 잘린 그 자리다.
-   *   반대로, 제한이 풀렸다고 **놀고 있던** 세션까지 깨우면 아무도 시키지 않은 일을
-   *   시작하는 것이다. 그래서 "제한을 겪었다"가 아니라 "**마지막 엔트리가** 제한
-   *   알림이다"를 본다(sessions.mjs 의 stoppedByLimit).
-   *
-   * 🔴 끊긴 응답(절전·네트워크 멎음)도 같은 이유로 재개 지점이다 — 잘린 자리가 분명하다.
-   *   이 도구는 절전을 **막는 데** 가장 공을 들였는데, 못 막아 잘린 세션은 복구하지
-   *   않고 있었다.
-   */
-  const limitStopped = !!s.stoppedByLimit
-  const interrupted = !!s.stoppedByInterrupt
-  const tp = trackerPath(project)
-  if (tp) {
-    const t = readTracker(tp)
-    if (t.error) return stop(`추적기를 읽을 수 없다 — ${t.error}`)
-    if (t.allDone) return stop(`할 일이 없다 (${t.doneMark} 전부 done)`)
-    if (!t.doing && !t.nextTodo) return stop('추적기에 doing 도 todo 도 없다 — 재개 지점을 말해주지 않는다')
-  } else if (!target.resumePrompt && !limitStopped && !interrupted) {
-    return stop('추적기도 재개지시도 없다 — 무엇을 이어서 할지 정해지지 않았다 (UI 에서 재개지시를 넣어라)')
-  }
-
-  const point = tp
-    ? (() => { const t = readTracker(tp); return t.doing ? `doing ${t.doing.id}` : `todo ${t.nextTodo.id}` })()
-    : target.resumePrompt ? '재개지시'
-      : limitStopped ? '제한으로 잘린 지점'
-        : '끊긴 지점'
-
-  /**
-   * 🔴 끊긴 응답은 **한 번만** 이어 본다.
-   *
-   *   이어 봤는데 또 같은 자리에서 끊겼다면 원인은 절전이 아니다(실측된 예: 한 번에
-   *   내야 하는 출력이 너무 커서 스트리밍이 깨진 경우). 그대로 다시 밀면 하루 상한
-   *   12회를 같은 실패로 태운다. 사람이 재개지시로 방향을 바꿔 줘야 하는 자리다.
-   *   `--force` 로도 뚫지 않는다 — 뚫어도 같은 곳에서 깨진다.
-   */
-  if (point === '끊긴 지점' && state.lastRun?.point === '끊긴 지점') {
-    return stop('끊긴 응답을 이미 한 번 이어 봤는데 또 끊겼다 — 원인이 절전이 아니다. 재개지시로 방향을 바꿔라')
-  }
-
-  if (!FORCE) {
-    const b = budgetVerdict(state, cfg)
-    if (!b.ok) return stop(b.why)
-  }
-
-  return {
-    go: true, limitStopped, interrupted, point,
-    why: `재개 지점 ${point}`
-      + (limitStopped ? ' (사용량 제한으로 중단됐고 지금은 풀렸다)' : '')
-      + (interrupted && !limitStopped ? ' (응답이 끝까지 오지 못하고 끊겼다)' : ''),
-    P, project, state,
-  }
+  const g = resumeGate({
+    target, project, state, session: s, quota: ctx.quota, force: FORCE,
+    running: sessionRunning(ctx.running, target.sessionId, isAlive),
+    tracker: tp ? { exists: true, ...readTracker(tp) } : { exists: false },
+  })
+  return { ...g, P, project, state, limitStopped: !!s?.stoppedByLimit, interrupted: !!s?.stoppedByInterrupt }
 }
 
 /* ── 부속 명령 ───────────────────────────────────────────────── */

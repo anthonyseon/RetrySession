@@ -159,7 +159,8 @@ function drawDetail() {
 
   /* 로그 */
   $('#tab-hb').textContent = (d.watchLog || []).join('\n') || '(감시 기록이 없다 — 감시를 켜고 5분 기다리거나 “지금 감시 실행”)'
-  $('#tab-rs').textContent = (d.restartLog || []).join('\n') || '(재시작 기록이 없다)'
+  $('#rsLog').textContent = (d.restartLog || []).join('\n') || '(재시작 기록이 없다)'
+  drawGate(s)
 
   /* 설정 */
   const cfg = $('#tab-cfg'); cfg.textContent = ''
@@ -196,5 +197,63 @@ function drawTab() {
   if (S.openSession && S.detail) $('#dbody').classList.toggle('hide', S.tab === 'al')
 }
 
+
+/* ── 재시작: 지금 판정 ───────────────────────────────────────── */
+
+/**
+ * 🔴 **왜 안 도나**를 로그보다 위에 둔다.
+ *
+ *   실측 (2026-09-22): 사용자가 반복해서 물은 것이 정확히 이것이다 — 재시작을 켰고
+ *   화면은 "재시작 준비"라고 했는데 15분마다 조용히 건너뛰었다. 판정은 로그 스무 줄
+ *   아래에 묻혀 있었다. 감시 장치가 아는 것을 말하지 않으면 모르는 것과 같다.
+ *
+ * 🔴 고칠 수 있는 것에는 **단추를 함께 준다.** 이유만 알려주고 어디서 고치는지
+ *   말하지 않으면 사람은 또 찾아다닌다.
+ */
+function drawGate(s) {
+  const box = $('#rsGate'); box.textContent = ''
+  const r = s?.restart
+  if (!r?.on) {
+    box.append(el('div', 'note', '재시작이 꺼져 있습니다 — 왼쪽 목록에서 고르고 [재시작 시작] 을 누르세요.'))
+    return
+  }
+  const g = r.gate
+
+  const head = el('div', 'gaterow')
+  head.append(g?.go ? badge('good', '●', '재개 가능') : badge(g ? 'off' : 'warn', '⊘', '재개 안 함'))
+  head.append(el('span', 'gatewhy',
+    g ? (g.go ? `재개 지점 ${g.point}` : g.why) : '판정할 수 없습니다 — 저장소를 찾지 못했습니다'))
+  box.append(head)
+
+  // 숫자는 한 줄로. 상한에 얼마나 가까운지가 한눈에 보여야 한다.
+  const nums = el('div', 'note')
+  nums.textContent = `오늘 ${r.runsToday ?? '?'}/${r.maxPerDay ?? '-'}회`
+    + ` · $${r.costToday ?? 0}/$${r.maxCostUSDPerDay ?? '-'}`
+    + ` · 연속실패 ${r.failStreak ?? 0}/${r.failStreakMax ?? '-'}`
+    + (r.overloadToday ? ` · API 과부하로 막힘 ${r.overloadToday}회` : '')
+    + (r.permissionMode ? ` · 권한 ${r.permissionMode}` : '')
+  box.append(nums)
+
+  /* 고칠 수 있는 것에는 길을 준다 */
+  const acts = el('div', 'gateacts')
+  const stage = g?.stage
+  if (stage === 'point' || stage === 'repeated') {
+    const b = el('button', 'sm primary', '재개지시 넣기')
+    b.addEventListener('click', () => { S.tab = 'cfg'; redrawDetail() })
+    acts.append(b)
+  }
+  if (stage === 'blocked' || r.blocked) {
+    const b = el('button', 'sm', '차단 해제')
+    b.addEventListener('click', async () => {
+      b.disabled = true
+      await actions.post('/api/rearm', { sessionIds: [S.openSession] })
+      b.disabled = false; actions.loadDetail()
+    })
+    acts.append(b)
+  }
+  if (stage === 'running') acts.append(el('div', 'note', '사람이 쓰는 대화에는 끼어들지 않습니다 — 그 세션 창을 닫으면 다음 회차부터 대상이 됩니다.'))
+  if (stage === 'repo') acts.append(el('div', 'note', 'config/projects.json 에서 그 저장소의 resume.enabled 를 켜야 합니다 (--force 로도 뚫리지 않습니다).'))
+  if (acts.children.length) box.append(acts)
+}
 
 export { redrawDetail }

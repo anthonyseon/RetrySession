@@ -143,18 +143,22 @@ const resumeSrc = resumeSource.split('\n')
   .filter((l) => { const t = l.trim(); return t && !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*') })
   .join('\n')
 
-test('🔴 제한 중이면 FORCE 로도 막힌다 (억지로 밀 이유가 없다)', () => {
-  const i = resumeSrc.indexOf('limitState(')
-  assert.ok(i > 0, '재개가 제한상태를 써야 한다')
-  const before = resumeSrc.slice(Math.max(0, i - 300), i)
-  assert.ok(!/if \(!FORCE\) \{[^}]*$/.test(before), '제한 확인이 !FORCE 블록 안에 들어가면 안 된다')
-  assert.match(resumeSrc, /if \(limitInfo\.limited\) return stop\(limitInfo\.why\)/)
+/**
+ * 🔴 판정은 lib/resume-gate.mjs 한 곳에 있고, **불러서** 확인한다
+ *   (test/resume-gate.test.mjs). 여기서는 재개가 그 판정을 쓰는지만 본다 —
+ *   규칙을 두 벌 만들면 화면과 실제가 다른 말을 하게 된다(실제로 그랬다).
+ */
+test('🔴 재개가 공용 판정을 쓴다 (자기만의 규칙을 다시 만들지 않는다)', () => {
+  assert.match(resumeSrc, /import \{ resumeGate \} from '\.\/lib\/resume-gate\.mjs'/)
+  assert.match(resumeSrc, /const g = resumeGate\(\{/)
+  assert.ok(!/if \(limitInfo\.limited\)/.test(resumeSrc), '제한 판정을 여기서 또 하면 안 된다')
 })
 
-test('🔴 제한에 잘린 세션은 추적기·재개지시가 없어도 재개 지점으로 인정한다', () => {
-  assert.match(resumeSrc, /const limitStopped = !!s\.stoppedByLimit/)
-  assert.match(resumeSrc, /else if \(!target\.resumePrompt && !limitStopped && !interrupted\)/,
-    '제한중단·끊김이면 "재개 지점 없음" 으로 막지 않아야 한다')
+test('🔴 화면도 같은 판정을 쓴다 (예산만 보고 "준비"라고 말하던 자리다)', () => {
+  const sv = readFileSync(join(ROOT, 'src', 'lib', 'session-view.mjs'), 'utf8')
+  assert.match(sv, /resumeGate\(\{/, '화면이 제 나름대로 판정하면 실제와 갈라진다')
+  // 실행 중 확인은 fail-closed 로 넘겨야 한다 — 모르면 "돌고 있다"
+  assert.match(sv, /running: true, isCertain: false/, '조회 실패를 "정지"로 넘기면 안 된다')
 })
 
 test('🔴 지시문이 "제한에 끊겼다"를 세션에 알려준다', () => {
@@ -172,6 +176,8 @@ test('🔴 제한 결과는 스케줄러 이력을 빨갛게 물들이지 않는
 })
 
 test('실행 중 확인은 그대로 남아 있다 (③ — 세션이 열려 있으면 안 민다)', () => {
-  assert.match(resumeSrc, /const running = sessionRunning\(/)
-  assert.match(resumeSrc, /if \(running\.running\) return stop\(running\.why\)/)
+  assert.match(resumeSrc, /running: sessionRunning\(ctx\.running, target\.sessionId, isAlive\)/,
+    '실제 pid 로 확인한 결과를 판정에 넘겨야 한다')
+  const gate = readFileSync(join(ROOT, 'src', 'lib', 'resume-gate.mjs'), 'utf8')
+  assert.match(gate, /if \(running\?\.running\) return no\(GATE\.running/)
 })
