@@ -27,7 +27,7 @@ import { writeFileSync, appendFileSync, renameSync, statSync, existsSync, rmSync
  * 이름 바꾸기가 실패할 수 있는 경우(백신이 파일을 잡고 있는 등)를 위해 몇 번 다시 시도한다.
  * 끝내 실패하면 **던진다** — 조용히 직접 쓰기로 물러서면 막으려던 찢어짐이 되돌아온다.
  */
-export function 원자쓰기(path, text, { 시도 = 5 } = {}) {
+export function writeAtomic(path, text, { 시도 = 5 } = {}) {
   const tmp = `${path}.tmp-${process.pid}`
   writeFileSync(tmp, text)
   let 마지막오류 = null
@@ -47,7 +47,7 @@ export function 원자쓰기(path, text, { 시도 = 5 } = {}) {
 }
 
 /** 객체를 원자적으로 JSON 으로 */
-export const 원자JSON쓰기 = (path, obj) => 원자쓰기(path, JSON.stringify(obj, null, 2) + '\n')
+export const writeJsonAtomic = (path, obj) => writeAtomic(path, JSON.stringify(obj, null, 2) + '\n')
 
 /**
  * 로그에 한 줄 덧붙인다. 한계를 넘으면 `.1` 로 밀고 새로 시작한다.
@@ -55,7 +55,7 @@ export const 원자JSON쓰기 = (path, obj) => 원자쓰기(path, JSON.stringify
  * 두 세대만 남긴다. 더 남겨봐야 아무도 읽지 않고, 화면은 어차피 꼬리
  * 64KB 만 읽는다(status.mjs 의 tail). 상한이 있다는 사실이 중요하다.
  */
-export function 덧붙이기(path, text, { 최대바이트 = 2 * 1024 * 1024 } = {}) {
+export function appendLine(path, text, { 최대바이트 = 2 * 1024 * 1024 } = {}) {
   const 줄 = text.endsWith('\n') ? text : text + '\n'
   try {
     if (existsSync(path) && statSync(path).size + Buffer.byteLength(줄) > 최대바이트) {

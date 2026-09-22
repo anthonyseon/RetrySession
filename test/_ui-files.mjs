@@ -20,17 +20,17 @@ export const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const UI디렉터리 = join(ROOT, 'src', 'ui')
 
 /** src/ui 의 화면 스크립트 전부 (이름순) */
-export const UI모듈 = () => readdirSync(UI디렉터리).filter((f) => f.endsWith('.js')).sort()
+export const uiModules = () => readdirSync(UI디렉터리).filter((f) => f.endsWith('.js')).sort()
 
 /** 그 전부를 이어붙인 소스 — "화면이 X 를 한다"를 볼 때 쓴다 */
-export const UI소스 = () => UI모듈()
+export const uiSource = () => uiModules()
   .map((f) => readFileSync(join(UI디렉터리, f), 'utf8')).join('\n')
 
 /** 한 파일만 */
-export const UI읽기 = (f) => readFileSync(join(UI디렉터리, f), 'utf8')
+export const readUi = (f) => readFileSync(join(UI디렉터리, f), 'utf8')
 
 /** 뼈대 */
-export const HTML = () => UI읽기('index.html')
+export const HTML = () => readUi('index.html')
 
 /**
  * 모양(CSS) — `index.html` 의 `<style>` 이든 `app.css` 든 **어디 있든** 한 벌로 본다.
@@ -40,7 +40,7 @@ export const HTML = () => UI읽기('index.html')
  *   "이 스타일이 있나"이지 "어느 파일에 있나"가 아니다 — 같은 부류로 또 다치지 않게
  *   여기서 합쳐 준다.
  */
-export const 스타일 = () => [
+export const styleSource = () => [
   HTML(),
-  ...readdirSync(UI디렉터리).filter((f) => f.endsWith('.css')).sort().map((f) => UI읽기(f)),
+  ...readdirSync(UI디렉터리).filter((f) => f.endsWith('.css')).sort().map((f) => readUi(f)),
 ].join('\n')

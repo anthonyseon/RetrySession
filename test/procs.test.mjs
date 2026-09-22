@@ -10,7 +10,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { 명령행해석 } from '../src/lib/procs.mjs'
+import { parseCmdline } from '../src/lib/procs.mjs'
 
 const 확장 = 'c:\\Users\\u\\.vscode\\extensions\\anthropic.claude-code-2.1.263-win32-x64\\resources\\native-binary\\claude.exe'
 
@@ -19,7 +19,7 @@ test('🔴 세션 — VS Code 확장이 --resume 으로 띄운 것 (실측 pid 6
     ' --permission-prompt-tool stdio --resume=79e0e7e8-450b-4e3a-a9f1-0f44feec252b' +
     ' --permission-mode bypassPermissions --allow-dangerously-skip-permissions' +
     ' --add-dir c:\\dev\\Tests --add-dir c:\\dev\\Description'
-  const p = 명령행해석(c)
+  const p = parseCmdline(c)
 
   assert.equal(p.종류, '세션')
   assert.equal(p.sessionId, '79e0e7e8-450b-4e3a-a9f1-0f44feec252b')
@@ -31,56 +31,56 @@ test('🔴 세션 — VS Code 확장이 --resume 으로 띄운 것 (실측 pid 6
 })
 
 test('🔴 보조 — --claude-in-chrome-mcp 는 세션이 아니다 (실측 pid 2284·31668)', () => {
-  const p = 명령행해석(`${확장} --claude-in-chrome-mcp`)
+  const p = parseCmdline(`${확장} --claude-in-chrome-mcp`)
   assert.equal(p.종류, 'mcp보조')
   assert.equal(p.sessionId, null)
   assert.equal(p.위험권한, false)
 })
 
 test('세션 — --resume 없이 새로 시작한 것도 세션이다 (stream-json 으로 가린다)', () => {
-  const p = 명령행해석(`${확장} --output-format stream-json --input-format stream-json --setting-sources=user,project`)
+  const p = parseCmdline(`${확장} --output-format stream-json --input-format stream-json --setting-sources=user,project`)
   assert.equal(p.종류, '세션')
   assert.equal(p.sessionId, null, '아직 id 를 알 수 없다 — 그대로 알 수 없다고 답한다')
 })
 
 test('npm 판과 확장 판을 구별한다 (버전이 다를 수 있다 — 실측 2.1.246 vs 2.1.263)', () => {
-  const p = 명령행해석('C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe --output-format stream-json')
+  const p = parseCmdline('C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe --output-format stream-json')
   assert.equal(p.출처, 'npm')
   assert.equal(p.확장버전, null)
 })
 
 test('--add-dir 의 따옴표와 공백 경로를 읽는다', () => {
-  const p = 명령행해석(`${확장} --output-format stream-json --add-dir "c:\\my dev\\A" --add-dir c:\\b`)
+  const p = parseCmdline(`${확장} --output-format stream-json --add-dir "c:\\my dev\\A" --add-dir c:\\b`)
   assert.deepEqual(p.addDirs, ['C:/my dev/A', 'C:/b'])
 })
 
 test('--add-dir 가 = 형태여도 읽는다', () => {
-  const p = 명령행해석(`${확장} --output-format stream-json --add-dir=c:\\x`)
+  const p = parseCmdline(`${확장} --output-format stream-json --add-dir=c:\\x`)
   assert.deepEqual(p.addDirs, ['C:/x'])
 })
 
 test('--session-id 도 세션 id 로 인정한다', () => {
-  const p = 명령행해석(`${확장} --output-format stream-json --session-id 11111111-2222-3333-4444-555555555555`)
+  const p = parseCmdline(`${확장} --output-format stream-json --session-id 11111111-2222-3333-4444-555555555555`)
   assert.equal(p.sessionId, '11111111-2222-3333-4444-555555555555')
 })
 
 test('--resume 가 --session-id 보다 우선한다 (실제로 이어받는 쪽이 resume 이다)', () => {
-  const p = 명령행해석(`${확장} --resume=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee --session-id 11111111-2222-3333-4444-555555555555`)
+  const p = parseCmdline(`${확장} --resume=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee --session-id 11111111-2222-3333-4444-555555555555`)
   assert.equal(p.sessionId, 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
 })
 
 test('--dangerously-skip-permissions 만 있어도 위험권한이다', () => {
-  assert.equal(명령행해석(`${확장} --output-format stream-json --dangerously-skip-permissions`).위험권한, true)
+  assert.equal(parseCmdline(`${확장} --output-format stream-json --dangerously-skip-permissions`).위험권한, true)
 })
 
 test('알 수 없는 형태는 기타로 두고 세션이라 우기지 않는다', () => {
-  const p = 명령행해석(`${확장} --version`)
+  const p = parseCmdline(`${확장} --version`)
   assert.equal(p.종류, '기타')
 })
 
 test('빈 명령행에도 던지지 않는다', () => {
   for (const v of [null, undefined, '']) {
-    const p = 명령행해석(v)
+    const p = parseCmdline(v)
     assert.equal(p.종류, '기타')
     assert.deepEqual(p.addDirs, [])
   }

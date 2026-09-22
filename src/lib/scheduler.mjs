@@ -27,7 +27,7 @@ export const 작업이름 = {
  * LastTaskResult 코드 → 사람이 읽는 뜻.
  * 실측으로 만난 값들이다 — 숫자만 보여주면 267009 가 오류인지 정상인지 알 수 없다.
  */
-const 결과뜻 = (code) => {
+const resultText = (code) => {
   if (code === null || code === undefined) return null
   const n = Number(code)
   const 표 = {
@@ -55,7 +55,7 @@ const 결과뜻 = (code) => {
 }
 
 /** 실패가 아닌 결과인가 — 화면에서 초록/노랑을 가르는 기준 */
-const 정상결과 = (code) => [0, 267009, 267011, 267010].includes(Number(code))
+const isOkResult = (code) => [0, 267009, 267011, 267010].includes(Number(code))
 
 /**
  * **사람이 멈춘** 결과인가. 고장과 구별해야 한다.
@@ -65,15 +65,15 @@ const 정상결과 = (code) => [0, 267009, 267011, 267010].includes(Number(code)
  *   둘을 같은 문구로 말하면 사람은 둘 다 무시하게 된다. 이 저장소가 계속 겪은
  *   그 실패(느린 것을 죽었다고 하기 · 멀쩡한 것을 응답 없다고 하기)와 같은 부류다.
  */
-const 중지결과 = (code) => [267014, 3221225786, 4294967295].includes(Number(code))
+const isStoppedResult = (code) => [267014, 3221225786, 4294967295].includes(Number(code))
 
 /** 지금 돌고 있는가. 오래 사는 작업(UI·트레이)은 이게 마지막 결과보다 중요하다 */
-const 돌고있나 = (state) => /^running$/i.test(String(state || '').trim())
+const isRunningState = (state) => /^running$/i.test(String(state || '').trim())
 
 const _cache = new Map()
 
 /** PowerShell 한 줄. 동기·비동기 두 길이 **같은 명령**을 쓴다 (두 벌로 만들지 않는다) */
-function ps명령() {
+function psCommand() {
   const names = Object.values(작업이름)
   const list = names.map((n) => `'${n}'`).join(',')
   // 날짜는 고정 형식으로 찍는다 — 로케일 날짜 문자열은 파싱도 표시도 불안정하다
@@ -98,20 +98,20 @@ const 해석 = (out) => {
   const parsed = JSON.parse(out)
   return { ok: true, rows: Array.isArray(parsed) ? parsed : [parsed], 오류: null }
 }
-const 오류로 = (e) => ({
+const toQueryError = (e) => ({
   ok: false, rows: [],
   오류: (e.stderr || e.message || '').toString().trim().slice(0, 300) || '조회 실패',
 })
 
 function query() {
-  const ps = ps명령()
+  const ps = psCommand()
   try {
     const out = execSync(`powershell -NoProfile -NonInteractive -Command "${ps.replace(/"/g, '\\"')}"`, {
       encoding: 'utf8', timeout: 30000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     })
     return 해석(out)
   } catch (e) {
-    return 오류로(e)
+    return toQueryError(e)
   }
 }
 
@@ -120,10 +120,10 @@ function query() {
  * 한 번에 하나만 돈다(겹쳐 띄우면 PowerShell 이 쌓인다).
  */
 let _갱신중 = false
-function 비동기갱신() {
+function refreshAsync() {
   if (_갱신중) return
   _갱신중 = true
-  const ps = ps명령()
+  const ps = psCommand()
   const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
     windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -132,7 +132,7 @@ function 비동기갱신() {
   child.on('error', () => { _갱신중 = false })
   child.on('close', () => {
     _갱신중 = false
-    try { _cache.set('tasks', { at: Date.now(), v: 표만들기(해석(out)) }) } catch { /* 다음 회차에 다시 */ }
+    try { _cache.set('tasks', { at: Date.now(), v: buildTaskTable(해석(out)) }) } catch { /* 다음 회차에 다시 */ }
   })
   // 응답을 붙잡지 않는다 — 서버 종료를 막아서도 안 된다
   child.unref?.()
@@ -157,23 +157,23 @@ function 비동기갱신() {
  *   띄워 받아둔다. 값이 아예 없을 때만(=서버가 막 떴을 때) 동기로 기다린다.
  *   낡음은 `나이ms` 로 정직하게 알린다 — 조용히 오래된 값을 주지 않는다.
  */
-export function 작업상태({ ttlMs = 30000 } = {}) {
+export function taskState({ ttlMs = 30000 } = {}) {
   const hit = _cache.get('tasks')
   if (hit && Date.now() - hit.at < ttlMs) {
     return { ...hit.v, 캐시됨: true, 나이ms: Date.now() - hit.at }
   }
   if (hit) {
-    비동기갱신()
+    refreshAsync()
     return { ...hit.v, 캐시됨: true, 낡음: true, 나이ms: Date.now() - hit.at }
   }
 
-  const v = 표만들기(query())
+  const v = buildTaskTable(query())
   _cache.set('tasks', { at: Date.now(), v })
   return { ...v, 캐시됨: false, 나이ms: 0 }
 }
 
 /** 조회 결과 → 작업별 판정. 순수 함수 (동기·비동기 두 길이 함께 쓴다) */
-function 표만들기(r) {
+function buildTaskTable(r) {
   const byName = new Map(r.rows.map((x) => [x.name, x]))
   const v = {}
   for (const [키, name] of Object.entries(작업이름)) {
@@ -184,7 +184,7 @@ function 표만들기(r) {
       continue
     }
     if (!x || !x.registered) {
-      v[키] = { 이름: name, 등록됨: false, 상태: null, 마지막실행: null, 마지막결과: null, 결과뜻: null, 정상: false, 오류: null }
+      v[키] = { 이름: name, 등록됨: false, 상태: null, 마지막실행: null, 마지막결과: null, resultText: null, 정상: false, 오류: null }
       continue
     }
     /**
@@ -195,8 +195,8 @@ function 표만들기(r) {
      *   그건 고장이 아니다. 실측: start.ps1 -Restart 한 뒤 "예약 작업이 실패로
      *   끝났습니다 / 코드 4294967295" 경보가 떴고, 그때 트레이는 정상 기동해 있었다.
      */
-    const 돌고있음 = 돌고있나(x.state)
-    const 중지됨 = 중지결과(x.lastResult)
+    const 돌고있음 = isRunningState(x.state)
+    const 중지됨 = isStoppedResult(x.lastResult)
     v[키] = {
       이름: name,
       등록됨: true,
@@ -204,11 +204,11 @@ function 표만들기(r) {
       돌고있음,
       마지막실행: x.lastRun || null,
       마지막결과: x.lastResult ?? null,
-      결과뜻: 결과뜻(x.lastResult),
+      resultText: resultText(x.lastResult),
       // 돌고 있으면 정상이다. 아니면 마지막 결과로 판정한다.
       // ⚠ 이것은 **작업**이 정상이라는 뜻이지 **서비스가 응답한다**는 뜻이 아니다 —
       //   "등록됨"과 "서비스 중"의 구별은 이 저장소의 핵심 교훈이다(/api/ping 이 그쪽을 본다).
-      정상: 돌고있음 || 정상결과(x.lastResult),
+      정상: 돌고있음 || isOkResult(x.lastResult),
       // 멈춘 것인가 고장인가 — 대처가 다르므로 화면·경보가 다른 문구를 쓴다
       중지됨: !돌고있음 && 중지됨,
       다음실행: x.nextRun || null,

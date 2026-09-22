@@ -105,7 +105,7 @@ export const 경로키 = (p) =>
   String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').replace(/^([a-z]):/, (_, d) => d.toUpperCase() + ':')
 
 /** a 가 b 이거나 b 의 하위 경로인가 */
-export const 안에있나 = (a, b) => {
+export const isInside = (a, b) => {
   const x = 경로키(a).toLowerCase(), y = 경로키(b).toLowerCase()
   return x === y || x.startsWith(y + '/')
 }

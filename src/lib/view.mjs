@@ -43,7 +43,7 @@ export function tail(path, n = 40, maxBytes = 65536) {
  * 🔴 이 값은 **마지막으로 제한에 걸렸을 때 기록된 것**이다. 지금 상태가 아니다.
  *   resetsAt 이 과거면 이미 풀린 것이다 — 그걸 명시하지 않으면 "지금 막혀 있다"고 오해한다.
  */
-export function 할당량보기(q) {
+export function quotaView(q) {
   if (!q) return { 있음: false, 설명: '기록 없음 — 이 PC 의 트랜스크립트에 제한 기록이 없다' }
   const resetMs = q.resetsAt ? q.resetsAt * 1000 : null
   const 남은분 = resetMs ? Math.round((resetMs - Date.now()) / 60000) : null

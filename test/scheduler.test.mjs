@@ -18,8 +18,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { UI소스 } from './_ui-files.mjs'
-import { 현재경보 } from '../src/lib/alerts.mjs'
+import { uiSource } from './_ui-files.mjs'
+import { currentAlerts } from '../src/lib/alerts.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const src = readFileSync(join(ROOT, 'src', 'lib', 'scheduler.mjs'), 'utf8')
@@ -35,8 +35,8 @@ test('🔴 4294967295 를 숫자로 내버려 두지 않는다 (사용자가 본
 })
 
 test('🔴 사람이 멈춘 코드와 고장 코드를 나눈다', () => {
-  assert.match(src, /const 중지결과 = \(code\) => \[([^\]]*)\]/, '중지결과 판정이 있어야 한다')
-  const 목록 = /const 중지결과 = \(code\) => \[([^\]]*)\]/.exec(src)[1]
+  assert.match(src, /const isStoppedResult = \(code\) => \[([^\]]*)\]/, 'isStoppedResult 판정이 있어야 한다')
+  const 목록 = /const isStoppedResult = \(code\) => \[([^\]]*)\]/.exec(src)[1]
   // 셋 다 "사람이 멈췄다"는 뜻이다 — 고장이 아니다
   for (const c of ['267014', '3221225786', '4294967295']) {
     assert.ok(목록.includes(c), `중지 코드 ${c} 가 빠졌다`)
@@ -48,15 +48,15 @@ test('🔴 사람이 멈춘 코드와 고장 코드를 나눈다', () => {
 })
 
 test('🔴 지금 돌고 있으면 지난 회차의 종료 코드로 고장이라 하지 않는다', () => {
-  assert.match(src, /정상: 돌고있음 \|\| 정상결과/,
+  assert.match(src, /정상: 돌고있음 \|\| isOkResult/,
     '오래 사는 작업은 "지금 도는가"가 "지난 회차가 어떻게 끝났나"를 이긴다')
-  assert.match(src, /const 돌고있나 = /, '상태 문자열 판정이 있어야 한다')
+  assert.match(src, /const isRunningState = /, '상태 문자열 판정이 있어야 한다')
 })
 
 test('상태 문자열을 엄격히 본다 — "NotRunning" 을 running 으로 읽으면 안 된다', async () => {
   // 정규식이 /running/i 였다면 'NotRunning' 도 참이 되어 멈춘 작업을 정상이라 한다
-  const m = /const 돌고있나 = \(state\) => (.*)/.exec(src)
-  assert.ok(m, '돌고있나 를 찾을 수 없다')
+  const m = /const isRunningState = \(state\) => (.*)/.exec(src)
+  assert.ok(m, 'isRunningState 를 찾을 수 없다')
   assert.ok(/\^running\$/i.test(m[1]), `느슨한 매칭이다: ${m[1].trim()}`)
 })
 
@@ -65,18 +65,18 @@ test('상태 문자열을 엄격히 본다 — "NotRunning" 을 running 으로 �
 const 작업 = (v) => ({ 세션: [], 락: {}, 합계: { 실행여부앎: true }, 작업: { 트레이: v } })
 
 test('🔴 돌고 있는 작업에는 경보를 내지 않는다 (사용자가 겪은 거짓 경보)', () => {
-  const a = 현재경보(작업({
+  const a = currentAlerts(작업({
     이름: 'EasyAI-RetrySession-Tray', 등록됨: true, 돌고있음: true,
-    정상: true, 중지됨: false, 마지막결과: 4294967295, 결과뜻: '강제 종료됨(-1)',
+    정상: true, 중지됨: false, 마지막결과: 4294967295, resultText: '강제 종료됨(-1)',
   }))
   assert.equal(a.length, 0, `돌고 있는데 경보가 떴다: ${JSON.stringify(a)}`)
 })
 
 test('🔴 멈춰 있으면 "실패"가 아니라 "멈춰 있다"고, 되살리는 법과 함께 말한다', () => {
-  const a = 현재경보(작업({
+  const a = currentAlerts(작업({
     이름: 'EasyAI-RetrySession-Tray', 등록됨: true, 돌고있음: false,
     정상: false, 중지됨: true, 마지막결과: 4294967295,
-    결과뜻: '강제 종료됨(-1) — start.ps1 -Stop/-Restart 가 이렇게 끝낸다',
+    resultText: '강제 종료됨(-1) — start.ps1 -Stop/-Restart 가 이렇게 끝낸다',
   }))
   const hit = a.find((x) => x.코드 === '예약중지')
   assert.ok(hit, '멈춤을 알리는 경보가 있어야 한다')
@@ -85,22 +85,22 @@ test('🔴 멈춰 있으면 "실패"가 아니라 "멈춰 있다"고, 되살리�
 })
 
 test('진짜 실패는 여전히 실패라고 말한다 (구별하느라 놓치면 안 된다)', () => {
-  const a = 현재경보(작업({
+  const a = currentAlerts(작업({
     이름: 'EasyAI-RetrySession-Tray', 등록됨: true, 돌고있음: false,
-    정상: false, 중지됨: false, 마지막결과: 3221225794, 결과뜻: '시작 실패 — DLL 초기화 오류',
+    정상: false, 중지됨: false, 마지막결과: 3221225794, resultText: '시작 실패 — DLL 초기화 오류',
   }))
   assert.ok(a.find((x) => x.코드 === '예약실패'), '고장은 고장이라고 해야 한다')
 })
 
 test('미등록은 그대로 미등록이다', () => {
-  const a = 현재경보(작업({ 이름: 'X', 등록됨: false }))
+  const a = currentAlerts(작업({ 이름: 'X', 등록됨: false }))
   assert.ok(a.find((x) => x.코드 === '예약미등록'))
 })
 
 /* ── 화면이 트레이를 보여주는가 ──────────────────────────────── */
 
 test('🔴 경보가 말하는 작업은 화면에도 있어야 한다 (트레이 타일)', () => {
-  const app = UI소스()
+  const app = uiSource()
   const m = /for \(const \[키, 라벨\] of \[([\s\S]*?)\]\) \{/.exec(app)
   assert.ok(m, 'OS 트리거 타일 목록을 찾을 수 없다')
   for (const k of ['하트비트', '재시작', 'UI', '트레이']) {
@@ -109,7 +109,7 @@ test('🔴 경보가 말하는 작업은 화면에도 있어야 한다 (트레�
 })
 
 test('화면이 멈춤과 실패를 다른 배지로 그린다', () => {
-  const app = UI소스()
+  const app = uiSource()
   assert.match(app, /w\.중지됨.*멈춰 있음/s, '멈춤 배지가 있어야 한다')
 })
 
@@ -124,16 +124,16 @@ test('화면이 멈춤과 실패를 다른 배지로 그린다', () => {
  */
 test('🔴 캐시가 낡아도 요청을 막지 않는다 (동기 7초를 요청 안에서 치르지 않는다)', () => {
   const src = readFileSync(join(ROOT, 'src', 'lib', 'scheduler.mjs'), 'utf8')
-  assert.match(src, /function 비동기갱신/, '뒤에서 새로 읽는 길이 있어야 한다')
+  assert.match(src, /function refreshAsync/, '뒤에서 새로 읽는 길이 있어야 한다')
   assert.match(src, /spawn\(/, '비동기여야 한다 — execSync 면 그대로 막힌다')
-  const i = src.indexOf('export function 작업상태')
+  const i = src.indexOf('export function taskState')
   const 구간 = src.slice(i, i + 700)
-  assert.match(구간, /if \(hit\) \{\s*\n\s*비동기갱신\(\)/,
+  assert.match(구간, /if \(hit\) \{\s*\n\s*refreshAsync\(\)/,
     '캐시가 있으면 낡았어도 즉시 돌려주고 갱신은 뒤로 미뤄야 한다')
   assert.match(구간, /낡음: true/, '낡은 값을 줬으면 낡았다고 말해야 한다')
   assert.match(구간, /나이ms/, '얼마나 낡았는지 알려야 한다')
   // 값이 아예 없을 때(서버 기동 직후)만 동기로 기다린다
-  assert.match(src.slice(i, i + 900), /const v = 표만들기\(query\(\)\)/)
+  assert.match(src.slice(i, i + 900), /const v = buildTaskTable\(query\(\)\)/)
 })
 
 test('🔴 갱신을 겹쳐 띄우지 않는다 (PowerShell 이 쌓인다)', () => {

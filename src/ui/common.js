@@ -17,14 +17,14 @@
 const $ = (s) => document.querySelector(s)
 const el = (t, c, x) => { const n = document.createElement(t); if (c) n.className = c; if (x != null) n.textContent = x; return n }
 const n = (v) => (Number(v) || 0).toLocaleString('ko-KR')
-const 압축 = (v) => {
+const compact = (v) => {
   const x = Number(v) || 0
   if (Math.abs(x) >= 1e9) return (x / 1e9).toFixed(1) + 'B'
   if (Math.abs(x) >= 1e6) return (x / 1e6).toFixed(1) + 'M'
   if (Math.abs(x) >= 1e4) return (x / 1e3).toFixed(1) + 'K'
   return n(x)
 }
-const 짧은경로 = (p) => String(p || '').replace(/^.*[\\/]Cnthoth-Dev[\\/]/i, '…/').replace(/\\/g, '/')
+const shortPath = (p) => String(p || '').replace(/^.*[\\/]Cnthoth-Dev[\\/]/i, '…/').replace(/\\/g, '/')
 
 const S = {
   상태: null, 상세: null, 선택: new Set(), 열린세션: null,
@@ -66,9 +66,9 @@ const 바닥여유 = 24 // px. 스크롤바를 끝까지 내리지 않아도 "�
 const 그린적있나 = new Set()
 
 /** 시험용 — 첫 렌더 기록을 지운다 */
-export const 첫렌더초기화 = () => 그린적있나.clear()
+export const resetFirstRender = () => 그린적있나.clear()
 
-function 스크롤유지(sel, 다시그리기, { 맨위로 = false } = {}) {
+function keepScroll(sel, 다시그리기, { 맨위로 = false } = {}) {
   const box = $(sel)
   if (!box) { 다시그리기(); return }
 
@@ -95,10 +95,10 @@ function 스크롤유지(sel, 다시그리기, { 맨위로 = false } = {}) {
  * 조각들은 `동작.상세읽기()` 처럼 꺼내 쓴다 — 직접 import 하면 순환이 된다.
  */
 export const 동작 = {
-  그리기: () => { },
-  상태읽기: async () => { },
-  상세읽기: async () => { },
-  보내기: async () => { },
+  draw: () => { },
+  loadStatus: async () => { },
+  loadDetail: async () => { },
+  post: async () => { },
   메타: () => ({}),
 }
 
@@ -114,7 +114,7 @@ export const 동작 = {
  * 🔴 잡은 것을 **숨기지 않는다.** 삼켜서 넘기면 다음 사람은 원인을 못 찾는다.
  *   실패한 조각의 이름과 메시지를 돌려주고, 부르는 쪽이 화면에 적는다.
  */
-export function 조각그리기(이름, f) {
+export function drawPiece(이름, f) {
   try { f(); return null } catch (e) {
     // 콘솔에는 자취(stack)를 남긴다 — 화면에는 한 줄만 적는다
     console.error(`[화면] ${이름} 그리기 실패`, e)
@@ -122,5 +122,5 @@ export function 조각그리기(이름, f) {
   }
 }
 
-export { $, el, n, 압축, 짧은경로, S, badge, 스크롤유지 }
+export { $, el, n, compact, shortPath, S, badge, keepScroll }
 

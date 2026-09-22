@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   heartbeatVerdict, quietNow, budgetVerdict, recordRun, rearm,
-  loadRunState, acquireLock, releaseLock, 빈상태, 세션실행중,
+  loadRunState, acquireLock, releaseLock, 빈상태, sessionRunning,
 } from '../src/lib/guard.mjs'
 
 const 분 = 60_000
@@ -109,14 +109,14 @@ test('예산 — 하루 횟수 상한', () => {
 })
 
 test('예산 — 하루 비용 상한 (횟수는 남아도 막는다)', () => {
-  const s = { ...빈상태(), 일별: { '2026-09-18': 1 }, 비용일별: { '2026-09-18': 5.5 } }
+  const s = { ...빈상태(), 일별: { '2026-09-18': 1 }, costByDay: { '2026-09-18': 5.5 } }
   const v = budgetVerdict(s, cfg, 기준)
   assert.equal(v.ok, false)
   assert.match(v.why, /하루 상한 \$5/)
 })
 
 test('예산 — 어제 기록은 오늘 예산에 영향 없다', () => {
-  const s = { ...빈상태(), 일별: { '2026-09-17': 99 }, 비용일별: { '2026-09-17': 99 } }
+  const s = { ...빈상태(), 일별: { '2026-09-17': 99 }, costByDay: { '2026-09-17': 99 } }
   assert.equal(budgetVerdict(s, cfg, 기준).ok, true)
 })
 
@@ -145,7 +145,7 @@ test('기록 — 성공은 연속실패를 0으로 되돌린다', () => {
   assert.equal(n.연속실패, 0)
   assert.equal(n.차단, null)
   assert.equal(n.일별['2026-09-18'], 1)
-  assert.equal(n.비용일별['2026-09-18'], 0.5)
+  assert.equal(n.costByDay['2026-09-18'], 0.5)
 })
 
 test('기록 — 비용은 같은 날에 누적된다', () => {
@@ -153,7 +153,7 @@ test('기록 — 비용은 같은 날에 누적된다', () => {
   s = recordRun(s, { 결과: 'ok', 소요초: 1, 비용USD: 0.25 }, cfg, 기준)
   s = recordRun(s, { 결과: 'ok', 소요초: 1, 비용USD: 0.3 }, cfg, 기준)
   assert.equal(s.일별['2026-09-18'], 2)
-  assert.equal(s.비용일별['2026-09-18'], 0.55)
+  assert.equal(s.costByDay['2026-09-18'], 0.55)
 })
 
 test('기록 — 연속실패가 한계에 닿으면 회로를 차단한다', () => {
@@ -260,7 +260,7 @@ const 살아있음 = () => true
 const 죽음 = () => false
 
 test('🔴 실행중 — 목록 조회가 실패하면 "돌고 있다"로 답한다 (실측 결함)', () => {
-  const v = 세션실행중({ ok: false, 오류: 'claude 를 찾을 수 없다', sessions: [] }, 'a', 살아있음)
+  const v = sessionRunning({ ok: false, 오류: 'claude 를 찾을 수 없다', sessions: [] }, 'a', 살아있음)
   assert.equal(v.실행중, true, '모르는데 "안 돈다"고 하면 사람이 쓰는 대화에 끼어든다')
   assert.equal(v.확실한가, false)
   assert.match(v.why, /확인할 수 없다/)
@@ -268,38 +268,38 @@ test('🔴 실행중 — 목록 조회가 실패하면 "돌고 있다"로 답한
 
 test('🔴 실행중 — 목록 자체가 없으면(undefined·null) 막는다', () => {
   for (const 없음 of [undefined, null]) {
-    assert.equal(세션실행중(없음, 'a', 살아있음).실행중, true, `${String(없음)} 일 때 통과시키면 안 된다`)
+    assert.equal(sessionRunning(없음, 'a', 살아있음).실행중, true, `${String(없음)} 일 때 통과시키면 안 된다`)
   }
 })
 
 test('🔴 실행중 — ok 가 true 가 아닌 값이면 막는다 (truthy 로 느슨하게 보지 않는다)', () => {
   for (const 애매 of [1, 'ok', {}]) {
-    assert.equal(세션실행중({ ok: 애매, sessions: [] }, 'a', 살아있음).실행중, true)
+    assert.equal(sessionRunning({ ok: 애매, sessions: [] }, 'a', 살아있음).실행중, true)
   }
 })
 
 test('실행중 — 목록에 있고 pid 가 살아 있으면 막는다', () => {
-  const v = 세션실행중({ ok: true, sessions: [{ sessionId: 'a', pid: 123 }] }, 'a', 살아있음)
+  const v = sessionRunning({ ok: true, sessions: [{ sessionId: 'a', pid: 123 }] }, 'a', 살아있음)
   assert.equal(v.실행중, true)
   assert.equal(v.확실한가, true)
   assert.match(v.why, /pid 123/)
 })
 
 test('실행중 — 목록에 있어도 pid 가 죽었으면 통과한다 (목록이 낡을 수 있다)', () => {
-  const v = 세션실행중({ ok: true, sessions: [{ sessionId: 'a', pid: 123 }] }, 'a', 죽음)
+  const v = sessionRunning({ ok: true, sessions: [{ sessionId: 'a', pid: 123 }] }, 'a', 죽음)
   assert.equal(v.실행중, false)
   assert.equal(v.확실한가, true)
 })
 
 test('실행중 — 조회에 성공했고 목록에 없으면 통과한다 (이때만 "빈 목록"을 믿는다)', () => {
-  const v = 세션실행중({ ok: true, sessions: [] }, 'a', 살아있음)
+  const v = sessionRunning({ ok: true, sessions: [] }, 'a', 살아있음)
   assert.equal(v.실행중, false)
   assert.equal(v.확실한가, true)
   assert.equal(v.why, null)
 })
 
 test('실행중 — 다른 세션이 돌고 있는 것은 이 세션과 무관하다', () => {
-  const v = 세션실행중({ ok: true, sessions: [{ sessionId: 'b', pid: 1 }] }, 'a', 살아있음)
+  const v = sessionRunning({ ok: true, sessions: [{ sessionId: 'b', pid: 1 }] }, 'a', 살아있음)
   assert.equal(v.실행중, false)
 })
 

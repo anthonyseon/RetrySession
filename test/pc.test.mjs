@@ -13,8 +13,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { pc판정, 적용인자, 복원인자, 사실상안함, 시간말, 수동안내 } from '../src/lib/pc.mjs'
-import { 스타일 } from './_ui-files.mjs'
+import { pcVerdict, applyArgs, restoreArgs, effectivelyNever, timeText, manualGuide } from '../src/lib/pc.mjs'
+import { styleSource } from './_ui-files.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
@@ -26,36 +26,36 @@ const 좋은설정 = () => ({
   lidAc: null, lidDc: null,
   hibernateAvailable: false, hasBattery: true, lockedNow: false,
 })
-const 찾기 = (판정, 키) => 판정.목록.find((x) => x.키 === 키)
+const 찾기 = (verdict, 키) => verdict.목록.find((x) => x.키 === 키)
 
 /* ── 값 해석 ─────────────────────────────────────────────────── */
 
 test('0 은 "안 함"이다', () => {
-  assert.equal(사실상안함(0), true)
-  assert.equal(시간말(0), '안 함')
+  assert.equal(effectivelyNever(0), true)
+  assert.equal(timeText(0), '안 함')
 })
 
 test('🔴 큰 값도 사실상 "안 함"이다 (OEM 이 2147483647 을 쓴다 — 실측)', () => {
-  assert.equal(사실상안함(2147483647), true)
-  assert.equal(시간말(2147483647), '안 함')
+  assert.equal(effectivelyNever(2147483647), true)
+  assert.equal(timeText(2147483647), '안 함')
 })
 
 test('🔴 못 읽은 값(null)은 0 과 다르다 — "모름"이다', () => {
-  assert.equal(사실상안함(null), false, 'null 을 "안 함"으로 보면 잠드는 PC 를 괜찮다고 한다')
-  assert.equal(시간말(null), '모름')
+  assert.equal(effectivelyNever(null), false, 'null 을 "안 함"으로 보면 잠드는 PC 를 괜찮다고 한다')
+  assert.equal(timeText(null), '모름')
 })
 
 test('실제 대기 시간은 사람이 읽게 적는다', () => {
-  assert.equal(시간말(600), '10분 뒤')
-  assert.equal(시간말(1800), '30분 뒤')
-  assert.equal(시간말(7200), '2시간 뒤')
+  assert.equal(timeText(600), '10분 뒤')
+  assert.equal(timeText(1800), '30분 뒤')
+  assert.equal(timeText(7200), '2시간 뒤')
 })
 
 /* ── 판정 ────────────────────────────────────────────────────── */
 
 test('🔴 전원 연결 상태에서 잠들면 치명이다 (감시가 그때 멎는다)', () => {
   const d = 좋은설정(); d.standbyAc = 600
-  const v = pc판정(d)
+  const v = pcVerdict(d)
   assert.equal(v.수준, 'crit')
   const x = 찾기(v, 'standbyAc')
   assert.equal(x.수준, 'crit')
@@ -64,22 +64,22 @@ test('🔴 전원 연결 상태에서 잠들면 치명이다 (감시가 그때 �
 })
 
 test('잠들지 않으면 통과', () => {
-  const v = pc판정(좋은설정())
+  const v = pcVerdict(좋은설정())
   assert.equal(찾기(v, 'standbyAc').수준, 'ok')
 })
 
 test('🔴 최대 절전이 꺼져 있으면 그 값으로 경고하지 않는다 (발동할 수 없다)', () => {
   const d = 좋은설정(); d.hibernateAvailable = false; d.hibernateAc = 600
-  assert.equal(찾기(pc판정(d), 'hibernateAc').수준, 'ok')
+  assert.equal(찾기(pcVerdict(d), 'hibernateAc').수준, 'ok')
 })
 
 test('최대 절전이 켜져 있고 시간이 걸려 있으면 치명이다', () => {
   const d = 좋은설정(); d.hibernateAvailable = true; d.hibernateAc = 1800
-  assert.equal(찾기(pc판정(d), 'hibernateAc').수준, 'crit')
+  assert.equal(찾기(pcVerdict(d), 'hibernateAc').수준, 'crit')
 })
 
 test('🔴 덮개 설정을 못 읽으면 "모름"이다 — 괜찮다고 하지 않는다', () => {
-  const v = pc판정(좋은설정())          // 이 PC 는 덮개 항목이 없다(실측)
+  const v = pcVerdict(좋은설정())          // 이 PC 는 덮개 항목이 없다(실측)
   const x = 찾기(v, 'lidAc')
   assert.equal(x.수준, 'unknown')
   assert.ok(!x.고칠수있나, '읽지도 못하는 값을 고치려 들면 안 된다')
@@ -88,14 +88,14 @@ test('🔴 덮개 설정을 못 읽으면 "모름"이다 — 괜찮다고 하지
 
 test('덮개가 절전이면 경고하되 치명은 아니다 (덮고 나가지 않으면 무해하다)', () => {
   const d = 좋은설정(); d.lidAc = 1
-  const x = 찾기(pc판정(d), 'lidAc')
+  const x = 찾기(pcVerdict(d), 'lidAc')
   assert.equal(x.수준, 'warn')
   assert.equal(x.고칠수있나, true)
 })
 
 test('데스크톱에는 덮개 줄을 만들지 않는다', () => {
   const d = 좋은설정(); d.hasBattery = false
-  assert.equal(찾기(pc판정(d), 'lidAc'), undefined)
+  assert.equal(찾기(pcVerdict(d), 'lidAc'), undefined)
 })
 
 /**
@@ -104,7 +104,7 @@ test('데스크톱에는 덮개 줄을 만들지 않는다', () => {
 test('🔴 배터리 설정은 보여주기만 하고 고치지 않는다', () => {
   // 덮개는 읽힌 것으로 고정한다 — 배터리 하나만 변수로 두기 위해서다
   const d = 좋은설정(); d.standbyDc = 900; d.lidAc = 0
-  const v = pc판정(d)
+  const v = pcVerdict(d)
   const x = 찾기(v, 'standbyDc')
   assert.equal(x.수준, 'info', '배터리 절전은 경고가 아니다 — 그게 맞는 동작이다')
   assert.ok(!v.고칠것.includes('standbyDc'), '배터리 값을 자동으로 바꾸면 안 된다')
@@ -113,7 +113,7 @@ test('🔴 배터리 설정은 보여주기만 하고 고치지 않는다', () =
 
 test('🔴 설정을 못 읽으면 괜찮다고 하지 않는다 (fail-closed)', () => {
   for (const s of [null, undefined, {}, { ok: false, 오류: 'powershell 없음' }]) {
-    const v = pc판정(s)
+    const v = pcVerdict(s)
     assert.equal(v.읽음, false)
     assert.equal(v.수준, 'unknown')
     assert.equal(v.고칠것.length, 0, '모르는 채로 고치려 들면 안 된다')
@@ -123,20 +123,20 @@ test('🔴 설정을 못 읽으면 괜찮다고 하지 않는다 (fail-closed)',
 /* ── 적용·복원 인자 ──────────────────────────────────────────── */
 
 test('🔴 적용 인자에 배터리(Dc)가 절대 섞이지 않는다', () => {
-  const a = 적용인자(['standbyAc', 'hibernateAc', 'lidAc', 'standbyDc'])
+  const a = applyArgs(['standbyAc', 'hibernateAc', 'lidAc', 'standbyDc'])
   assert.ok(!a.some((x) => /Dc$/.test(x)), `배터리 인자가 섞였다: ${a.join(' ')}`)
   assert.deepEqual(a, ['-StandbyAc', '0', '-HibernateAc', '0', '-LidAc', '0'])
 })
 
 test('고칠 것이 없으면 인자도 없다', () => {
-  assert.deepEqual(적용인자([]), [])
+  assert.deepEqual(applyArgs([]), [])
 })
 
 test('🔴 복원은 백업에 있는 값만 되돌린다 (없는 값을 0 으로 만들지 않는다)', () => {
-  assert.deepEqual(복원인자({ standbyAc: 600, hibernateAc: 0, lidAc: null }),
+  assert.deepEqual(restoreArgs({ standbyAc: 600, hibernateAc: 0, lidAc: null }),
     ['-StandbyAc', '600', '-HibernateAc', '0'])
-  assert.deepEqual(복원인자({}), [])
-  assert.deepEqual(복원인자(null), [])
+  assert.deepEqual(restoreArgs({}), [])
+  assert.deepEqual(restoreArgs(null), [])
 })
 
 /* ── 안전 규칙이 코드에 남아 있는가 ─────────────────────────── */
@@ -150,8 +150,8 @@ test('🔴 기본 동작은 점검이다 — 묻지도 않고 바꾸지 않는�
 })
 
 test('🔴 바꾸기 전에 되돌릴 길을 먼저 만든다', () => {
-  const i = pcmjs.indexOf('원자JSON쓰기(백업경로')
-  const j = pcmjs.indexOf('적용인자(판정.고칠것)')
+  const i = pcmjs.indexOf('writeJsonAtomic(백업경로')
+  const j = pcmjs.indexOf('applyArgs(verdict.고칠것)')
   assert.ok(i > 0 && j > 0, '백업과 적용을 모두 찾아야 한다')
   assert.ok(i < j, '백업이 적용보다 먼저여야 한다 — 되돌릴 수 없는 변경은 하지 않는다')
   assert.match(pcmjs, /되돌리기 기록을 저장하지 못했다[\s\S]{0,200}process\.exit\(1\)/,
@@ -159,7 +159,7 @@ test('🔴 바꾸기 전에 되돌릴 길을 먼저 만든다', () => {
 })
 
 test('🔴 바꾼 뒤 다시 읽어 확인한다 (바꿨다고 말만 하면 안 된다)', () => {
-  assert.match(pcmjs, /const 뒤 = 읽기\(적용인자/, '적용 후 다시 읽어야 한다')
+  assert.match(pcmjs, /const 뒤 = 읽기\(applyArgs/, '적용 후 다시 읽어야 한다')
   assert.match(pcmjs, /바꿨는데도 남아 있다/, '안 바뀌었으면 그렇게 말해야 한다')
 })
 
@@ -184,7 +184,7 @@ test('창을 띄우지 않고 부른다 (읽기는 lib 에 있다)', () => {
 })
 
 test('수동 안내가 실제 경로를 짚는다', () => {
-  const t = 수동안내().join('\n')
+  const t = manualGuide().join('\n')
   assert.match(t, /전원 옵션/)
   assert.match(t, /덮개/)
   assert.match(t, /로그오프/, '잠금과 로그오프의 차이를 말해야 한다')
@@ -228,7 +228,7 @@ test('🔴 자동 설정·되돌리기·수동 방법이 모달 안에 다 있�
  *   놓치고, 수동만 보여주면 할 수 있는 걸 안 한다.
  */
 test("🔴 '설정' 단추가 머리말에 있고 모달을 연다", () => {
-  const html = 스타일()
+  const html = styleSource()
   assert.match(html, /id="btnSetup"/, "머리말에 '설정' 단추가 있어야 한다")
   // '밝게' 오른쪽 — 사용자가 지정한 자리다
   assert.ok(html.indexOf('id="btnTheme"') < html.indexOf('id="btnSetup"'),
@@ -241,13 +241,13 @@ test("🔴 '설정' 단추가 머리말에 있고 모달을 연다", () => {
 test('🔴 모달은 사라져야 한다 — 바깥 클릭과 Esc', () => {
   assert.match(화면, /e\.target\.id === 'setupWrap'/, '배경을 누르면 닫혀야 한다')
   assert.match(화면, /e\.key === 'Escape'/, 'Esc 로 닫혀야 한다')
-  const html = 스타일()
+  const html = styleSource()
   assert.match(html, /id="btnSetupClose"/, '닫기 단추도 있어야 한다')
   assert.match(화면, /\$\('#btnSetupClose'\)\.addEventListener/, '닫기 단추가 실제로 닫아야 한다')
 })
 
 test('모달 본문은 자기 스크롤을 갖는다 (화면이 낮아도 잘리지 않게)', () => {
-  const html = 스타일()
+  const html = styleSource()
   assert.match(html, /\.sheet-bd\{[^}]*overflow-y:\s*auto/)
   assert.match(html, /\.sheet-bd\{[^}]*min-height:\s*0/,
     'min-height:0 이 없으면 flex 안에서 스크롤이 조용히 사라진다')
@@ -261,8 +261,8 @@ test('🔴 요약에는 여는 단추만 둔다 (같은 동작을 두 곳에 두
 })
 
 test('상태를 새로 받으면 열려 있는 모달도 다시 그린다 (적용 결과가 바로 보이게)', () => {
-  assert.match(화면, /설정그리기\(\)/, '그리기 경로에 모달 갱신이 있어야 한다')
-  assert.match(화면, /if \(!열렸나\(\)\) return/, '닫혀 있으면 그리지 않아야 한다')
+  assert.match(화면, /drawSettings\(\)/, '그리기 경로에 모달 갱신이 있어야 한다')
+  assert.match(화면, /if \(!isSettingsOpen\(\)\) return/, '닫혀 있으면 그리지 않아야 한다')
 })
 
 test('🔴 보관된 이전 값을 화면이 보여준다 (되돌릴 길을 모르면 누르지 못한다)', () => {
@@ -284,7 +284,7 @@ test('🔴 되돌리기 단추는 보관된 값이 있을 때만 나온다', () 
 })
 
 test('🔴 바꾸기 전에 확인을 받고, 되돌릴 수 있다고 말한다', () => {
-  const i = 화면.indexOf('async function pc동작')
+  const i = 화면.indexOf('async function pcAction')
   const 구간 = 화면.slice(i, i + 1200)
   assert.match(구간, /confirm\(물음\)/, '묻지 않고 바꾸면 안 된다')
   assert.match(구간, /되돌릴 수 있습니다/, '되돌릴 수 있다는 것을 알려야 누를 수 있다')
@@ -292,10 +292,10 @@ test('🔴 바꾸기 전에 확인을 받고, 되돌릴 수 있다고 말한다'
 })
 
 test('수동 안내는 서버를 부르지 않는다 (모달이 이미 받아 둔 문구를 보여준다)', () => {
-  const i = 화면.indexOf('async function pc동작')
+  const i = 화면.indexOf('async function pcAction')
   const 구간 = 화면.slice(i, i + 400)
   assert.match(구간, /action === 'manual'/)
-  assert.match(구간, /설정열기\(\)/, '모달을 열면 접힌 안내가 거기 있다')
+  assert.match(구간, /openSettings\(\)/, '모달을 열면 접힌 안내가 거기 있다')
   assert.match(화면, /pc\.안내/, '상태에 실려 온 안내를 써야 한다')
 })
 
@@ -308,12 +308,12 @@ test('🔴 자동으로 못 바꾸는 것이 있으면 수동 안내를 펼쳐 �
 /* ── 잠들도록 설정돼 있으면 경보 ────────────────────────────── */
 
 test('🔴 PC 가 잠들도록 설정돼 있으면 경보를 낸다', async () => {
-  const { 현재경보 } = await import('../src/lib/alerts.mjs')
+  const { currentAlerts } = await import('../src/lib/alerts.mjs')
   const d = {
     세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: true },
     pc: { 수준: 'crit', 목록: [{ 이름: '절전 (전원 연결)', 현재: '10분 뒤', 수준: 'crit' }] },
   }
-  const hit = 현재경보(d).find((x) => x.코드 === 'PC절전')
+  const hit = currentAlerts(d).find((x) => x.코드 === 'PC절전')
   assert.ok(hit, '지금 기록이 멀쩡해도 자리를 비우면 멎는다 — 알려야 한다')
   assert.equal(hit.수준, 'critical')
   assert.match(hit.설명, /10분 뒤/, '무엇이 문제인지 값으로 말해야 한다')
@@ -321,22 +321,22 @@ test('🔴 PC 가 잠들도록 설정돼 있으면 경보를 낸다', async () =
 })
 
 test('PC 설정이 괜찮으면 그 경보는 없다', async () => {
-  const { 현재경보 } = await import('../src/lib/alerts.mjs')
+  const { currentAlerts } = await import('../src/lib/alerts.mjs')
   const d = { 세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: true }, pc: { 수준: 'ok', 목록: [] } }
-  assert.equal(현재경보(d).find((x) => x.코드 === 'PC절전'), undefined)
+  assert.equal(currentAlerts(d).find((x) => x.코드 === 'PC절전'), undefined)
 })
 
 test('🔴 읽지 못한 경우(unknown)로는 경보를 내지 않는다 (끝없는 경보 금지)', async () => {
-  const { 현재경보 } = await import('../src/lib/alerts.mjs')
+  const { currentAlerts } = await import('../src/lib/alerts.mjs')
   const d = { 세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: true }, pc: { 수준: 'unknown', 목록: [] } }
-  assert.equal(현재경보(d).find((x) => x.코드 === 'PC절전'), undefined,
+  assert.equal(currentAlerts(d).find((x) => x.코드 === 'PC절전'), undefined,
     '이 PC 는 덮개 항목이 없어 영원히 unknown 이다 — 매번 경보면 진짜 문제가 묻힌다')
 })
 
 test('🔴 캐시 경로에서도 백업·안내가 실려온다 (빠뜨려 단추가 빈 채로 떴다 — 실측)', async () => {
-  const { pc상태 } = await import('../src/lib/pc.mjs')
-  const 첫 = pc상태({ 강제: true })
-  const 둘째 = pc상태()          // 캐시 경로
+  const { pcState } = await import('../src/lib/pc.mjs')
+  const 첫 = pcState({ 강제: true })
+  const 둘째 = pcState()          // 캐시 경로
   assert.equal(둘째.캐시됨, true, '두 번째는 캐시를 타야 한다')
   for (const k of ['백업', '안내']) {
     assert.ok(첫[k], `강제 경로에 ${k} 가 없다`)

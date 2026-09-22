@@ -83,7 +83,7 @@ globalThis.document = {
 globalThis.localStorage = { getItem: () => null, setItem: () => { } }
 
 const UI = (f) => import(pathToFileURL(join(ROOT, 'src', 'ui', f)).href)
-const { 타일들 } = await UI('summary.js')
+const { drawTiles } = await UI('summary.js')
 /**
  * setup.js 도 함께 가져온다 — 부작용이 없다(폴링·바인딩은 app.js 에 있다).
  * PC 설정 모달은 **남의 PC 전원 설정을 바꾸는 화면**이다. 소스 정규식만으로
@@ -93,11 +93,11 @@ const 설정 = await UI('setup.js')
 const { S } = await UI('common.js')
 
 /** 시험마다 화면을 비운다 (모듈은 한 번만 평가되므로 칸만 갈아준다) */
-export function 그리기준비() {
+export function prepareRender() {
   칸.clear()
   S.상태 = null
-  설정.고른값비우기()   // 지난 시험에서 고른 값·지문을 물려받지 않는다
-  return { 타일들, 칸, S, 설정, 복원() { /* 전역 DOM 은 파일 전체에서 공유한다 */ } }
+  설정.clearChosen()   // 지난 시험에서 고른 값·지문을 물려받지 않는다
+  return { drawTiles, 칸, S, 설정, 복원() { /* 전역 DOM 은 파일 전체에서 공유한다 */ } }
 }
 
 /**
@@ -108,14 +108,14 @@ export function 그리기준비() {
  */
 export const 읽기 = (칸) => 칸.get('tiles').children.map((g) => {
   const [h3, ...rows] = g.children
-  const 칸찾기 = (r, cls) => r.children.find((c) => c.className === cls) || null
+  const findCell = (r, cls) => r.children.find((c) => c.className === cls) || null
   return {
     이름: h3.textContent,
     줄: rows.map((r) => {
-      const top = 칸찾기(r, 'gtop')
+      const top = findCell(r, 'gtop')
       return [top.children[0].textContent, top.children[1].textContent.trim()]
     }),
-    세부: rows.map((r) => 칸찾기(r, 'gd')?.textContent ?? null),
+    세부: rows.map((r) => findCell(r, 'gd')?.textContent ?? null),
     설명: rows.map((r) => r.title || ''),
   }
 })
@@ -129,10 +129,10 @@ export const 정상 = () => ({
   ide: { 창: [{ 살아있음: true, 포트: 1, pid: 2, workspaceFolders: ['x'] }], 살아있는창: 1, 낡은lock: 0, 폴더: [] },
   프로세스: { ok: true, 목록: [{ 출처: 'VS Code' }], 세션수: 1, 보조수: 0, 짝없음: [] },
   작업: {
-    하트비트: { 이름: 'H', 등록됨: true, 상태: 'Ready', 정상: true, 돌고있음: false, 중지됨: false, 결과뜻: '성공' },
-    재시작: { 이름: 'R', 등록됨: true, 상태: 'Ready', 정상: true, 돌고있음: false, 중지됨: false, 결과뜻: '성공' },
-    UI: { 이름: 'U', 등록됨: true, 상태: 'Running', 정상: true, 돌고있음: true, 중지됨: false, 결과뜻: '실행 중' },
-    트레이: { 이름: 'T', 등록됨: true, 상태: 'Running', 정상: true, 돌고있음: true, 중지됨: false, 결과뜻: '실행 중' },
+    하트비트: { 이름: 'H', 등록됨: true, 상태: 'Ready', 정상: true, 돌고있음: false, 중지됨: false, resultText: '성공' },
+    재시작: { 이름: 'R', 등록됨: true, 상태: 'Ready', 정상: true, 돌고있음: false, 중지됨: false, resultText: '성공' },
+    UI: { 이름: 'U', 등록됨: true, 상태: 'Running', 정상: true, 돌고있음: true, 중지됨: false, resultText: '실행 중' },
+    트레이: { 이름: 'T', 등록됨: true, 상태: 'Running', 정상: true, 돌고있음: true, 중지됨: false, resultText: '실행 중' },
   },
   합계: {
     세션수: 7, 실행중: 4, 실행여부앎: true, 감시켜짐: 2, 재시작켜짐: 0,

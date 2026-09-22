@@ -22,8 +22,8 @@ import { ROOT } from './_ui-harness.mjs'
  */
 test('🔴 서버가 보낸 이유를 버리지 않는다 (HTTP 500 만 보여주면 조치할 수 없다)', () => {
   const src = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
-  assert.match(src, /async function 오류이유/, '본문에서 이유를 꺼내는 함수가 있어야 한다')
-  assert.match(src, /await 오류이유\(r\)/, '상태 읽기가 그 함수를 써야 한다')
+  assert.match(src, /async function errorReason/, '본문에서 이유를 꺼내는 함수가 있어야 한다')
+  assert.match(src, /await errorReason\(r\)/, '상태 읽기가 그 함수를 써야 한다')
   // 🔴 주석을 뺀 코드만 본다. 옛 코드를 설명하는 주석이 검사에 걸려서는 안 된다
   //   (이 저장소에서 같은 함정에 두 번 걸렸다 — 근거를 적으면 그 근거가 걸린다).
   const 코드 = src.split('\n')
@@ -32,20 +32,20 @@ test('🔴 서버가 보낸 이유를 버리지 않는다 (HTTP 500 만 보여�
   assert.ok(!/throw new Error\('HTTP ' \+ r\.status\)/.test(코드),
     '상태 코드만 던지면 이유가 사라진다')
   // JSON 이 아닐 때의 대비도 있어야 한다
-  const i = src.indexOf('async function 오류이유')
+  const i = src.indexOf('async function errorReason')
   assert.match(src.slice(i, i + 400), /HTTP \$\{r\.status\}/, 'JSON 이 아니면 코드로 물러서야 한다')
 })
 
 test('🔴 상태를 못 읽으면 그것을 가장 급한 경보로 띄운다', () => {
   const sum = readFileSync(join(ROOT, 'src', 'ui', 'summary.js'), 'utf8')
-  const i = sum.indexOf('function 경보그리기')
+  const i = sum.indexOf('function drawAlerts')
   const 구간 = sum.slice(i, i + 1200)
   assert.match(구간, /S\.오류/, '읽기 실패를 경보 목록에 넣어야 한다')
   assert.match(구간, /unshift/, '가장 위에 놓아야 한다 — 나머지 전부가 낡았다는 뜻이다')
   assert.match(구간, /critical/, '치명으로 다뤄야 한다')
   // 상태가 없을 때도 경보는 그려야 한다(첫 요청부터 실패한 경우)
   const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
-  assert.match(app, /경보그리기\(null\)/, '상태가 없어도 경보는 그려야 빈 화면이 안 된다')
+  assert.match(app, /drawAlerts\(null\)/, '상태가 없어도 경보는 그려야 빈 화면이 안 된다')
 })
 
 test('세션 상세를 못 읽으면 그 이유를 적는다 (조용히 넘기면 멈춘 줄 안다)', () => {
@@ -68,13 +68,13 @@ test('세션 상세를 못 읽으면 그 이유를 적는다 (조용히 넘기�
  *
  *   조각별로 잡고, 잡은 것은 숨기지 않고 화면에 적는다.
  */
-test('🔴 조각그리기 — 던진 조각만 실패로 남고 나머지는 계속 그린다', async () => {
-  const { 조각그리기 } = await import('../src/ui/common.js')
+test('🔴 drawPiece — 던진 조각만 실패로 남고 나머지는 계속 그린다', async () => {
+  const { drawPiece } = await import('../src/ui/common.js')
   const 순서 = []
   const 실패 = [
-    조각그리기('가', () => { 순서.push('가') }),
-    조각그리기('나', () => { 순서.push('나'); throw new ReferenceError('백업 is not defined') }),
-    조각그리기('다', () => { 순서.push('다') }),
+    drawPiece('가', () => { 순서.push('가') }),
+    drawPiece('나', () => { 순서.push('나'); throw new ReferenceError('백업 is not defined') }),
+    drawPiece('다', () => { 순서.push('다') }),
   ].filter(Boolean)
 
   assert.deepEqual(순서, ['가', '나', '다'], '앞이 던져도 뒤를 그려야 한다')
@@ -97,24 +97,24 @@ test('🔴 실패를 삼키지 않는다 — 화면과 콘솔에 남긴다', () 
  */
 test('🔴 그리기() 는 모든 조각을 조각그리기로 감싼다', () => {
   const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
-  const i = app.indexOf('function 그리기()')
-  const j = app.indexOf('function 신선도갱신()')
+  const i = app.indexOf('function draw()')
+  const j = app.indexOf('function updateFreshness()')
   assert.ok(i > 0 && j > i)
   const 본문 = app.slice(i, j)
   /**
    * 조각을 부르는 **줄마다** 같은 줄에 조각그리기 가 있어야 한다.
    * (목록·선택갱신은 스크롤유지 안에 있으므로 줄 단위로 봐야 맞다)
    */
-  const 조각들 = ['경보그리기', '타일들', '폴더그리기', '설정그리기', '목록', '상세다시그리기']
+  const 조각들 = ['drawAlerts', 'drawTiles', 'drawFolders', 'drawSettings', '목록', 'redrawDetail']
   for (const 줄 of 본문.split('\n')) {
     if (줄.trim().startsWith("*") || 줄.trim().startsWith('//')) continue
     const 부름 = 조각들.filter((c) => new RegExp('(^|[^가-힣\\w.])' + c + '\\(').test(줄))
     if (!부름.length) continue
-    assert.ok(줄.includes('조각그리기'),
+    assert.ok(줄.includes('drawPiece'),
       `${부름.join('·')} 을 맨손으로 부른다 — 던지면 뒤가 다 죽는다: ${줄.trim()}`)
   }
   // 이름을 붙여 부른다 — 실패 줄에 "무엇이" 죽었는지 나와야 조치할 수 있다
-  const 이름들 = [...본문.matchAll(/조각그리기\('([^']+)'/g)].map((m) => m[1])
+  const 이름들 = [...본문.matchAll(/drawPiece\('([^']+)'/g)].map((m) => m[1])
   for (const 이름 of ['계정', '경보', '요약', '폴더', 'PC 설정', '세션 목록', '상세']) {
     assert.ok(이름들.includes(이름), `${이름} 조각이 감싸여 있지 않다 (실제: ${이름들.join(', ')})`)
   }
@@ -138,7 +138,7 @@ test('🔴 서버가 새로 떴으면 화면이 스스로 다시 읽는다', () 
   const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
   assert.match(app, /location\.reload\(\)/, '값이 바뀌면 다시 읽어야 한다')
   assert.match(app, /if \(서버기동 === null\)/, '첫 응답을 기준으로 삼아야 한다 (바로 새로고침하면 무한 반복이다)')
-  assert.match(app, /pollLoop\(기동확인/, '주기적으로 확인해야 한다 (겹치지 않게)')
+  assert.match(app, /pollLoop\(checkBoot/, '주기적으로 확인해야 한다 (겹치지 않게)')
 })
 
 /* ── 보내다 실패하면 말해준다 ───────────────────────────────── */
@@ -150,7 +150,7 @@ test('🔴 서버가 새로 떴으면 화면이 스스로 다시 읽는다', () 
  */
 test('🔴 POST 가 끊기면 조용히 넘기지 않는다', () => {
   const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
-  const i = app.indexOf('async function 보내기')
+  const i = app.indexOf('async function post')
   const 구간 = app.slice(i, i + 800)
   assert.match(구간, /try \{/, 'fetch 를 감싸야 한다')
   assert.match(구간, /보내지 못했습니다/, '무엇이 안 됐는지 말해야 한다')
@@ -163,10 +163,10 @@ test('🔴 POST 가 끊기면 조용히 넘기지 않는다', () => {
 test('🔴 폴링은 겹치지 않는다 (setInterval 로 상태를 다시 읽지 않는다)', () => {
   const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
   assert.match(app, /function pollLoop/, '끝난 뒤 다음을 잡는 고리가 있어야 한다')
-  assert.match(app, /pollLoop\(상태읽기, 3000/)
-  assert.match(app, /pollLoop\(상세읽기, 2000/)
+  assert.match(app, /pollLoop\(loadStatus, 3000/)
+  assert.match(app, /pollLoop\(loadDetail, 2000/)
   assert.ok(!/setInterval\(\(\) => \{ if \(S\.자동\)/.test(app),
     '겹치는 폴링이 남아 있으면 안 된다')
   // 신선도 갱신은 로컬 계산이라 겹칠 일이 없다 — 그것만 setInterval 로 둔다
-  assert.match(app, /setInterval\(신선도갱신, 1000\)/)
+  assert.match(app, /setInterval\(updateFreshness, 1000\)/)
 })

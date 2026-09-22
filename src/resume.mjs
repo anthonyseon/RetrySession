@@ -29,37 +29,37 @@
  */
 import { spawn } from 'node:child_process'
 import { localStamp } from './lib/stamp.mjs'
-import { 덧붙이기 } from './lib/io.mjs'
+import { appendLine } from './lib/io.mjs'
 import { readTracker } from './lib/tracker.mjs'
-import { 지시문 } from './lib/prompt.mjs'
+import { buildPrompt } from './lib/prompt.mjs'
 import {
   loadRunState, saveRunState, budgetVerdict, recordRun, rearm,
-  acquireLock, releaseLock, quietNow, 세션실행중, 제한상태, 제한실패인가,
+  acquireLock, releaseLock, quietNow, sessionRunning, limitState, isLimitFailure,
 } from './lib/guard.mjs'
-import { loadTargets, statePaths, resolveRepo, trackerPath, 세션id인가 } from './lib/targets.mjs'
-import { runningSessions, account, claudeBin, 셸필요, 계정환경, 살아있나 } from './lib/cli.mjs'
+import { loadTargets, statePaths, resolveRepo, trackerPath, isSessionId } from './lib/targets.mjs'
+import { runningSessions, account, claudeBin, needsShell, accountEnv, isAlive } from './lib/cli.mjs'
 import { scanSessions } from './lib/sessions.mjs'
-import { 단일실행 } from './lib/single.mjs'
+import { singleInstance } from './lib/single.mjs'
 
 const argv = process.argv.slice(2)
 const flag = (n) => argv.includes(n)
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : null }
 const DRY = flag('--dry-run'), FORCE = flag('--force')
 
-const 로그 = (P, line) => { try { 덧붙이기(P.재개로그, line) } catch { /* 로그 실패로 재개를 막지 않는다 */ } }
+const 로그 = (P, line) => { try { appendLine(P.재개로그, line) } catch { /* 로그 실패로 재개를 막지 않는다 */ } }
 
-function 대상들() {
+function pickTargets() {
   const t = loadTargets()
   const one = opt('--session')
   let list = Object.entries(t.targets).map(([id, v]) => ({ sessionId: id, ...v }))
 
   // 형태가 아닌 id 는 경로가 될 수 없다. 조용히 버리지 않고 알린 뒤 건너뛴다 —
   // 한 줄이 이상하다고 나머지 대상까지 못 돌게 하면 그게 더 나쁘다.
-  const 나쁜 = list.filter((x) => !세션id인가(x.sessionId))
+  const 나쁜 = list.filter((x) => !isSessionId(x.sessionId))
   if (나쁜.length) {
     console.warn(`⚠ 등록부에 세션 id 형태가 아닌 항목이 ${나쁜.length}개 있다 — 건너뛴다: ` +
       나쁜.map((x) => JSON.stringify(String(x.sessionId).slice(0, 40))).join(', '))
-    list = list.filter((x) => 세션id인가(x.sessionId))
+    list = list.filter((x) => isSessionId(x.sessionId))
   }
 
   if (one) list = list.filter((x) => x.sessionId === one || x.sessionId.startsWith(one))
@@ -69,7 +69,7 @@ function 대상들() {
 
 /* ── 가드 ────────────────────────────────────────────────────── */
 
-function 판정(대상, ctx) {
+function verdict(대상, ctx) {
   const P = statePaths(대상.sessionId)
   const 짝cwd = 대상.주작업cwd || 대상.실행cwd
   const { project } = 짝cwd ? resolveRepo(짝cwd) : { project: null }
@@ -91,7 +91,7 @@ function 판정(대상, ctx) {
    *   pid 로 보는 것이 정확하다 — mtime 추측이 아니다.
    *   판정 자체는 guard.mjs 에 있다(fail-closed: 모르면 "돌고 있다"). 거기서 시험한다.
    */
-  const 실행 = 세션실행중(ctx.실행중, 대상.sessionId, 살아있나)
+  const 실행 = sessionRunning(ctx.실행중, 대상.sessionId, isAlive)
   if (실행.실행중) return stop(실행.why)
 
   const s = ctx.세션맵.get(대상.sessionId)
@@ -105,7 +105,7 @@ function 판정(대상, ctx) {
    *   사람이 --rearm 을 해줄 때까지 재개가 멎는다.
    *   제한은 고장이 아니라 때가 아닌 것이다. 억지로 밀 이유가 없으므로 FORCE 도 막는다.
    */
-  const 제한 = 제한상태(s.할당량 ?? ctx.할당량)
+  const 제한 = limitState(s.할당량 ?? ctx.할당량)
   if (제한.제한중) return stop(제한.why)
 
   if (!FORCE) {
@@ -168,7 +168,7 @@ function runClaude({ sessionId, cwd, prompt, cfg, addDirs }) {
     const exe = claudeBin(cfg.claudeBin)
     // 🔴 env 를 계정환경으로 준다 — API 키가 설정돼 있어도 로그인 계정이 이긴다
     const child = spawn(exe, args, {
-      cwd, windowsHide: true, env: 계정환경(), shell: 셸필요(exe),
+      cwd, windowsHide: true, env: accountEnv(), shell: needsShell(exe),
     })
 
     let stdout = '', stderr = '', timedOut = false
@@ -234,7 +234,7 @@ if (flag('--status')) {
 }
 
 if (flag('--rearm')) {
-  for (const 대상 of 대상들().length ? 대상들() : Object.entries(loadTargets().targets).map(([id, v]) => ({ sessionId: id, ...v }))) {
+  for (const 대상 of pickTargets().length ? pickTargets() : Object.entries(loadTargets().targets).map(([id, v]) => ({ sessionId: id, ...v }))) {
     const P = statePaths(대상.sessionId)
     saveRunState(P.재개상태, rearm(loadRunState(P.재개상태)))
     로그(P, `${localStamp()} · REARM · 회로 차단·연속실패 해제 (사람이 실행)`)
@@ -251,9 +251,9 @@ if (flag('--rearm')) {
  *   세션을 동시에 밀어 하루 예산을 두 배로 쓰고, 워킹트리가 겹치면 편집이 충돌한다.
  *   한 회차는 최대 타임아웃(기본 30분)이므로 90분을 넘겼다면 죽은 락으로 본다.
  */
-단일실행('resume', { 낡음분: 90 })
+singleInstance('resume', { 낡음분: 90 })
 
-const 목록 = 대상들()
+const 목록 = pickTargets()
 if (!목록.length) {
   console.log(`재시작 ${localStamp()} — 대상이 없다. UI 에서 세션을 골라 재시작을 켜라.`)
   process.exit(0)
@@ -269,9 +269,9 @@ if (!목록.length) {
  *   `--force` 로도 못 건너뛴다고 못박은 바로 그 관문이다.
  *   목록이 없는 것과 "아무도 안 돈다"는 다르다. 모르면 멈춘다.
  */
-const 실행중읽기 = () => runningSessions({ ttlMs: 0 })   // 판정용이라 캐시를 쓰지 않는다
+const readRunning = () => runningSessions({ ttlMs: 0 })   // 판정용이라 캐시를 쓰지 않는다
 
-const 첫읽기 = 실행중읽기()
+const 첫읽기 = readRunning()
 if (!첫읽기.ok) {
   console.error(`⛔ 실행 중 세션을 확인할 수 없다 — ${첫읽기.오류}`)
   console.error('   모르는 채로 밀면 사람이 쓰는 대화에 끼어든다. 이번 회차는 건너뛴다.')
@@ -303,7 +303,7 @@ for (const 대상 of 목록) {
    *   틀렸을 때의 대가는 사람과 같은 대화에 동시에 쓰는 것이다.
    */
   if (Date.now() - ctx.읽은시각 > 60_000) {
-    ctx.실행중 = 실행중읽기()
+    ctx.실행중 = readRunning()
     const 다시스캔 = scanSessions()
     ctx.세션맵 = new Map(다시스캔.sessions.map((s) => [s.sessionId, s]))
     ctx.할당량 = 다시스캔.할당량
@@ -311,7 +311,7 @@ for (const 대상 of 목록) {
     // 다시 읽다 실패하면 판정이 fail-closed 로 막는다(세션실행중) — 여기서 따로 뚫지 않는다
   }
 
-  const v = 판정(대상, ctx)
+  const v = verdict(대상, ctx)
   const 짧은 = 대상.sessionId.slice(0, 8)
 
   if (!v.go) {
@@ -320,7 +320,7 @@ for (const 대상 of 목록) {
     continue
   }
 
-  const prompt = 지시문(대상, v.project, { 제한중단: v.제한중단 })
+  const prompt = buildPrompt(대상, v.project, { 제한중단: v.제한중단 })
 
   if (DRY) {
     console.log(`✅ ${짧은} 재개 가능 — ${v.why}`)
@@ -359,7 +359,7 @@ for (const 대상 of 목록) {
      */
     const 실패했나 = r.timedOut || r.code !== 0 || !p.ok
     // 타임아웃은 제한이 아니다 — 30분을 실제로 돌았다는 뜻이다
-    const 제한막힘 = 실패했나 && !r.timedOut && 제한실패인가(`${p.요약} ${r.stderr}`)
+    const 제한막힘 = 실패했나 && !r.timedOut && isLimitFailure(`${p.요약} ${r.stderr}`)
     const 결과 = r.timedOut ? 'timeout'
       : !실패했나 ? 'ok'
       : 제한막힘 ? '제한' : 'fail'

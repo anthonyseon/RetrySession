@@ -12,64 +12,64 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { 원자쓰기, 원자JSON쓰기, 덧붙이기 } from '../src/lib/io.mjs'
+import { writeAtomic, writeJsonAtomic, appendLine } from '../src/lib/io.mjs'
 
 const 임시 = () => mkdtempSync(join(tmpdir(), 'rs-io-'))
 
-test('원자쓰기 — 쓴 내용이 그대로 남는다', () => {
+test('writeAtomic — 쓴 내용이 그대로 남는다', () => {
   const d = 임시()
   const p = join(d, 'a.json')
-  원자JSON쓰기(p, { 감시: true })
+  writeJsonAtomic(p, { 감시: true })
   assert.deepEqual(JSON.parse(readFileSync(p, 'utf8')), { 감시: true })
 })
 
-test('원자쓰기 — 이미 있는 파일을 덮어쓴다', () => {
+test('writeAtomic — 이미 있는 파일을 덮어쓴다', () => {
   const d = 임시()
   const p = join(d, 'a.json')
   writeFileSync(p, '{"옛것":1}')
-  원자JSON쓰기(p, { 새것: 2 })
+  writeJsonAtomic(p, { 새것: 2 })
   assert.deepEqual(JSON.parse(readFileSync(p, 'utf8')), { 새것: 2 })
 })
 
-test('🔴 원자쓰기 — 임시 파일을 남기지 않는다 (남으면 state 가 쓰레기로 찬다)', () => {
+test('🔴 writeAtomic — 임시 파일을 남기지 않는다 (남으면 state 가 쓰레기로 찬다)', () => {
   const d = 임시()
-  for (let i = 0; i < 3; i++) 원자JSON쓰기(join(d, 'a.json'), { i })
+  for (let i = 0; i < 3; i++) writeJsonAtomic(join(d, 'a.json'), { i })
   assert.deepEqual(readdirSync(d), ['a.json'])
 })
 
-test('🔴 원자쓰기 — 읽는 쪽은 반쯤 쓰인 내용을 볼 수 없다', () => {
+test('🔴 writeAtomic — 읽는 쪽은 반쯤 쓰인 내용을 볼 수 없다', () => {
   // 중간 상태를 직접 관측할 수는 없으므로 **불변식**으로 고정한다:
   // 목적지 경로에는 언제나 온전한 JSON 이 있거나 아예 없다. 임시 이름에만 쓰고
   // 이름 바꾸기로 나타나므로, 목적지에 잘린 내용이 실리는 창이 없다.
   const d = 임시()
   const p = join(d, 'big.json')
   const 큰것 = { 줄: Array.from({ length: 5000 }, (_, i) => `줄 ${i}`) }
-  원자JSON쓰기(p, 큰것)
+  writeJsonAtomic(p, 큰것)
   // 파일이 있으면 반드시 파싱된다 — 이것이 깨지면 원자성이 깨진 것이다
   assert.equal(JSON.parse(readFileSync(p, 'utf8')).줄.length, 5000)
 })
 
-test('덧붙이기 — 줄이 쌓인다', () => {
+test('appendLine — 줄이 쌓인다', () => {
   const d = 임시()
   const p = join(d, 'x.log')
-  덧붙이기(p, 'ㄱ')
-  덧붙이기(p, 'ㄴ')
+  appendLine(p, 'ㄱ')
+  appendLine(p, 'ㄴ')
   assert.deepEqual(readFileSync(p, 'utf8').split('\n').filter(Boolean), ['ㄱ', 'ㄴ'])
 })
 
-test('덧붙이기 — 줄바꿈을 두 번 넣지 않는다', () => {
+test('appendLine — 줄바꿈을 두 번 넣지 않는다', () => {
   const d = 임시()
   const p = join(d, 'x.log')
-  덧붙이기(p, '이미 있음\n')
+  appendLine(p, '이미 있음\n')
   assert.equal(readFileSync(p, 'utf8'), '이미 있음\n')
 })
 
-test('🔴 덧붙이기 — 한계를 넘으면 회전한다 (로그는 끝없이 자란다)', () => {
+test('🔴 appendLine — 한계를 넘으면 회전한다 (로그는 끝없이 자란다)', () => {
   // 실측: heartbeat.log 가 3일에 95KB, 세션 하나당 연 11MB.
   const d = 임시()
   const p = join(d, 'x.log')
   const 한계 = 200
-  for (let i = 0; i < 100; i++) 덧붙이기(p, `줄 ${i} ${'가'.repeat(10)}`, { 최대바이트: 한계 })
+  for (let i = 0; i < 100; i++) appendLine(p, `줄 ${i} ${'가'.repeat(10)}`, { 최대바이트: 한계 })
 
   assert.ok(statSync(p).size <= 한계, `현재 로그가 한계를 넘었다: ${statSync(p).size} > ${한계}`)
   assert.ok(existsSync(`${p}.1`), '직전 세대(.1) 가 있어야 한다 — 회전했다는 증거다')
@@ -79,10 +79,10 @@ test('🔴 덧붙이기 — 한계를 넘으면 회전한다 (로그는 끝없�
   assert.ok(readFileSync(p, 'utf8').includes('줄 99'), '마지막 줄이 남아 있어야 한다')
 })
 
-test('덧붙이기 — 회전은 직전 세대만 밀어낸다 (.1 이 새 것으로 바뀐다)', () => {
+test('appendLine — 회전은 직전 세대만 밀어낸다 (.1 이 새 것으로 바뀐다)', () => {
   const d = 임시()
   const p = join(d, 'x.log')
-  for (let i = 0; i < 200; i++) 덧붙이기(p, `줄 ${i}`, { 최대바이트: 100 })
+  for (let i = 0; i < 200; i++) appendLine(p, `줄 ${i}`, { 최대바이트: 100 })
   const 이전 = readFileSync(`${p}.1`, 'utf8')
   assert.ok(!이전.includes('줄 0'), '아주 오래된 줄은 밀려나 있어야 한다')
 })

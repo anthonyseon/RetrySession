@@ -18,8 +18,8 @@
 import { readFileSync, existsSync, readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
 import { claudeProjectsRoot, RS_HOME, 경로키 } from './config.mjs'
-import { 빈토큰, 총비용, 모델정규화 } from './pricing.mjs'
-import { 원자쓰기 } from './io.mjs'
+import { 빈토큰, totalCost, normalizeModel } from './pricing.mjs'
+import { writeAtomic } from './io.mjs'
 
 const 캐시파일 = join(RS_HOME, 'state', 'sessions-cache.json')
 
@@ -61,8 +61,8 @@ export const 빈누적 = (sessionId, slug) => ({
  * 문구가 바뀔 수 있으므로 한 문장에 기대지 않고 몇 가지 신호를 함께 본다.
  * 🔴 모르면 false 다 — 제한이라고 잘못 보면 놀던 세션을 깨운다.
  */
-export function 제한알림인가(message) {
-  if (!message || 모델정규화(message.model) !== '<synthetic>') return false
+export function isLimitNotice(message) {
+  if (!message || normalizeModel(message.model) !== '<synthetic>') return false
   const c = message.content
   const 글 = typeof c === 'string' ? c
     : Array.isArray(c) ? c.map((b) => (b && b.type === 'text' ? b.text : '')).join(' ') : ''
@@ -73,7 +73,7 @@ export function 제한알림인가(message) {
 const cwd키 = 경로키
 
 /** assistant.message.usage → 우리 토큰 형태 */
-function 토큰추출(u) {
+function extractTokens(u) {
   const cc = u.cache_creation || {}
   // cache_creation 세부가 없는 구버전은 전체를 5분 쓰기로 본다 — 싼 쪽으로 기울지 않게
   const has세부 = typeof cc.ephemeral_1h_input_tokens === 'number' || typeof cc.ephemeral_5m_input_tokens === 'number'
@@ -88,12 +88,12 @@ function 토큰추출(u) {
 }
 
 /** quotaLimits 는 엔트리 안쪽에 묻혀 있다 — 찾아서 돌려준다 */
-function 할당량찾기(o, 깊이 = 0) {
+function findQuota(o, 깊이 = 0) {
   if (!o || typeof o !== 'object' || 깊이 > 6) return null
   if (o.quotaLimits && typeof o.quotaLimits === 'object') return o.quotaLimits
   for (const v of Object.values(o)) {
     if (v && typeof v === 'object') {
-      const r = 할당량찾기(v, 깊이 + 1)
+      const r = findQuota(v, 깊이 + 1)
       if (r) return r
     }
   }
@@ -127,7 +127,7 @@ export function foldEntry(acc, j) {
     acc.어시스턴트메시지++
     const m = j.message || {}
     // 마지막 엔트리가 제한 알림이면 "잘린 채 멈춰 있다"는 뜻이다(빈껍데기 주석 참조)
-    if (제한알림인가(m)) {
+    if (isLimitNotice(m)) {
       acc.제한으로멈춤 = true
       if (Number.isFinite(ts)) acc.제한알림at = ts
     } else {
@@ -139,14 +139,14 @@ export function foldEntry(acc, j) {
     if (m.usage) {
       const id = m.model || '(모델미상)'
       const cur = acc.모델별[id] || 빈토큰()
-      const t = 토큰추출(m.usage)
+      const t = extractTokens(m.usage)
       for (const k of Object.keys(cur)) cur[k] += t[k] || 0
       acc.모델별[id] = cur
     }
   }
 
   // 할당량은 어느 엔트리에든 붙을 수 있다. 가장 최근 것만 남긴다.
-  const q = 할당량찾기(j)
+  const q = findQuota(j)
   if (q && (acc.할당량 === null || (Number.isFinite(ts) && ts >= (acc.할당량._at || 0)))) {
     acc.할당량 = { ...q, _at: Number.isFinite(ts) ? ts : Date.now() }
   }
@@ -241,7 +241,7 @@ export function scanSessions({ slugs = null, useCache = true } = {}) {
 
       새캐시[path] = { size: fs_.size, mtimeMs: fs_.mtimeMs, offset, acc }
 
-      const 비용 = 총비용(acc.모델별)
+      const 비용 = totalCost(acc.모델별)
       // 가장 많이 머문 곳 — "무엇을 하던 세션인가"를 가장 잘 말해준다
       const 주작업cwd = Object.entries(acc.cwd분포).sort((a, b) => b[1] - a[1])[0]?.[0] || null
       out.push({
@@ -261,7 +261,7 @@ export function scanSessions({ slugs = null, useCache = true } = {}) {
   }
 
   // 원자적으로 쓴다 — 찢어진 캐시는 다음 회차에 전량 재스캔을 부른다(실측: 186ms vs 3ms)
-  try { 원자쓰기(캐시파일, JSON.stringify(새캐시)) } catch { /* 캐시 실패로 조회를 막지 않는다 */ }
+  try { writeAtomic(캐시파일, JSON.stringify(새캐시)) } catch { /* 캐시 실패로 조회를 막지 않는다 */ }
 
   // 가장 최근 활동 순
   out.sort((a, b) => b.수정epoch - a.수정epoch)

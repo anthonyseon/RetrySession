@@ -21,7 +21,7 @@ const 코드 = SRC.split('\n')
   .join('\n')
 
 test('🔴 실행 중 판정을 직접 하지 않고 guard 의 것을 쓴다 (판정은 한 곳이다)', () => {
-  assert.ok(코드.includes('세션실행중'), 'resume.mjs 가 세션실행중 판정을 써야 한다')
+  assert.ok(코드.includes('sessionRunning'), 'resume.mjs 가 sessionRunning 판정을 써야 한다')
 })
 
 test('🔴 목록의 sessions 만 꺼내 쓰지 않는다 — ok 를 보지 않으면 조회 실패가 관문을 연다', () => {
@@ -46,7 +46,7 @@ test('🔴 한 대상을 민 뒤에는 목록을 다시 읽는다 (한 회차가
   // 사람이 다음 세션을 열어도 알 수 없었다.
   const 루프 = 코드.slice(코드.indexOf('for (const 대상 of 목록)'))
   assert.ok(루프.includes('읽은시각'), '루프 안에서 목록의 나이를 봐야 한다')
-  assert.ok(/ctx\.실행중\s*=\s*실행중읽기\(\)/.test(루프), '루프 안에서 실행 중 목록을 다시 읽어야 한다')
+  assert.ok(/ctx\.실행중\s*=\s*readRunning\(\)/.test(루프), '루프 안에서 실행 중 목록을 다시 읽어야 한다')
   assert.ok(/ctx\.세션맵\s*=/.test(루프), '세션 스캔(활성분 판정의 근거)도 함께 갱신해야 한다')
 })
 
@@ -56,7 +56,7 @@ test('다시 읽을 때 캐시를 쓰지 않는다 — 캐시된 값이면 다�
 })
 
 test('🔴 실행 중 확인은 --force 로도 건너뛰지 않는다', () => {
-  const i = 코드.indexOf('세션실행중')
+  const i = 코드.indexOf('sessionRunning')
   const 앞 = 코드.slice(Math.max(0, i - 400), i)
   // 바로 앞에 FORCE 분기가 열려 있으면 --force 로 뚫린다
   assert.ok(!/if \(!FORCE\) \{\s*$/.test(앞.trimEnd()),
@@ -64,12 +64,12 @@ test('🔴 실행 중 확인은 --force 로도 건너뛰지 않는다', () => {
 })
 
 test('세션 id 형태가 아닌 등록 항목은 건너뛰되, 나머지 대상은 계속 돈다', () => {
-  assert.ok(코드.includes('세션id인가'), 'resume.mjs 가 세션 id 형태를 확인해야 한다')
+  assert.ok(코드.includes('isSessionId'), 'resume.mjs 가 세션 id 형태를 확인해야 한다')
   // 대상 목록을 만드는 곳에서 걸러야 한다 — 그래야 나머지 대상은 그대로 돈다
-  const 시작 = 코드.indexOf('function 대상들()')
-  assert.ok(시작 > 0, '대상들() 을 찾을 수 없다')
+  const 시작 = 코드.indexOf('function pickTargets()')
+  assert.ok(시작 > 0, 'pickTargets() 을 찾을 수 없다')
   const 본문 = 코드.slice(시작, 코드.indexOf('\n}', 시작))
-  assert.ok(본문.includes('세션id인가'), '대상 목록을 만들 때 형태를 걸러야 한다')
+  assert.ok(본문.includes('isSessionId'), '대상 목록을 만들 때 형태를 걸러야 한다')
   assert.ok(/console\.warn/.test(본문), '조용히 버리면 왜 안 도는지 알 수 없다')
 })
 

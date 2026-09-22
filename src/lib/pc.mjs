@@ -28,12 +28,12 @@ export const 모름 = null
  * Windows 는 보통 0 을 쓰지만, 2147483647 같은 큰 값을 쓰는 OEM 도 있다(실측).
  * 하루를 넘기는 대기는 우리 목적에서는 안 자는 것과 같다.
  */
-export const 사실상안함 = (초) => 초 === 0 || (Number.isFinite(초) && 초 >= 86400)
+export const effectivelyNever = (초) => 초 === 0 || (Number.isFinite(초) && 초 >= 86400)
 
 /** 초 → 사람이 읽는 말 */
-export function 시간말(초) {
+export function timeText(초) {
   if (초 === null || 초 === undefined) return '모름'
-  if (사실상안함(초)) return '안 함'
+  if (effectivelyNever(초)) return '안 함'
   const 분 = Math.round(초 / 60)
   return 분 >= 60 ? `${Math.round(분 / 6) / 10}시간 뒤` : `${분}분 뒤`
 }
@@ -54,7 +54,7 @@ function 항목(키, 이름, 현재말, 권장말, 수준, 왜, 고칠수있나 
  * PC 설정 전체 판정. 순수 함수.
  * @param s scripts/pc-settings.ps1 -Json 의 결과
  */
-export function pc판정(s) {
+export function pcVerdict(s) {
   const 목록 = []
   if (!s || s.ok !== true) {
     return {
@@ -67,25 +67,25 @@ export function pc판정(s) {
 
   /* ── 전원 연결(AC) — 여기가 본론이다 ── */
   목록.push(
-    사실상안함(s.standbyAc)
-      ? 항목('standbyAc', '절전 (전원 연결)', 시간말(s.standbyAc), '안 함', 'ok',
+    effectivelyNever(s.standbyAc)
+      ? 항목('standbyAc', '절전 (전원 연결)', timeText(s.standbyAc), '안 함', 'ok',
         '잠들지 않으므로 감시가 계속 돈다', false, s.standbyAc)
       : s.standbyAc === 모름
         ? 항목('standbyAc', '절전 (전원 연결)', '모름', '안 함', 'unknown', '값을 읽지 못했다 — 직접 확인해야 한다')
-        : 항목('standbyAc', '절전 (전원 연결)', 시간말(s.standbyAc), '안 함', 'crit',
-          `${시간말(s.standbyAc)} 잠든다. 잠든 PC 는 예약 작업을 돌리지 않는다 — 감시도 재개도 그때 멎는다`,
+        : 항목('standbyAc', '절전 (전원 연결)', timeText(s.standbyAc), '안 함', 'crit',
+          `${timeText(s.standbyAc)} 잠든다. 잠든 PC 는 예약 작업을 돌리지 않는다 — 감시도 재개도 그때 멎는다`,
           true, s.standbyAc))
 
   // 최대 절전이 아예 꺼져 있으면 이 값은 발동할 수 없다 — 경고할 일이 아니다
   if (s.hibernateAvailable) {
     목록.push(
-      사실상안함(s.hibernateAc)
-        ? 항목('hibernateAc', '최대 절전 (전원 연결)', 시간말(s.hibernateAc), '안 함', 'ok', '',
+      effectivelyNever(s.hibernateAc)
+        ? 항목('hibernateAc', '최대 절전 (전원 연결)', timeText(s.hibernateAc), '안 함', 'ok', '',
           false, s.hibernateAc)
         : s.hibernateAc === 모름
           ? 항목('hibernateAc', '최대 절전 (전원 연결)', '모름', '안 함', 'unknown', '값을 읽지 못했다')
-          : 항목('hibernateAc', '최대 절전 (전원 연결)', 시간말(s.hibernateAc), '안 함', 'crit',
-            `${시간말(s.hibernateAc)} 최대 절전에 든다. 절전과 같은 결과다`, true, s.hibernateAc))
+          : 항목('hibernateAc', '최대 절전 (전원 연결)', timeText(s.hibernateAc), '안 함', 'crit',
+            `${timeText(s.hibernateAc)} 최대 절전에 든다. 절전과 같은 결과다`, true, s.hibernateAc))
   } else {
     // 원값 없이 둔다 → 화면이 고르는 칸을 주지 않는다. 사용 불가인 설정을 고르게 하면
     // 골라도 아무 일이 안 일어나고, 사람은 자기가 바꿨다고 믿는다. 그게 최악이다.
@@ -120,10 +120,10 @@ export function pc판정(s) {
    * 원값은 준다 — **사람이 직접 고르는 것은 막지 않는다.**
    * 우리가 알아서 배터리 절전을 끄는 것은 월권, 사람이 알고 고르는 것은 선택이다.
    */
-  목록.push(항목('standbyDc', '절전 (배터리)', 시간말(s.standbyDc), '건드리지 않음', 'info',
-    사실상안함(s.standbyDc)
+  목록.push(항목('standbyDc', '절전 (배터리)', timeText(s.standbyDc), '건드리지 않음', 'info',
+    effectivelyNever(s.standbyDc)
       ? '배터리에서도 잠들지 않는다'
-      : `배터리에서는 ${시간말(s.standbyDc)} 잠든다. 그때는 감시가 멎는다 — 배터리를 태우지 않으려면 이게 맞다`,
+      : `배터리에서는 ${timeText(s.standbyDc)} 잠든다. 그때는 감시가 멎는다 — 배터리를 태우지 않으려면 이게 맞다`,
     false, s.standbyDc))
 
   /* ── 로그온 상태 ── */
@@ -142,7 +142,7 @@ export function pc판정(s) {
  *
  * 🔴 AC 만 바꾼다. 배터리(DC)는 절대 여기서 바꾸지 않는다 — 위 머리말 참조.
  */
-export function 적용인자(고칠것) {
+export function applyArgs(고칠것) {
   const args = []
   if (고칠것.includes('standbyAc')) args.push('-StandbyAc', '0')
   if (고칠것.includes('hibernateAc')) args.push('-HibernateAc', '0')
@@ -185,7 +185,7 @@ export const 쓸수있는키 = {
  * 화면이 보낸 값이 쓸 수 있는 값인가. 순수 함수.
  * 🔴 브라우저에서 온 값이다. 모르는 키·범위 밖·정수 아닌 것은 거절한다.
  */
-export function 값검증(키, 값) {
+export function validateValue(키, 값) {
   const 종류 = 쓸수있는키[키]
   if (!종류) return { ok: false, why: `바꿀 수 없는 항목이다: ${키}` }
   const n = Number(값)
@@ -199,10 +199,10 @@ export function 값검증(키, 값) {
 }
 
 /** `{standbyAc:0, lidAc:1}` → `['-StandbyAc','0','-LidAc','1']` */
-export function 설정인자(값들) {
+export function setArgs(값들) {
   const args = []
   for (const [키, v] of Object.entries(값들 || {})) {
-    const r = 값검증(키, v)
+    const r = validateValue(키, v)
     if (!r.ok) continue
     args.push('-' + 키[0].toUpperCase() + 키.slice(1), String(r.값))
   }
@@ -217,10 +217,10 @@ export function 설정인자(값들) {
  *   스크립트가 `wrote:true` 를 돌려주는데 다시 읽으면 여전히 null 이다.
  *   "바꿨다"고 말만 하고 안 바뀌는 것이 가장 나쁘다. 그래서 값마다 대조한다.
  */
-export function 반영확인(요청, 뒤) {
+export function verifyApplied(요청, 뒤) {
   const 안된것 = []
   for (const [키, v] of Object.entries(요청 || {})) {
-    const r = 값검증(키, v)
+    const r = validateValue(키, v)
     if (!r.ok) continue
     const 실제 = 뒤?.[키]
     // null 은 "읽을 수 없다" — 바뀌었는지 확인할 방법이 없으므로 안 된 것으로 본다
@@ -232,7 +232,7 @@ export function 반영확인(요청, 뒤) {
 }
 
 /** 되돌리기용 인자 — 백업해 둔 값으로 되돌린다 */
-export function 복원인자(백업) {
+export function restoreArgs(백업) {
   const args = []
   const 넣기 = (키, 값) => { if (Number.isFinite(값)) args.push(키, String(값)) }
   넣기('-StandbyAc', 백업?.standbyAc)
@@ -270,21 +270,21 @@ export function 읽기(추가인자 = []) {
  *   전원 설정은 사람이 바꾸기 전에는 그대로이므로 1분은 낡아도 무해하다.
  */
 const _캐시 = { at: 0, v: null }
-export function pc상태({ ttlMs = 60000, 강제 = false } = {}) {
+export function pcState({ ttlMs = 60000, 강제 = false } = {}) {
   // 🔴 백업과 안내는 **두 갈래 모두**에 담는다.
   //   캐시 경로에서 빠뜨려 화면의 "수동 설정 방법" 단추가 빈 채로 떴다(실측).
   //   안내는 고정 문구라 캐시할 것도 없고, 백업은 방금 적용했는지를 바로 알아야 한다.
   // 선택지도 함께 보낸다 — 화면과 서버가 **같은 목록**을 봐야 화면이 보낸 값을
   // 서버가 거절하는 일이 없다.
-  const 덧붙일것 = () => ({ 백업: 백업정보(), 안내: 수동안내(), 선택지, 쓸수있는키 })
+  const extraInfo = () => ({ 백업: backupInfo(), 안내: manualGuide(), 선택지, 쓸수있는키 })
 
   if (!강제 && _캐시.v && Date.now() - _캐시.at < ttlMs) {
-    return { ..._캐시.v, ...덧붙일것(), 캐시됨: true, 나이초: Math.round((Date.now() - _캐시.at) / 1000) }
+    return { ..._캐시.v, ...extraInfo(), 캐시됨: true, 나이초: Math.round((Date.now() - _캐시.at) / 1000) }
   }
-  const v = pc판정(읽기())
+  const v = pcVerdict(읽기())
   _캐시.at = Date.now()
   _캐시.v = v
-  return { ...v, ...덧붙일것(), 캐시됨: false, 나이초: 0 }
+  return { ...v, ...extraInfo(), 캐시됨: false, 나이초: 0 }
 }
 
 /**
@@ -293,7 +293,7 @@ export function pc상태({ ttlMs = 60000, 강제 = false } = {}) {
  * 🔴 되돌릴 수 있다는 것을 **화면이 보여줘야** 한다. 되돌릴 길을 모르면 사람은
  *   버튼을 누르지 못한다 — 그러면 고칠 수 있는 문제가 그대로 남는다.
  */
-export function 백업정보() {
+export function backupInfo() {
   const p = join(RS_HOME, 'state', 'pc-backup.json')
   if (!existsSync(p)) return { 있음: false }
   try {
@@ -309,7 +309,7 @@ export function 백업정보() {
 export const 캐시비우기 = () => { _캐시.at = 0; _캐시.v = null }
 
 /** 자동으로 못 고치는 것들의 수동 안내 */
-export const 수동안내 = () => ([
+export const manualGuide = () => ([
   '제어판에서 직접 바꾸는 법',
   '',
   '  절전 / 최대 절전',

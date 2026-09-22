@@ -13,7 +13,7 @@ import { readFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { RS_HOME, loadConfig, paths as repoPaths } from './config.mjs'
 import { localStamp } from './stamp.mjs'
-import { 원자JSON쓰기 } from './io.mjs'
+import { writeJsonAtomic } from './io.mjs'
 
 const 등록부 = join(RS_HOME, 'state', 'targets.json')
 
@@ -42,7 +42,7 @@ export function loadTargets() {
  */
 export function saveTargets(t) {
   mkdirSync(join(RS_HOME, 'state'), { recursive: true })
-  원자JSON쓰기(등록부, { ...t, updatedAt: localStamp() })
+  writeJsonAtomic(등록부, { ...t, updatedAt: localStamp() })
 }
 
 const 빈대상 = () => ({ 감시: false, 재시작: false, 재개지시: null, 추가시각: localStamp() })
@@ -59,7 +59,7 @@ const 빈대상 = () => ({ 감시: false, 재시작: false, 재개지시: null, 
  *   파싱이 환경에 따라 흔들린다. 낡음 판정은 언제나 epoch 으로 한다.
  *   끌 때는 지운다. 남겨두면 다시 켰을 때 옛 시각으로 판정한다.
  */
-function 감시시각반영(이전, patch) {
+function touchWatchTime(이전, patch) {
   if (patch.감시 === true) {
     return 이전.감시 === true ? (이전.감시켠epoch ?? Date.now()) : Date.now()
   }
@@ -67,8 +67,8 @@ function 감시시각반영(이전, patch) {
   return 이전.감시켠epoch   // 감시를 건드리지 않는 변경이면 그대로 둔다
 }
 
-function 대상갱신(이전, patch, meta) {
-  const 켠epoch = 감시시각반영(이전, patch)
+function updateTarget(이전, patch, meta) {
+  const 켠epoch = touchWatchTime(이전, patch)
   const next = { ...이전, ...meta, ...patch, 갱신시각: localStamp() }
   if (켠epoch === undefined) delete next.감시켠epoch
   else next.감시켠epoch = 켠epoch
@@ -78,7 +78,7 @@ function 대상갱신(이전, patch, meta) {
 /** 대상 하나를 켜고 끈다. 없으면 만든다 */
 export function setTarget(sessionId, patch, meta = {}) {
   const t = loadTargets()
-  t.targets[sessionId] = 대상갱신(t.targets[sessionId] || 빈대상(), patch, meta)
+  t.targets[sessionId] = updateTarget(t.targets[sessionId] || 빈대상(), patch, meta)
   saveTargets(t)
   return t.targets[sessionId]
 }
@@ -88,7 +88,7 @@ export function setMany(sessionIds, patch, metaBySession = {}) {
   const t = loadTargets()
   const 결과 = {}
   for (const id of sessionIds) {
-    t.targets[id] = 대상갱신(t.targets[id] || 빈대상(), patch, metaBySession[id] || {})
+    t.targets[id] = updateTarget(t.targets[id] || 빈대상(), patch, metaBySession[id] || {})
     결과[id] = t.targets[id]
   }
   saveTargets(t)
@@ -119,12 +119,12 @@ export const 재시작대상 = (t = loadTargets()) =>
  *   실제 id 는 UUID 다(실측: 794c2aee-ed0e-4e1c-a08f-8a0656dd54da) — 그 형태만 받는다.
  *   막연히 "구분자만 거른다"가 아니라 **아는 형태만 통과**시킨다.
  */
-export const 세션id인가 = (id) =>
+export const isSessionId = (id) =>
   typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
 
 export function statePaths(sessionId) {
   // 경로를 만들기 전에 막는다 — 만든 뒤에 검사하면 이미 만들어진 뒤다
-  if (!세션id인가(sessionId)) {
+  if (!isSessionId(sessionId)) {
     throw new Error(`세션 id 형태가 아니다: ${JSON.stringify(String(sessionId).slice(0, 80))}`)
   }
   const dir = join(RS_HOME, 'state', 'sessions', sessionId)

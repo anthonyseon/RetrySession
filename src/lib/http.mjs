@@ -11,7 +11,7 @@
  * 요청이 이 PC 에서 왔는가.
  * 바인드가 127.0.0.1 이어도 Host 헤더를 한 번 더 본다 — DNS 리바인딩 방어.
  */
-export function 로컬인가({ remoteAddress, host }) {
+export function isLocal({ remoteAddress, host }) {
   const ra = remoteAddress || ''
   if (!(ra === '127.0.0.1' || ra === '::1' || ra === '::ffff:127.0.0.1')) return false
   const h = String(host || '').split(':')[0]
@@ -47,7 +47,7 @@ export const 허용출처 = (host, port) => new Set([
  *   curl·PowerShell 은 붙이지 않는데 그쪽은 이미 이 PC 에서 도는 것이라 막을 대상이
  *   아니다. 그래서 "Origin 이 있으면 내 출처여야 한다"로 충분하고, 없으면 통과다.
  */
-export function 출처괜찮나(origin, host, port) {
+export function originOk(origin, host, port) {
   if (origin === undefined || origin === null || origin === '') return true  // 브라우저가 아니다
   if (origin === 'null') return false  // 샌드박스 iframe·data: — 출처를 숨긴 것이므로 거절한다
   return 허용출처(host, port).has(origin)

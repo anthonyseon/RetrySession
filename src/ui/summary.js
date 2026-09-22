@@ -4,7 +4,7 @@
  * 🔴 경보는 접히지 않는다(index.html 의 .alerts-wrap). 요약만 접힌다.
  */
 'use strict'
-import { $, el, n, 압축, S, badge, 동작 } from './common.js'
+import { $, el, n, compact, S, badge, 동작 } from './common.js'
 
 /* ── 경보 배너 ───────────────────────────────────────────────── */
 /**
@@ -17,7 +17,7 @@ import { $, el, n, 압축, S, badge, 동작 } from './common.js'
 const 경보아이콘 = { critical: '▲', warning: '▲', info: '●' }
 const 경보라벨 = { critical: '치명', warning: '주의', info: '정보' }
 
-function 경보그리기(d) {
+function drawAlerts(d) {
   const box = $('#alerts'); box.textContent = ''
   const list = [...(d?.경보 || [])]
 
@@ -48,7 +48,7 @@ function 경보그리기(d) {
     if (a.대상) {
       w.style.cursor = 'pointer'
       w.title = '이 세션의 상세 보기'
-      w.addEventListener('click', () => { S.열린세션 = a.대상; S.상세 = null; 동작.그리기(); 동작.상세읽기() })
+      w.addEventListener('click', () => { S.열린세션 = a.대상; S.상세 = null; 동작.draw(); 동작.loadDetail() })
     }
     box.append(w)
   }
@@ -66,7 +66,7 @@ function 경보그리기(d) {
  *   **다른 날이면 날짜를 남긴다** — 그 구별이 사라지면 오래된 기록을 방금으로 오해한다.
  *   초는 버린다. 5분 주기 작업에서 초는 판단을 바꾸지 않는다.
  */
-function 짧은시각(s) {
+function shortTime(s) {
   const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(s ?? ''))
   if (!m) return s || '없음'
   const [, y, mo, d, hh, mi] = m
@@ -130,7 +130,7 @@ function 줄(g, 이름, 값, 설명, 배지) {
  *   사용량    — 얼마나 썼나
  *   OS 트리거 — 세션 바깥에서 도는 네 작업이 살아 있나
  */
-function 타일들(d) {
+function drawTiles(d) {
   const box = $('#tiles'); box.textContent = ''
   const a = d.계정, q = d.할당량, h = d.합계
 
@@ -144,8 +144,8 @@ function 타일들(d) {
   줄(g1, '사용량 제한',
     !q.있음 ? '기록 없음' : (q.이미해제됨 ? '해제됨' : `${q.해제_남은분}분 후 해제`),
     !q.있음 ? q.설명
-      : `${q.종류 || '?'} · ${q.status || '?'} · 기록 ${짧은시각(q.기록시각)}` +
-        (q.해제시각 ? ` · 해제 ${짧은시각(q.해제시각)}` : '') +
+      : `${q.종류 || '?'} · ${q.status || '?'} · 기록 ${shortTime(q.기록시각)}` +
+        (q.해제시각 ? ` · 해제 ${shortTime(q.해제시각)}` : '') +
         (q.초과불가이유 ? ` · 초과사용 불가(${q.초과불가이유})` : ''),
     q.있음 && !q.이미해제됨 ? badge('warn', '▲', '제한 중') : null)
   box.append(g1)
@@ -193,7 +193,7 @@ function 타일들(d) {
 
   /* ── 사용량 ── */
   const g3 = 묶음('사용량')
-  줄(g3, '누적 토큰', 압축(h.총토큰), `${h.세션수}개 세션 합계`)
+  줄(g3, '누적 토큰', compact(h.총토큰), `${h.세션수}개 세션 합계`)
   줄(g3, '정가 환산', '$' + n(h.총USD.toFixed ? h.총USD.toFixed(2) : h.총USD), h.비용해석)
   box.append(g3)
 
@@ -227,8 +227,8 @@ function 타일들(d) {
     } else {
       // 강제 줄바꿈을 넣지 않는다 — 칸 폭에 맞춰 흐르게 두면 한 줄로 끝나는 경우가 많고,
       // 넣으면 항목마다 한 줄씩 더 먹어 묶음이 불필요하게 길어진다(실측: 12줄 -> 8줄)
-      설명 = `${w.상태 || '?'} · ${w.결과뜻 || '?'} · 마지막 ${짧은시각(w.마지막실행)}` +
-        (w.다음실행 ? ` · 다음 ${짧은시각(w.다음실행)}` : '')
+      설명 = `${w.상태 || '?'} · ${w.resultText || '?'} · 마지막 ${shortTime(w.마지막실행)}` +
+        (w.다음실행 ? ` · 다음 ${shortTime(w.다음실행)}` : '')
       // 멈춘 것과 고장 난 것은 대처가 다르다 — 같은 빨강으로 말하지 않는다
       if (w.중지됨) 값 = badge('warn', '■', '멈춰 있음')
       else if (!w.정상) 값 = badge('crit', '▲', '실패')
@@ -280,7 +280,7 @@ function 타일들(d) {
     box.append(g5)
   }
 
-  요지갱신(d)
+  updateDigest(d)
 }
 
 /**
@@ -289,7 +289,7 @@ function 타일들(d) {
  * 🔴 접었다고 아무것도 모르면 안 된다. 접는 이유는 자리를 비우려는 것이지
  *   상태를 포기하려는 것이 아니다. 가장 자주 보는 것만 한 줄로 남긴다.
  */
-function 요지갱신(d) {
+function updateDigest(d) {
   const h = d.합계, 작업 = d.작업 || {}
   const 트리거 = ['하트비트', '재시작', 'UI', '트레이']
     .map((k) => 작업[k]).filter(Boolean)
@@ -307,4 +307,4 @@ function 요지갱신(d) {
 }
 
 
-export { 경보그리기, 타일들 }
+export { drawAlerts, drawTiles }

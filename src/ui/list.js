@@ -2,12 +2,12 @@
  * list.js — 열린 폴더와 세션 목록. 왼쪽 패널을 그린다.
  */
 'use strict'
-import { $, el, n, 압축, 짧은경로, S, badge, 동작 } from './common.js'
+import { $, el, n, compact, shortPath, S, badge, 동작 } from './common.js'
 
 /* ── 세션 배지 (목록 전용) ──────────────────────────────────── */
-const 감시배지 = (s) => {
+const watchBadge = (s) => {
   if (!s.감시.켜짐) return badge('off', '○', '감시 꺼짐')
-  const v = s.감시.판정
+  const v = s.감시.verdict
   if (!v) return badge('warn', '◔', '감시 켬 · 기록 대기')
   // 🔴 첫 기록을 기다리는 중은 끊긴 것이 아니다 — 빨강으로 말하지 않는다
   if (v.대기) return badge('warn', '◔', `감시 켬 · ${v.why}`)
@@ -16,11 +16,11 @@ const 감시배지 = (s) => {
     : badge('crit', '▲', `감시 끊김 · ${v.why}`)
 }
 /** 제한에 잘려 멈춰 있나 — 재개가 이어받을 수 있는 상태다 */
-const 제한배지 = (s) => (s.제한으로멈춤
+const limitBadge = (s) => (s.제한으로멈춤
   ? badge('warn', '◔', '사용량 제한으로 중단됨' + (s.제한알림시각 ? ' · ' + s.제한알림시각 : ''))
   : null)
 
-const 재시작배지 = (s) => {
+const resumeBadge = (s) => {
   const r = s.재시작
   if (!r.켜짐) return badge('off', '○', '재시작 꺼짐')
   if (r.차단) return badge('crit', '▲', '재시작 차단됨')
@@ -39,7 +39,7 @@ const 재시작배지 = (s) => {
  * 실측: Description 은 열려 있고 거기서 작업도 했지만, 세션은 EasyAI.Platform 에서
  * 시작해 옮겨온 것이라 `여기서시작` 이 0 이었다.
  */
-function 폴더그리기(d) {
+function drawFolders(d) {
   const box = $('#folders'); box.textContent = ''
   const 폴더 = d.ide?.폴더 || []
   if (!폴더.length) { box.classList.add('hide'); return }
@@ -47,7 +47,7 @@ function 폴더그리기(d) {
 
   for (const f of 폴더) {
     const row = el('div', 'frow')
-    const name = 짧은경로(f.폴더)
+    const name = shortPath(f.폴더)
     row.append(el('span', 'fname', name))
 
     if (f.여기서시작 > 0) {
@@ -100,7 +100,7 @@ function 목록(d) {
     cb.addEventListener('click', (e) => {
       e.stopPropagation()
       if (cb.checked) S.선택.add(s.sessionId); else S.선택.delete(s.sessionId)
-      선택갱신()
+      syncSelection()
     })
     row.append(cb)
 
@@ -120,16 +120,16 @@ function 목록(d) {
     add('활동', s.활성분 != null ? `${s.활성분}분 전` : '?')
     add('턴', `u${s.사용자메시지}/a${s.어시스턴트메시지}`)
     add('도구', n(s.도구호출))
-    add('토큰', 압축(s.토큰합))
+    add('토큰', compact(s.토큰합))
     add('정가', '$' + (s.비용USD || 0).toFixed(2))
     if (s.gitBranch) add('브랜치', s.gitBranch)
     if (s.ide) add('VS Code', `포트 ${s.ide.포트}`)
     body.append(m)
-    body.append(el('div', 'path', 짧은경로(s.주작업cwd || s.실행cwd)))
+    body.append(el('div', 'path', shortPath(s.주작업cwd || s.실행cwd)))
 
     const bb = el('div', 'sbadges')
-    bb.append(감시배지(s), 재시작배지(s))
-    const 제한 = 제한배지(s); if (제한) bb.append(제한)
+    bb.append(watchBadge(s), resumeBadge(s))
+    const 제한 = limitBadge(s); if (제한) bb.append(제한)
     if (s.추적기.있음) {
       bb.append(badge(s.추적기.전부완료 ? 'good' : 'off', '▤',
         `추적기 ${s.추적기.완료표기}${s.추적기.doing ? ` · doing ${s.추적기.doing.id}` : ''}`))
@@ -143,7 +143,7 @@ function 목록(d) {
     body.append(bb)
 
     row.append(body)
-    row.addEventListener('click', () => { S.열린세션 = s.sessionId; S.상세 = null; 동작.그리기(); 동작.상세읽기() })
+    row.addEventListener('click', () => { S.열린세션 = s.sessionId; S.상세 = null; 동작.draw(); 동작.loadDetail() })
     box.append(row)
   }
 
@@ -178,16 +178,16 @@ function 목록(d) {
       if (p.sessionId) add('세션', p.sessionId.slice(0, 8))
       if (p.권한모드) add('권한', p.권한모드)
       r.append(m)
-      if (p.addDirs?.length) r.append(el('div', 'path', p.addDirs.map(짧은경로).join('  ')))
+      if (p.addDirs?.length) r.append(el('div', 'path', p.addDirs.map(shortPath).join('  ')))
       box.append(r)
     }
   }
 }
 
-function 선택갱신() {
+function syncSelection() {
   $('#selN').textContent = `${S.선택.size}개 선택`
   document.querySelectorAll('.actions button').forEach((b) => { b.disabled = S.선택.size === 0 })
 }
 
 
-export { 폴더그리기, 목록, 선택갱신 }
+export { drawFolders, 목록, syncSelection }

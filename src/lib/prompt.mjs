@@ -16,7 +16,7 @@ import { trackerPath } from './targets.mjs'
  * 재개 지시문. 세션을 이어받으므로 문맥 설명은 필요 없다 — **무엇을 계속할지와
  * 무인 실행의 한계**만 말한다.
  */
-function 지시문(대상, project, { 제한중단 = false } = {}) {
+function buildPrompt(대상, project, { 제한중단 = false } = {}) {
   // 제한에 잘렸다면 그 사실을 먼저 알린다 — 대화 마지막 줄이 "limit" 알림이라
   // 그것을 설명 없이 두면 무엇을 이어야 할지 헷갈린다.
   const 머리 = 제한중단
@@ -70,4 +70,4 @@ const 안전규칙 = () => ([
 ])
 
 
-export { 지시문, 안전규칙 }
+export { buildPrompt, 안전규칙 }

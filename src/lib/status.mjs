@@ -20,24 +20,24 @@ import { heartbeatVerdict, loadRunState, budgetVerdict } from './guard.mjs'
 import { scanSessions } from './sessions.mjs'
 import { runningSessions, account, cliVersion } from './cli.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath } from './targets.mjs'
-import { 작업상태 } from './scheduler.mjs'
-import { ideWindows, 창찾기, 폴더별세션 } from './ide.mjs'
+import { taskState } from './scheduler.mjs'
+import { ideWindows, findWindow, sessionsByFolder } from './ide.mjs'
 import { claudeProcesses } from './procs.mjs'
-import { 전체락상태 } from './single.mjs'
-import { 현재경보, 최근경보 } from './alerts.mjs'
+import { allLockState } from './single.mjs'
+import { currentAlerts, recentAlerts } from './alerts.mjs'
 import { paths as repoPaths } from './config.mjs'
-import { 총비용 } from './pricing.mjs'
-import { pc상태 } from './pc.mjs'
+import { totalCost } from './pricing.mjs'
+import { pcState } from './pc.mjs'
 // 보기 변환은 view.mjs 로 옮겼다. tail 은 바깥(server.mjs)에서도 쓰므로 다시 내보낸다.
-import { tail, 할당량보기 } from './view.mjs'
-export { tail, 할당량보기 }
+import { tail, quotaView } from './view.mjs'
+export { tail, quotaView }
 
 /* ── 세션 하나의 감시·재시작 상태 ────────────────────────────── */
 
 /**
  * @param 실행중앎 실행 중 목록 조회가 성공했는가. false 면 "정지"라고 말할 수 없다.
  */
-function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = new Map(), 실행중앎 = true) {
+function sessionView(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = new Map(), 실행중앎 = true) {
   const run = 실행중맵.get(s.sessionId) || null
   const 대상 = 등록.targets[s.sessionId] || null
 
@@ -53,7 +53,7 @@ function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = ne
   const P = 대상 ? statePaths(s.sessionId) : null
 
   /* 감시 */
-  let 감시상태 = { 켜짐: !!대상?.감시, 기록있음: false, 판정: null, 마지막기록: null }
+  let 감시상태 = { 켜짐: !!대상?.감시, 기록있음: false, verdict: null, 마지막기록: null }
   if (P) {
     let hb = null
     try { hb = JSON.parse(readFileSync(P.하트비트, 'utf8')) } catch { hb = null }
@@ -68,7 +68,7 @@ function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = ne
     감시상태 = {
       켜짐: !!대상.감시,
       기록있음: !!hb,
-      판정: 대상.감시 ? heartbeatVerdict(hb, 한계, Date.now(), 켠epoch) : null,
+      verdict: 대상.감시 ? heartbeatVerdict(hb, 한계, Date.now(), 켠epoch) : null,
       한계분: 한계,
       마지막기록: hb ? { at: hb.at, 단계: hb.현재단계?.id, 완료: hb.현재단계?.완료단계 } : null,
       로그: tail(P.하트비트로그, 12),
@@ -114,7 +114,7 @@ function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = ne
     }
   }
 
-  const 비용 = 총비용(s.모델별)
+  const 비용 = totalCost(s.모델별)
 
   return {
     sessionId: s.sessionId,
@@ -167,7 +167,7 @@ function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = ne
     바이트: s.바이트,
 
     // 이 세션이 어느 VS Code 창에서 열린 폴더에 있나 (살아있는 창만)
-    ide: 창찾기(실행cwd, ide창) || 창찾기(짝cwd, ide창),
+    ide: findWindow(실행cwd, ide창) || findWindow(짝cwd, ide창),
 
     /**
      * 실제 프로세스. `claude agents --json` 이 주는 pid 로 짝짓는다.
@@ -229,7 +229,7 @@ export function fullStatus() {
   const procs = claudeProcesses({ ttlMs: 15000 })
   const 프로세스맵 = new Map(procs.목록.map((p) => [p.pid, p]))
   const 세션 = [...scan.sessions, ...추가]
-    .map((s) => 세션상태(s, 등록, 실행중맵, ide.창, 프로세스맵, run.ok))
+    .map((s) => sessionView(s, 등록, 실행중맵, ide.창, 프로세스맵, run.ok))
 
   /**
    * 🔴 세션 행에 짝지어지지 않은 claude.exe — "목록에 없는 것"의 정체다.
@@ -251,23 +251,23 @@ export function fullStatus() {
    * 시작해 Description 으로 옮겨가 일했을 뿐이다. 세션 목록만 보면 이 차이를
    * 설명할 수 없으므로 열린 폴더를 나란히 놓는다.
    */
-  const 폴더 = 폴더별세션(ide.창, 세션)
+  const 폴더 = sessionsByFolder(ide.창, 세션)
 
   const acct = account()
   const 총토큰 = 세션.reduce((a, s) => a + s.토큰합, 0)
   const 총USD = +세션.reduce((a, s) => a + s.비용USD, 0).toFixed(2)
-  const 락 = 전체락상태()
+  const 락 = allLockState()
 
   const 기본 = {
     at: localStamp(),
     atEpoch: Date.now(),
     계정: acct,
     cli: { 버전: cliVersion(), agents조회: { ok: run.ok, 오류: run.오류 } },
-    할당량: 할당량보기(scan.할당량),
+    할당량: quotaView(scan.할당량),
     // PC 전원 설정 — 잠든 PC 는 아무것도 돌리지 않는다. 읽기가 느려서(474ms 실측)
     // 60초 캐시를 쓴다(lib/pc.mjs). 사람이 바꾸기 전에는 그대로이므로 무해하다.
-    pc: pc상태(),
-    작업: 작업상태(),
+    pc: pcState(),
+    작업: taskState(),
     ide: {
       창: ide.창,
       오류: ide.오류,
@@ -313,11 +313,11 @@ export function fullStatus() {
    * 경보는 나머지가 다 모인 뒤에 판정한다 — 세션·작업·할당량·락을 모두 본다.
    * 🔴 판정은 alerts.mjs 하나다. 화면이 따로 계산하면 트레이·로그와 말이 갈라진다.
    */
-  const 경보 = 현재경보(기본)
+  const 경보 = currentAlerts(기본)
   return {
     ...기본,
     경보,
-    경보이력: 최근경보(60),
+    경보이력: recentAlerts(60),
     합계: {
       ...기본.합계,
       경보: 경보.length,
@@ -343,7 +343,7 @@ export function trayStatus() {
   const d = fullStatus()
   const 세션 = d.세션
 
-  const dead = 세션.filter((s) => s.감시.켜짐 && s.감시.판정 && !s.감시.판정.alive).length
+  const dead = 세션.filter((s) => s.감시.켜짐 && s.감시.verdict && !s.감시.verdict.alive).length
   const blocked = 세션.filter((s) => s.재시작.켜짐 && s.재시작.차단).length
   const watched = d.합계.감시켜짐
   const limited = !!(d.할당량.있음 && !d.할당량.이미해제됨)

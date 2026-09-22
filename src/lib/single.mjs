@@ -33,7 +33,7 @@ const 락폴더 = () => {
 export const 락경로 = (이름) => join(락폴더(), `${이름}.lock`)
 
 /** pid 가 살아있나. 신호 0 은 아무것도 보내지 않고 존재만 확인한다 */
-const 살아있나 = (pid) => {
+const isAlive = (pid) => {
   if (!pid || pid === process.pid) return pid === process.pid
   try { process.kill(pid, 0); return true } catch { return false }
 }
@@ -48,7 +48,7 @@ export function 락상태(이름, 낡음분 = 60) {
   let h = null
   try { h = JSON.parse(readFileSync(p, 'utf8')) } catch { /* 깨진 락은 낡은 것으로 본다 */ }
   const 나이분 = h?.atEpoch ? Math.round(minutesSince(h.atEpoch)) : null
-  const alive = 살아있나(h?.pid)
+  const alive = isAlive(h?.pid)
   const 낡음 = !alive || (나이분 !== null && 나이분 >= 낡음분)
   return { 점유: alive && !낡음, pid: h?.pid ?? null, at: h?.at ?? null, 나이분, 낡음 }
 }
@@ -126,7 +126,7 @@ export function 잡기(이름, { 낡음분 = 60 } = {}) {
  *
  * 🔴 exit 0 이다 — 중복은 실패가 아니다(파일 머리 주석 참조).
  */
-export function 단일실행(이름, { 낡음분 = 60, 조용히 = false } = {}) {
+export function singleInstance(이름, { 낡음분 = 60, 조용히 = false } = {}) {
   const r = 잡기(이름, { 낡음분 })
   if (!r.ok) {
     if (!조용히) console.log(`⛔ ${이름}: ${r.why} — 이번 실행은 건너뛴다`)
@@ -136,7 +136,7 @@ export function 단일실행(이름, { 낡음분 = 60, 조용히 = false } = {})
 }
 
 /** 모든 구성요소의 락 상태 — 화면에서 중복·유령 락을 보여준다 */
-export function 전체락상태() {
+export function allLockState() {
   const 한계 = { heartbeat: 30, resume: 90, ui: 24 * 60 }
   const out = {}
   for (const [이름, 낡음분] of Object.entries(한계)) {

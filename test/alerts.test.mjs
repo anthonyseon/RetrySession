@@ -8,7 +8,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { 현재경보, 지문, 수준순 } from '../src/lib/alerts.mjs'
+import { currentAlerts, 지문, 수준순 } from '../src/lib/alerts.mjs'
 
 const 기본 = (o = {}) => ({
   세션: [], 작업: {}, 할당량: { 있음: false }, 락: {}, ...o,
@@ -17,22 +17,22 @@ const 세션 = (o = {}) => ({
   sessionId: 's1', 짧은id: 's1', 제목: '테스트 세션',
   감시: { 켜짐: false }, 재시작: { 켜짐: false }, 추적기: {}, ...o,
 })
-const 코드들 = (d) => 현재경보(d).map((a) => a.코드)
+const 코드들 = (d) => currentAlerts(d).map((a) => a.코드)
 
 test('아무 문제 없으면 경보가 없다', () => {
-  assert.deepEqual(현재경보(기본()), [])
+  assert.deepEqual(currentAlerts(기본()), [])
 })
 
 test('빈 입력에도 던지지 않는다', () => {
-  assert.deepEqual(현재경보(null), [])
-  assert.deepEqual(현재경보(undefined), [])
+  assert.deepEqual(currentAlerts(null), [])
+  assert.deepEqual(currentAlerts(undefined), [])
 })
 
 /* ── 감시 ────────────────────────────────────────────────────── */
 
 test('🔴 감시가 끊기면 치명 경보 — 이 도구의 존재 이유다', () => {
-  const d = 기본({ 세션: [세션({ 감시: { 켜짐: true, 판정: { alive: false, why: '20분 전 기록' } } })] })
-  const [a] = 현재경보(d)
+  const d = 기본({ 세션: [세션({ 감시: { 켜짐: true, verdict: { alive: false, why: '20분 전 기록' } } })] })
+  const [a] = currentAlerts(d)
   assert.equal(a.코드, '감시끊김')
   assert.equal(a.수준, 'critical')
   assert.match(a.설명, /20분 전 기록/)
@@ -40,12 +40,12 @@ test('🔴 감시가 끊기면 치명 경보 — 이 도구의 존재 이유다'
 })
 
 test('감시가 꺼져 있으면 끊김 경보를 내지 않는다', () => {
-  const d = 기본({ 세션: [세션({ 감시: { 켜짐: false, 판정: { alive: false, why: 'x' } } })] })
+  const d = 기본({ 세션: [세션({ 감시: { 켜짐: false, verdict: { alive: false, why: 'x' } } })] })
   assert.deepEqual(코드들(d), [])
 })
 
 test('감시가 살아 있으면 경보가 없다', () => {
-  const d = 기본({ 세션: [세션({ 감시: { 켜짐: true, 판정: { alive: true } } })] })
+  const d = 기본({ 세션: [세션({ 감시: { 켜짐: true, verdict: { alive: true } } })] })
   assert.deepEqual(코드들(d), [])
 })
 
@@ -53,7 +53,7 @@ test('감시가 살아 있으면 경보가 없다', () => {
 
 test('재시작 회로 차단은 치명 경보', () => {
   const d = 기본({ 세션: [세션({ 재시작: { 켜짐: true, 차단: { 이유: '연속 3회 실패', at: 'x' } } })] })
-  const [a] = 현재경보(d)
+  const [a] = currentAlerts(d)
   assert.equal(a.코드, '재시작차단')
   assert.equal(a.수준, 'critical')
 })
@@ -72,13 +72,13 @@ test('재시작이 꺼져 있으면 차단 경보를 내지 않는다', () => {
 
 test('🔴 예약 미등록은 경보 — 없으면 세션 밖에서 아무것도 돌지 않는다', () => {
   const d = 기본({ 작업: { 하트비트: { 이름: 'T', 등록됨: false } } })
-  const [a] = 현재경보(d)
+  const [a] = currentAlerts(d)
   assert.equal(a.코드, '예약미등록')
   assert.match(a.설명, /start\.exe -Install/)
 })
 
 test('예약 실패와 조회 실패를 구별한다 — 대처가 다르다', () => {
-  assert.deepEqual(코드들(기본({ 작업: { UI: { 이름: 'T', 등록됨: true, 정상: false, 결과뜻: '오류(2)' } } })), ['예약실패'])
+  assert.deepEqual(코드들(기본({ 작업: { UI: { 이름: 'T', 등록됨: true, 정상: false, resultText: '오류(2)' } } })), ['예약실패'])
   assert.deepEqual(코드들(기본({ 작업: { UI: { 이름: 'T', 조회실패: true, 오류: '권한 없음' } } })), ['예약조회실패'])
 })
 
@@ -103,7 +103,7 @@ test('🔴 이미 해제된 과거 기록은 경보가 아니다', () => {
 
 test('유령 락은 정보 수준으로만 알린다 (다음 실행이 스스로 회수한다)', () => {
   const d = 기본({ 락: { heartbeat: { 낡음: true, pid: 123, 나이분: 90 } } })
-  const [a] = 현재경보(d)
+  const [a] = currentAlerts(d)
   assert.equal(a.코드, '유령락')
   assert.equal(a.수준, 'info')
 })
@@ -119,9 +119,9 @@ test('🔴 치명이 먼저 온다 — 배너 맨 위가 가장 급한 것이어
   const d = 기본({
     할당량: { 있음: true, 이미해제됨: false, 설명: 'x' },
     락: { ui: { 낡음: true, pid: 1, 나이분: 99 } },
-    세션: [세션({ 감시: { 켜짐: true, 판정: { alive: false, why: 'x' } } })],
+    세션: [세션({ 감시: { 켜짐: true, verdict: { alive: false, why: 'x' } } })],
   })
-  const 수준 = 현재경보(d).map((a) => a.수준)
+  const 수준 = currentAlerts(d).map((a) => a.수준)
   assert.equal(수준[0], 'critical')
   for (let i = 1; i < 수준.length; i++) {
     assert.ok(수준순[수준[i - 1]] >= 수준순[수준[i]], '수준 내림차순이어야 한다')
@@ -129,11 +129,11 @@ test('🔴 치명이 먼저 온다 — 배너 맨 위가 가장 급한 것이어
 })
 
 test('지문 — 같은 상태면 같고, 달라지면 다르다 (변화만 기록하는 근거)', () => {
-  const a = 기본({ 세션: [세션({ 감시: { 켜짐: true, 판정: { alive: false, why: '20분' } } })] })
-  const b = 기본({ 세션: [세션({ 감시: { 켜짐: true, 판정: { alive: false, why: '25분' } } })] })
+  const a = 기본({ 세션: [세션({ 감시: { 켜짐: true, verdict: { alive: false, why: '20분' } } })] })
+  const b = 기본({ 세션: [세션({ 감시: { 켜짐: true, verdict: { alive: false, why: '25분' } } })] })
   // 설명이 달라도 같은 문제이므로 같은 지문 — 5분마다 같은 줄이 쌓이지 않게
-  assert.equal(지문(현재경보(a)), 지문(현재경보(b)))
-  assert.notEqual(지문(현재경보(a)), 지문(현재경보(기본())))
+  assert.equal(지문(currentAlerts(a)), 지문(currentAlerts(b)))
+  assert.notEqual(지문(currentAlerts(a)), 지문(currentAlerts(기본())))
 })
 
 test('지문 — 경보가 없으면 (없음)', () => {
@@ -141,8 +141,8 @@ test('지문 — 경보가 없으면 (없음)', () => {
 })
 
 test('지문 — 대상이 다르면 다른 지문 (다른 세션이 끊긴 것은 새 사건이다)', () => {
-  const mk = (id) => 기본({ 세션: [세션({ sessionId: id, 감시: { 켜짐: true, 판정: { alive: false, why: 'x' } } })] })
-  assert.notEqual(지문(현재경보(mk('s1'))), 지문(현재경보(mk('s2'))))
+  const mk = (id) => 기본({ 세션: [세션({ sessionId: id, 감시: { 켜짐: true, verdict: { alive: false, why: 'x' } } })] })
+  assert.notEqual(지문(currentAlerts(mk('s1'))), 지문(currentAlerts(mk('s2'))))
 })
 
 /* ── 출처가 조용히 죽는 경우 ─────────────────────────────────── */
@@ -155,7 +155,7 @@ test('지문 — 대상이 다르면 다른 지문 (다른 세션이 끊긴 것�
  *   동시에 자율 재개는 fail-closed 로 멈춘다. 겉은 조용한데 아무것도 안 도는 상태다.
  */
 test('🔴 실행 중 조회가 실패하면 경보가 뜬다 (조용히 넘어가면 안 된다)', () => {
-  const a = 현재경보({ 세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: false, 실행여부오류: 'claude 없음' } })
+  const a = currentAlerts({ 세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: false, 실행여부오류: 'claude 없음' } })
   const hit = a.find((x) => x.코드 === '실행조회실패')
   assert.ok(hit, '조회 실패를 알리는 경보가 있어야 한다')
   assert.equal(hit.수준, 'critical', '재개가 멈추는 상태다 — 경고가 아니라 치명이다')
@@ -163,12 +163,12 @@ test('🔴 실행 중 조회가 실패하면 경보가 뜬다 (조용히 넘어�
 })
 
 test('조회가 성공했으면 그 경보는 없다', () => {
-  const a = 현재경보({ 세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: true } })
+  const a = currentAlerts({ 세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: true } })
   assert.equal(a.find((x) => x.코드 === '실행조회실패'), undefined)
 })
 
 test('합계가 없는 옛 데이터로도 터지지 않는다', () => {
-  assert.doesNotThrow(() => 현재경보({ 세션: [], 작업: {}, 락: {} }))
+  assert.doesNotThrow(() => currentAlerts({ 세션: [], 작업: {}, 락: {} }))
 })
 
 /* ── 대기 중에는 경보를 내지 않는다 ─────────────────────────── */
@@ -176,22 +176,22 @@ test('합계가 없는 옛 데이터로도 터지지 않는다', () => {
 test('🔴 첫 기록을 기다리는 중에는 감시끊김 경보를 내지 않는다 (실측 거짓 경보)', () => {
   const d = {
     세션: [{ sessionId: 'a', 짧은id: 'a', 제목: 'ChatTest 실행',
-      감시: { 켜짐: true, 판정: { alive: false, 대기: true, why: '감시를 켠 지 1분 — 첫 기록을 기다리는 중' } },
+      감시: { 켜짐: true, verdict: { alive: false, 대기: true, why: '감시를 켠 지 1분 — 첫 기록을 기다리는 중' } },
       재시작: {}, 추적기: {} }],
     작업: {}, 락: {}, 합계: { 실행여부앎: true },
   }
-  assert.equal(현재경보(d).find((x) => x.코드 === '감시끊김'), undefined,
+  assert.equal(currentAlerts(d).find((x) => x.코드 === '감시끊김'), undefined,
     '아무것도 고장나지 않았는데 치명 경보를 띄우면 진짜 경보가 묻힌다')
 })
 
 test('대기가 끝난 뒤에는 경보를 낸다 (봐주기가 영구적이면 안 된다)', () => {
   const d = {
     세션: [{ sessionId: 'a', 짧은id: 'a', 제목: 'ChatTest 실행',
-      감시: { 켜짐: true, 판정: { alive: false, 대기: false, why: '감시를 켠 지 60분이 지났는데 첫 기록이 없다' } },
+      감시: { 켜짐: true, verdict: { alive: false, 대기: false, why: '감시를 켠 지 60분이 지났는데 첫 기록이 없다' } },
       재시작: {}, 추적기: {} }],
     작업: {}, 락: {}, 합계: { 실행여부앎: true },
   }
-  const hit = 현재경보(d).find((x) => x.코드 === '감시끊김')
+  const hit = currentAlerts(d).find((x) => x.코드 === '감시끊김')
   assert.ok(hit, '대기 창이 끝나면 알려야 한다')
   assert.equal(hit.수준, 'critical')
 })

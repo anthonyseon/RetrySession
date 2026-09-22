@@ -21,13 +21,13 @@ import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 import { RS_HOME } from '../lib/config.mjs'
 import { fullStatus, trayStatus, tail } from '../lib/status.mjs'
-import { setMany, removeTarget, statePaths, 세션id인가 } from '../lib/targets.mjs'
+import { setMany, removeTarget, statePaths, isSessionId } from '../lib/targets.mjs'
 import { loadRunState, saveRunState, rearm } from '../lib/guard.mjs'
 import { localStamp } from '../lib/stamp.mjs'
-import { 단일실행 } from '../lib/single.mjs'
-import { 로컬인가, 출처괜찮나 } from '../lib/http.mjs'
-import { 지금실행, 상세 } from './actions.mjs'
-import { pc상태, 캐시비우기, 값검증 } from '../lib/pc.mjs'
+import { singleInstance } from '../lib/single.mjs'
+import { isLocal, originOk } from '../lib/http.mjs'
+import { runNow, 상세 } from './actions.mjs'
+import { pcState, 캐시비우기, validateValue } from '../lib/pc.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
@@ -42,7 +42,7 @@ const 기동epoch = Date.now()
  *   남고 이유도 불친절하다. 락을 먼저 보면 "이미 돌고 있다"를 정확히 말하고
  *   exit 0 으로 조용히 끝낼 수 있다. 서버는 오래 사니 pid 가 죽었을 때만 회수한다.
  */
-단일실행('ui', { 낡음분: 24 * 60 })
+singleInstance('ui', { 낡음분: 24 * 60 })
 
 /* ── 응답 도우미 ─────────────────────────────────────────────── */
 
@@ -63,7 +63,7 @@ const 파일 = (res, path, type) => {
   res.end(body)
 }
 
-function 본문읽기(req) {
+function readBody(req) {
   return new Promise((resolve, reject) => {
     let s = ''
     req.on('data', (d) => {
@@ -79,17 +79,17 @@ function 본문읽기(req) {
 }
 
 /* 접근 판정은 lib/http.mjs 의 순수 함수다 — 왜 그렇게 막는지는 거기에 적혀 있다 */
-const 로컬요청인가 = (req) => 로컬인가({ remoteAddress: req.socket.remoteAddress, host: req.headers.host })
-const 출처통과 = (req) => 출처괜찮나(req.headers.origin, HOST, PORT)
+const isLocalRequest = (req) => isLocal({ remoteAddress: req.socket.remoteAddress, host: req.headers.host })
+const originPasses = (req) => originOk(req.headers.origin, HOST, PORT)
 
 /* ── 라우팅 ──────────────────────────────────────────────────── */
 
 const server = createServer(async (req, res) => {
-  if (!로컬요청인가(req)) {
+  if (!isLocalRequest(req)) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
     return res.end('RetrySession UI 는 로컬(127.0.0.1) 에서만 쓴다.\n')
   }
-  if (!출처통과(req)) {
+  if (!originPasses(req)) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
     return res.end('다른 사이트에서 온 요청이다 — 거절한다 (CSRF).\n')
   }
@@ -160,18 +160,18 @@ const server = createServer(async (req, res) => {
       const id = decodeURIComponent(p.slice('/api/session/'.length))
       if (!id) return json(res, 400, { 오류: 'sessionId 가 없다' })
       // 🔴 이 값은 경로가 된다. 형태를 확인하고 들여보낸다 (lib/targets.mjs 의 세션id인가 참조)
-      if (!세션id인가(id)) return json(res, 400, { 오류: 'sessionId 형태가 아니다' })
+      if (!isSessionId(id)) return json(res, 400, { 오류: 'sessionId 형태가 아니다' })
       const turns = Math.min(200, Number(url.searchParams.get('turns')) || 40)
       return json(res, 200, 상세(id, { turns }))
     }
 
     /* 변경 */
     if (req.method === 'POST' && p === '/api/targets') {
-      const b = await 본문읽기(req)
+      const b = await readBody(req)
       const ids = Array.isArray(b.sessionIds) ? b.sessionIds : []
       if (!ids.length) return json(res, 400, { 오류: 'sessionIds 가 비었다' })
       // 하나라도 형태가 아니면 전부 거절한다 — 일부만 적용하면 무엇이 켜졌는지 알 수 없다
-      const 나쁜 = ids.filter((id) => !세션id인가(id))
+      const 나쁜 = ids.filter((id) => !isSessionId(id))
       if (나쁜.length) return json(res, 400, { 오류: 'sessionId 형태가 아니다', 잘못된값: 나쁜.slice(0, 5) })
 
       /**
@@ -215,7 +215,7 @@ const server = createServer(async (req, res) => {
        *   단일 실행 락이 받아낸다(중복은 exit 0).
        */
       if (patch.감시 === true) {
-        try { 지금실행('heartbeat') } catch { /* 기록 실패가 켜기를 막지 않는다 */ }
+        try { runNow('heartbeat') } catch { /* 기록 실패가 켜기를 막지 않는다 */ }
       }
 
       return json(res, 200, { ok: true, 결과 })
@@ -229,23 +229,23 @@ const server = createServer(async (req, res) => {
      *   /api/targets 는 400 을 준다. 같은 잘못에 다른 답을 주면 어느 쪽이 맞는지
      *   알 수 없고, "해제했다"고 믿은 채로 차단이 남는다.
      */
-    const 아이디확인 = (b) => {
+    const checkIds = (b) => {
       const all = Array.isArray(b.sessionIds) ? b.sessionIds : []
-      const 나쁜 = all.filter((x) => !세션id인가(x))
-      return { ids: all.filter(세션id인가), 나쁜 }
+      const 나쁜 = all.filter((x) => !isSessionId(x))
+      return { ids: all.filter(isSessionId), 나쁜 }
     }
 
     if (req.method === 'POST' && p === '/api/targets/remove') {
-      const b = await 본문읽기(req)
-      const { ids, 나쁜 } = 아이디확인(b)
+      const b = await readBody(req)
+      const { ids, 나쁜 } = checkIds(b)
       if (나쁜.length) return json(res, 400, { 오류: 'sessionId 형태가 아니다', 자세히: 나쁜.map(String) })
       for (const id of ids) removeTarget(id)
       return json(res, 200, { ok: true, 지움: ids.length })
     }
 
     if (req.method === 'POST' && p === '/api/rearm') {
-      const b = await 본문읽기(req)
-      const { ids, 나쁜 } = 아이디확인(b)
+      const b = await readBody(req)
+      const { ids, 나쁜 } = checkIds(b)
       if (나쁜.length) return json(res, 400, { 오류: 'sessionId 형태가 아니다', 자세히: 나쁜.map(String) })
       for (const id of ids) {
         const P = statePaths(id)
@@ -268,7 +268,7 @@ const server = createServer(async (req, res) => {
      *   여기서는 **그 스크립트를 부르기만** 한다 — 규칙을 두 벌로 만들지 않는다.
      */
     if (req.method === 'POST' && p === '/api/pc') {
-      const b = await 본문읽기(req)
+      const b = await readBody(req)
 
       /**
        * 셋 중 하나다:
@@ -285,7 +285,7 @@ const server = createServer(async (req, res) => {
         const 값들 = b.values && typeof b.values === 'object' ? b.values : {}
         const 좋은 = [], 나쁜 = []
         for (const [k, v] of Object.entries(값들)) {
-          const r = 값검증(k, v)
+          const r = validateValue(k, v)
           if (r.ok) 좋은.push(`${k}=${r.값}`)
           else 나쁜.push(`${k}: ${r.why}`)
         }
@@ -301,17 +301,17 @@ const server = createServer(async (req, res) => {
       // 바꿨으면 캐시가 거짓말을 한다 — 다음 조회가 새로 읽게 한다
       캐시비우기()
       const 출력 = `${r.stdout || ''}${r.stderr || ''}`.trim()
-      return json(res, 200, { ok: r.status === 0, 동작: b.action, exit: r.status, 출력, 지금: pc상태({ 강제: true }) })
+      return json(res, 200, { ok: r.status === 0, 동작: b.action, exit: r.status, 출력, 지금: pcState({ 강제: true }) })
     }
 
     if (req.method === 'POST' && p === '/api/run') {
-      const b = await 본문읽기(req)
+      const b = await readBody(req)
       const kind = b.kind === 'resume' ? 'resume' : 'heartbeat'
       // 🔴 이 값은 자식 프로세스의 인자가 된다. 형태를 확인하지 않으면 `--session a` 처럼
       //   앞글자만 주어 의도하지 않은 세션까지 걸리게 할 수 있다(대상들() 은 앞자리로 맞춘다).
       const sid = b.sessionId || null
-      if (sid && !세션id인가(sid)) return json(res, 400, { 오류: 'sessionId 형태가 아니다' })
-      return json(res, 200, 지금실행(kind, sid))
+      if (sid && !isSessionId(sid)) return json(res, 400, { 오류: 'sessionId 형태가 아니다' })
+      return json(res, 200, runNow(kind, sid))
     }
 
     return json(res, 404, { 오류: `없는 경로: ${p}` })

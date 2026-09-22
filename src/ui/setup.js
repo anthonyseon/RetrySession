@@ -27,7 +27,7 @@ const 색 = { crit: 'crit', warn: 'warn', unknown: 'off', info: 'off', ok: 'good
 const 표 = { crit: '▲', warn: '▲', unknown: '?', info: 'ℹ', ok: '●' }
 
 /** 모달이 열려 있나 — 열려 있을 때만 다시 그린다 */
-export const 열렸나 = () => !$('#setupWrap').classList.contains('hide')
+export const isSettingsOpen = () => !$('#setupWrap').classList.contains('hide')
 
 /**
  * 🔴 사람이 고르던 값은 **다시 그려도 잃지 않는다.**
@@ -40,16 +40,16 @@ let 그린지문 = null
 let 적용단추 = null
 
 /** 적용이 끝났으면 고르던 것을 비운다 (현재 값이 곧 그 값이 된다) */
-export const 고른값비우기 = () => { 고른것.clear(); 그린지문 = null }
+export const clearChosen = () => { 고른것.clear(); 그린지문 = null }
 
-export function 설정열기() {
+export function openSettings() {
   $('#setupWrap').classList.remove('hide')
   $('#btnSetup').setAttribute('aria-expanded', 'true')
-  고른값비우기()
-  설정그리기({ 강제: true })
+  clearChosen()
+  drawSettings({ 강제: true })
 }
 
-export function 설정닫기() {
+export function closeSettings() {
   $('#setupWrap').classList.add('hide')
   $('#btnSetup').setAttribute('aria-expanded', 'false')
 }
@@ -67,7 +67,7 @@ const 지문 = (pc) => JSON.stringify([
  * 잠든 PC 는 예약 작업을 돌리지 않는다 — 사람이 그걸 모르고 고르면 감시가 조용히 멎는다.
  * 0('안 함')만 안전하다.
  */
-export function 멎을수있나(키, 값) {
+export function mayStopWatching(키, 값) {
   const n = Number(값)
   if (!Number.isFinite(n) || n === 0) return ''
   if (키 === 'standbyAc') return '전원이 연결돼 있어도 PC 가 잠들어 그때부터 감시가 멎습니다'
@@ -77,7 +77,7 @@ export function 멎을수있나(키, 값) {
   return ''
 }
 
-const 고른글 = (sel) => {
+const chosenLabel = (sel) => {
   for (const op of sel.children || []) {
     if (String(op.value) === String(sel.value)) return op.textContent
   }
@@ -90,7 +90,7 @@ const 고른글 = (sel) => {
  * 🔴 손대지 않은 항목은 보내지 않는다. 화면에 보이는 값 전부를 보내면 우리가 고르지도
  *   않은 배터리 설정까지 매번 덮어쓰게 되고, 그건 사람이 시킨 일이 아니다.
  */
-export function 고른값() {
+export function chosenValues() {
   const values = {}
   const 바뀜 = []
   const 본문 = $('#setupBody')
@@ -103,8 +103,8 @@ export function 고른값() {
     바뀜.push({
       키, 이름: sel.dataset.nm || 키,
       전: sel.dataset.wasTx || sel.dataset.was,
-      후: 고른글(sel),
-      경고: 멎을수있나(키, 후),
+      후: chosenLabel(sel),
+      경고: mayStopWatching(키, 후),
     })
   }
   return { values, 바뀜 }
@@ -118,7 +118,7 @@ export function 고른값() {
  *
  * @returns {boolean} 칸을 만들었나
  */
-function 고르는칸(r, pc, x) {
+function renderSelect(r, pc, x) {
   const 종류 = pc.쓸수있는키?.[x.키]
   const 보기 = 종류 ? pc.선택지?.[종류] : null
   if (!보기) return false
@@ -161,7 +161,7 @@ function 고르는칸(r, pc, x) {
   sel.value = 고를값
   sel.addEventListener('change', () => {
     고른것.set(x.키, sel.value)
-    적용단추갱신()
+    updateApplyButton()
   })
 
   const 칸 = el('div', 'ed')
@@ -176,9 +176,9 @@ function 고르는칸(r, pc, x) {
  * 적용 단추의 글자·활성 상태를 고른 개수에 맞춘다.
  * 🔴 모달을 다시 그리지 않고 이것만 고친다 — 다시 그리면 고르던 칸이 닫힌다.
  */
-function 적용단추갱신() {
+function updateApplyButton() {
   if (!적용단추) return
-  const n = 고른값().바뀜.length
+  const n = chosenValues().바뀜.length
   적용단추.textContent = n ? `고른 값 적용 (${n}개)` : '고른 값 적용'
   적용단추.disabled = n === 0
   적용단추.className = n ? 'sm primary' : 'sm'
@@ -191,8 +191,8 @@ function 적용단추갱신() {
  * 모달 내용. 상태를 새로 받을 때마다 호출되지만, 내용이 같으면 그냥 돌아간다.
  * @param 강제 창을 새로 열 때처럼 무조건 다시 그려야 할 때
  */
-export function 설정그리기({ 강제 = false } = {}) {
-  if (!열렸나()) return
+export function drawSettings({ 강제 = false } = {}) {
+  if (!isSettingsOpen()) return
   const pc = S.상태?.pc
   const 본문 = $('#setupBody')
   const 바닥 = $('#setupFoot')
@@ -236,7 +236,7 @@ export function 설정그리기({ 강제 = false } = {}) {
         : ' · 자동으로는 못 바꿉니다 — 아래 수동 방법을 보세요'
     r.append(el('div', 'rec', `권장: ${x.권장}${꼬리}`))
 
-    if (고르는칸(r, pc, x)) 칸수 += 1
+    if (renderSelect(r, pc, x)) 칸수 += 1
     본문.append(r)
   }
 
@@ -276,7 +276,7 @@ export function 설정그리기({ 강제 = false } = {}) {
     적용단추.type = 'button'
     적용단추.dataset.pc = 'set'
     바닥.append(적용단추)
-    적용단추갱신()
+    updateApplyButton()
   }
   const 고칠수 = (pc.고칠것 || []).length
   if (고칠수) {

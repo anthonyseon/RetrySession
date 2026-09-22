@@ -23,7 +23,7 @@ import { localStamp } from '../lib/stamp.mjs'
  * 🔴 떼어내서 띄운다(detached). 재시작은 최대 30분 돌 수 있으므로 HTTP 응답을
  *   붙잡고 있으면 화면이 멈춘 것처럼 보인다. 진행은 로그로 본다.
  */
-export function 지금실행(kind, sessionId) {
+export function runNow(kind, sessionId) {
   const script = kind === 'resume' ? 'src/resume.mjs' : 'src/heartbeat.mjs'
   const args = [join(RS_HOME, script)]
   if (kind === 'resume' && sessionId) args.push('--session', sessionId)

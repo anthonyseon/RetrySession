@@ -13,11 +13,11 @@
  * 🔴 상태는 색만으로 나르지 않는다. 배지는 아이콘+라벨+색 세 벌을 함께 쓴다.
  */
 'use strict'
-import { $, S, 동작, 스크롤유지, 조각그리기 } from './common.js'
-import { 경보그리기, 타일들 } from './summary.js'
-import { 폴더그리기, 목록, 선택갱신 } from './list.js'
-import { 상세다시그리기 } from './detail.js'
-import { 설정열기, 설정닫기, 설정그리기, 열렸나, 고른값, 고른값비우기 } from './setup.js'
+import { $, S, 동작, keepScroll, drawPiece } from './common.js'
+import { drawAlerts, drawTiles } from './summary.js'
+import { drawFolders, 목록, syncSelection } from './list.js'
+import { redrawDetail } from './detail.js'
+import { openSettings, closeSettings, drawSettings, isSettingsOpen, chosenValues, clearChosen } from './setup.js'
 
 /* ── 통신 ────────────────────────────────────────────────────── */
 /**
@@ -28,18 +28,18 @@ import { 설정열기, 설정닫기, 설정그리기, 열렸나, 고른값, 고�
  *   일어나지 않는다. 사람은 단추가 안 먹었다고 생각하고 다시 누른다.
  *   누른 것이 먹었는지 아닌지는 반드시 보여야 한다.
  */
-async function 보내기(path, body) {
+async function post(path, body) {
   let r
   try {
     r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
   } catch (e) {
     alert(`보내지 못했습니다 — ${e.message}\n\n서버가 바쁘거나 멈췄을 수 있습니다. 잠시 뒤 다시 눌러 주세요.`)
-    await 상태읽기()
+    await loadStatus()
     return null
   }
   const j = await r.json().catch(() => ({}))
   if (!r.ok) alert('실패: ' + (j.오류 || r.status))
-  await 상태읽기()
+  await loadStatus()
   return j
 }
 
@@ -56,7 +56,7 @@ const 메타 = (s) => ({
  *   숫자로 바꿔 놓은 셈이다 — 이 저장소가 계속 고쳐 온 그 실수(코드 4294967295)와
  *   같은 부류다. 감시 장치는 **무엇이 잘못됐는지**를 말해야 한다.
  */
-async function 오류이유(r) {
+async function errorReason(r) {
   try {
     const j = await r.json()
     if (j?.오류) return `${j.오류} (HTTP ${r.status})`
@@ -77,7 +77,7 @@ async function 오류이유(r) {
  *   상태 읽기에 곁붙이지도 않는다 — /api/ping 은 값싸고, 실패해도 그냥 넘긴다.
  */
 let 서버기동 = null
-async function 기동확인() {
+async function checkBoot() {
   try {
     const r = await fetch('/api/ping', { cache: 'no-store' })
     if (!r.ok) return
@@ -89,25 +89,25 @@ async function 기동확인() {
   } catch { /* 못 물어봤으면 다음에 다시 — 이것 때문에 화면이 멈추면 안 된다 */ }
 }
 
-async function 상태읽기() {
+async function loadStatus() {
   try {
     const r = await fetch('/api/status', { cache: 'no-store' })
-    if (!r.ok) throw new Error(await 오류이유(r))
+    if (!r.ok) throw new Error(await errorReason(r))
     S.상태 = await r.json(); S.마지막성공 = Date.now(); S.오류 = null
   } catch (e) { S.오류 = e.message }
-  그리기()
+  draw()
 }
 
-async function 상세읽기() {
+async function loadDetail() {
   if (!S.열린세션) return
   try {
     const r = await fetch(`/api/session/${encodeURIComponent(S.열린세션)}?turns=60`, { cache: 'no-store' })
     // 🔴 조용히 넘기지 않는다. 상세가 안 열리는데 이유를 안 말하면 사람은 화면이
     //   멈춘 줄 안다(실제로 겪은 부류의 실패다).
     if (r.ok) { S.상세 = await r.json(); S.상세오류 = null }
-    else S.상세오류 = await 오류이유(r)
+    else S.상세오류 = await errorReason(r)
   } catch (e) { S.상세오류 = e.message }
-  상세다시그리기()
+  redrawDetail()
 }
 
 /**
@@ -120,25 +120,25 @@ async function 상세읽기() {
  *
  *   실패를 삼키지는 않는다 — 신선도 줄에 어느 조각이 왜 죽었는지 적는다.
  */
-function 그리기() {
+function draw() {
   const d = S.상태
   // 🔴 상태가 없어도 경보는 그린다 — 첫 요청부터 실패했을 때 빈 화면만 뜨면
   //   사람은 무엇이 잘못됐는지 알 길이 없다.
-  if (!d) { S.그리기오류 = 조각그리기('경보', () => 경보그리기(null)); 신선도갱신(); return }
+  if (!d) { S.그리기오류 = drawPiece('경보', () => drawAlerts(null)); updateFreshness(); return }
 
   const 실패 = [
-    조각그리기('계정', () => {
+    drawPiece('계정', () => {
       $('#acct').textContent = d.계정.email ? `${d.계정.email} · ${d.계정.subscriptionType || ''}` : '계정 확인 실패'
     }),
-    조각그리기('경보', () => 경보그리기(d)),
-    조각그리기('요약', () => 타일들(d)),
-    조각그리기('폴더', () => 폴더그리기(d)),
-    조각그리기('PC 설정', () => 설정그리기()),
-    조각그리기('세션 목록', () => 스크롤유지('#slist', () => { 목록(d); 선택갱신() })),
-    조각그리기('상세', () => 상세다시그리기()),
+    drawPiece('경보', () => drawAlerts(d)),
+    drawPiece('요약', () => drawTiles(d)),
+    drawPiece('폴더', () => drawFolders(d)),
+    drawPiece('PC 설정', () => drawSettings()),
+    drawPiece('세션 목록', () => keepScroll('#slist', () => { 목록(d); syncSelection() })),
+    drawPiece('상세', () => redrawDetail()),
   ].filter(Boolean)
   S.그리기오류 = 실패.length ? 실패.join(' · ') : null
-  신선도갱신()
+  updateFreshness()
 }
 
 /**
@@ -146,7 +146,7 @@ function 그리기() {
  *   화면 전체를 1초마다 다시 그리면 체크박스·스크롤이 튄다. 그리고 사람이 알아야 하는 것은
  *   "이 화면이 몇 초 전 것이냐"다 — 그 한 줄만 자주 고치면 멈춘 화면을 바로 알아챈다.
  */
-function 신선도갱신() {
+function updateFreshness() {
   const 초 = S.마지막성공 ? Math.round((Date.now() - S.마지막성공) / 1000) : null
   const dot = $('#dot')
   // 🔴 그리기가 깨진 것도 '이상'이다. 값은 새것인데 화면이 옛것·빈것일 수 있다.
@@ -168,27 +168,27 @@ document.querySelector('.actions').addEventListener('click', async (e) => {
     const s = S.상태?.세션.find((x) => x.sessionId === id)
     if (s) meta[id] = 메타(s)
   }
-  if (act === 'watch-on') await 보내기('/api/targets', { sessionIds: ids, 감시: true, meta })
-  else if (act === 'watch-off') await 보내기('/api/targets', { sessionIds: ids, 감시: false, meta })
+  if (act === 'watch-on') await post('/api/targets', { sessionIds: ids, 감시: true, meta })
+  else if (act === 'watch-off') await post('/api/targets', { sessionIds: ids, 감시: false, meta })
   else if (act === 'resume-on') {
     if (!confirm(`${ids.length}개 세션에 자율 재시작을 켭니다.\n\n사람이 보지 않는 상태에서 OS 예약이 claude --resume 을 띄워 토큰을 쓰고 파일을 고칠 수 있습니다. 가드(실행 중 확인·하루 횟수·비용 상한·연속실패 차단)는 걸려 있습니다.\n\n계속할까요?`)) return
-    await 보내기('/api/targets', { sessionIds: ids, 재시작: true, meta })
+    await post('/api/targets', { sessionIds: ids, 재시작: true, meta })
   }
-  else if (act === 'resume-off') await 보내기('/api/targets', { sessionIds: ids, 재시작: false, meta })
-  else if (act === 'rearm') await 보내기('/api/rearm', { sessionIds: ids })
+  else if (act === 'resume-off') await post('/api/targets', { sessionIds: ids, 재시작: false, meta })
+  else if (act === 'rearm') await post('/api/rearm', { sessionIds: ids })
   else if (act === 'remove') {
     if (!confirm(`${ids.length}개 세션의 등록을 해제합니다. 감시·재시작이 모두 꺼집니다.`)) return
-    await 보내기('/api/targets/remove', { sessionIds: ids })
+    await post('/api/targets/remove', { sessionIds: ids })
     S.선택.clear()
   }
 })
 
 document.querySelector('#dtabs').addEventListener('click', (e) => {
   if (!e.target.dataset?.tab) return
-  S.탭 = e.target.dataset.tab; 상세다시그리기()
+  S.탭 = e.target.dataset.tab; redrawDetail()
 })
 
-$('#btnRefresh').addEventListener('click', () => { 상태읽기(); 상세읽기() })
+$('#btnRefresh').addEventListener('click', () => { loadStatus(); loadDetail() })
 $('#btnAuto').addEventListener('click', () => {
   S.자동 = !S.자동
   $('#btnAuto').textContent = S.자동 ? '자동갱신 켬' : '자동갱신 끔'
@@ -212,7 +212,7 @@ $('#btnTheme').addEventListener('click', () => {
  */
 const 접힘키 = 'rs.요약접힘'
 
-function 요약적용(접힘, { 저장 = true } = {}) {
+function applySummary(접힘, { 저장 = true } = {}) {
   $('#top').classList.toggle('hide', 접힘)
   $('#btnTop').setAttribute('aria-expanded', String(!접힘))
   $('#btnTopIc').textContent = 접힘 ? '▸' : '▾'
@@ -224,22 +224,22 @@ function 요약적용(접힘, { 저장 = true } = {}) {
 }
 
 $('#btnTop').addEventListener('click', () => {
-  요약적용($('#btnTop').getAttribute('aria-expanded') === 'true')
+  applySummary($('#btnTop').getAttribute('aria-expanded') === 'true')
 })
 
 // 기억해 둔 상태로 시작한다
-try { 요약적용(localStorage.getItem(접힘키) === '1', { 저장: false }) }
-catch { 요약적용(false, { 저장: false }) }
+try { applySummary(localStorage.getItem(접힘키) === '1', { 저장: false }) }
+catch { applySummary(false, { 저장: false }) }
 /* ── PC 설정 바꾸기 ─────────────────────────────────────────── */
 /**
  * 🔴 남의 PC 설정을 바꾸는 일이라 반드시 확인을 받는다. 되돌릴 수 있다는 것도
  *   함께 말한다 — 되돌릴 길을 모르면 사람은 누르지 못한다.
  *   규칙(백업 먼저·배터리 제외·바꾼 뒤 재확인)은 서버가 src/pc.mjs 를 불러 지킨다.
  */
-async function pc동작(action) {
+async function pcAction(action) {
   // 수동 안내는 모달에 접힌 채로 들어 있다 — 단추 하나로 열어준다
-  if (action === 'manual') { 설정열기(); return }
-  if (action === 'set') { await pc직접(); return }
+  if (action === 'manual') { openSettings(); return }
+  if (action === 'set') { await pcApplyChosen(); return }
 
   const 물음 = action === 'apply'
     ? [
@@ -254,7 +254,7 @@ async function pc동작(action) {
     : 'PC 전원 설정을 바꾸기 전 값으로 되돌립니다.\n\n계속할까요?'
   if (!confirm(물음)) return
 
-  const r = await 보내기('/api/pc', { action })
+  const r = await post('/api/pc', { action })
   // 결과를 그대로 보여준다 — "바꿨다"만 말하고 실제로 안 바뀌면 그게 최악이다
   if (r && r.출력) alert(r.출력)
 }
@@ -267,8 +267,8 @@ async function pc동작(action) {
  *   고른 값이 감시를 멎게 할 수 있으면 그 사실을 함께 적는다. 이 도구의 전부는
  *   예약 작업이고, 잠든 PC 는 예약 작업을 돌리지 않는다.
  */
-async function pc직접() {
-  const { values, 바뀜 } = 고른값()
+async function pcApplyChosen() {
+  const { values, 바뀜 } = chosenValues()
   if (!바뀜.length) {
     alert('바꿀 값을 먼저 고르세요.\n\n손대지 않은 항목은 보내지 않습니다.')
     return
@@ -286,10 +286,10 @@ async function pc직접() {
     '계속할까요?',
   ].join('\n'))) return
 
-  const r = await 보내기('/api/pc', { action: 'set', values })
+  const r = await post('/api/pc', { action: 'set', values })
   // 고르던 값은 비운다 — 적용됐으면 그게 현재 값이고, 실패했으면 화면의 실제 값을 봐야 한다
-  고른값비우기()
-  설정그리기({ 강제: true })
+  clearChosen()
+  drawSettings({ 강제: true })
   // 결과를 그대로 보여준다. powercfg 는 없는 항목에도 성공을 돌려주므로(실측)
   // 서버가 바꾼 뒤 다시 읽어 대조한 결과를 사람이 봐야 한다.
   if (r && r.출력) alert(r.출력)
@@ -301,30 +301,30 @@ async function pc직접() {
  */
 document.addEventListener('click', (e) => {
   const act = e.target?.dataset?.pc
-  if (act) { pc동작(act); return }
-  if (e.target?.dataset?.setup === 'close') 설정닫기()
+  if (act) { pcAction(act); return }
+  if (e.target?.dataset?.setup === 'close') closeSettings()
 })
 
 /* ── 설정 모달 ───────────────────────────────────────────────── */
 
-$('#btnSetup').addEventListener('click', () => (열렸나() ? 설정닫기() : 설정열기()))
-$('#btnSetupClose').addEventListener('click', 설정닫기)
+$('#btnSetup').addEventListener('click', () => (isSettingsOpen() ? closeSettings() : openSettings()))
+$('#btnSetupClose').addEventListener('click', closeSettings)
 
 /**
  * 🔴 모달은 사라져야 한다 — 바깥을 눌러도, Esc 를 눌러도 닫힌다.
  *   트레이 메뉴에서 배운 것과 같다: 닫히지 않는 것은 없는 것보다 나쁘다.
  *   sheet 안쪽 클릭은 닫지 않는다(내용을 고르다 닫히면 안 된다).
  */
-$('#setupWrap').addEventListener('click', (e) => { if (e.target.id === 'setupWrap') 설정닫기() })
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && 열렸나()) 설정닫기() })
+$('#setupWrap').addEventListener('click', (e) => { if (e.target.id === 'setupWrap') closeSettings() })
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isSettingsOpen()) closeSettings() })
 
-$('#onlyReg').addEventListener('change', (e) => { S.등록만 = e.target.checked; 그리기() })
+$('#onlyReg').addEventListener('change', (e) => { S.등록만 = e.target.checked; draw() })
 
 /**
  * 🔴 조각들이 쓸 동작을 등록한다. 이것을 빠뜨리면 클릭이 조용히 아무 일도 하지 않는다
  *   (오류도 안 난다 — common.js 의 기본값이 빈 함수라서). 시험이 이 등록을 확인한다.
  */
-Object.assign(동작, { 그리기, 상태읽기, 상세읽기, 보내기, 메타 })
+Object.assign(동작, { draw, loadStatus, loadDetail, post, 메타 })
 
 /* ── 시작 ────────────────────────────────────────────────────── */
 /**
@@ -348,11 +348,11 @@ function pollLoop(fn, ms, shouldRun = () => true) {
   setTimeout(tick, ms)
 }
 
-상태읽기()
-기동확인()
-pollLoop(상태읽기, 3000, () => S.자동)
+loadStatus()
+checkBoot()
+pollLoop(loadStatus, 3000, () => S.자동)
 // 서버가 다시 떴는지 5초마다 — 고친 코드가 화면에 반영되지 않는 것이 이 저장소의 상습 함정이다
-pollLoop(기동확인, 5000)
-pollLoop(상세읽기, 2000, () => S.자동 && Boolean(S.열린세션))
+pollLoop(checkBoot, 5000)
+pollLoop(loadDetail, 2000, () => S.자동 && Boolean(S.열린세션))
 // 신선도만 1초마다 — 화면이 멈췄는지 사람이 바로 안다 (전체를 다시 그리지 않는다)
-setInterval(신선도갱신, 1000)
+setInterval(updateFreshness, 1000)

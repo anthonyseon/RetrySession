@@ -22,11 +22,11 @@
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { claudeHome, 경로키, 안에있나 } from './config.mjs'
+import { claudeHome, 경로키, isInside } from './config.mjs'
 import { localStamp, minutesSince } from './stamp.mjs'
 
 /** pid 가 살아있나. 신호 0 은 아무것도 보내지 않고 존재만 확인한다 */
-const 살아있나 = (pid) => {
+const isAlive = (pid) => {
   if (!pid) return false
   try { process.kill(pid, 0); return true } catch { return false }
 }
@@ -54,7 +54,7 @@ export function ideWindows() {
       } catch { continue } // 쓰는 중이면 깨질 수 있다 — 다음 회차에 잡힌다
 
       const 포트 = Number(f.replace(/\.lock$/, '')) || null
-      const alive = 살아있나(j.pid)
+      const alive = isAlive(j.pid)
 
       창.push({
         포트,
@@ -82,16 +82,16 @@ export function ideWindows() {
  * 이 경로가 어느 IDE 창에 열려 있나. 살아있는 창만 본다.
  * 여러 창에 걸쳐 있으면 **가장 구체적인**(가장 긴) 폴더로 짝지은 창을 돌려준다.
  */
-export function 창찾기(cwd, 창목록) {
+export function findWindow(cwd, 창목록) {
   if (!cwd) return null
   let best = null, bestLen = -1
   for (const w of 창목록) {
     if (!w.살아있음) continue
     for (const f of w.workspaceFolders) {
-      if (안에있나(cwd, f) && f.length > bestLen) { best = w; bestLen = f.length }
+      if (isInside(cwd, f) && f.length > bestLen) { best = w; bestLen = f.length }
     }
   }
-  return best ? { 포트: best.포트, pid: best.pid, ideName: best.ideName, 폴더: bestLen >= 0 ? best.workspaceFolders.find((f) => 안에있나(cwd, f)) : null } : null
+  return best ? { 포트: best.포트, pid: best.pid, ideName: best.ideName, 폴더: bestLen >= 0 ? best.workspaceFolders.find((f) => isInside(cwd, f)) : null } : null
 }
 
 /**
@@ -100,13 +100,13 @@ export function 창찾기(cwd, 창목록) {
  * 이것이 "Description 이 목록에 없다"의 답을 만든다 — 폴더는 열려 있는데 세션이 0개면
  * 그 폴더에서 Claude Code 를 시작한 적이 없다는 뜻이고, 그건 빠뜨린 것이 아니다.
  */
-export function 폴더별세션(창목록, 세션들) {
+export function sessionsByFolder(창목록, 세션들) {
   const out = []
   for (const w of 창목록) {
     if (!w.살아있음) continue
     for (const f of w.workspaceFolders) {
       const 해당 = 세션들.filter((s) =>
-        안에있나(s.실행cwd || '', f) || 안에있나(s.주작업cwd || '', f))
+        isInside(s.실행cwd || '', f) || isInside(s.주작업cwd || '', f))
       out.push({
         폴더: f,
         포트: w.포트,
@@ -115,7 +115,7 @@ export function 폴더별세션(창목록, 세션들) {
         실행중: 해당.filter((s) => s.실행중).length,
         감시: 해당.filter((s) => s.감시?.켜짐).length,
         // 이 폴더를 **시작 위치**로 쓴 세션이 있나 (주작업으로만 쓴 것과 구별한다)
-        여기서시작: 해당.filter((s) => 안에있나(s.실행cwd || '', f)).length,
+        여기서시작: 해당.filter((s) => isInside(s.실행cwd || '', f)).length,
         sessionIds: 해당.map((s) => s.sessionId),
       })
     }

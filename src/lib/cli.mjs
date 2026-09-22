@@ -44,13 +44,13 @@ export function claudeBin(override = null) {
 }
 
 /** 셸을 거쳐야 하는 경로인가 — .exe 면 필요 없다 */
-export const 셸필요 = (bin) => !/\.exe$/i.test(String(bin))
+export const needsShell = (bin) => !/\.exe$/i.test(String(bin))
 
 /**
  * 계정 프로필이 이기도록 정리한 환경.
  * 지금은 어느 키도 설정돼 있지 않지만(실측), 나중에 누가 설정해도 이 도구는 흔들리지 않아야 한다.
  */
-export function 계정환경(extra = {}) {
+export function accountEnv(extra = {}) {
   const env = { ...process.env, ...extra }
   delete env.ANTHROPIC_API_KEY
   delete env.ANTHROPIC_AUTH_TOKEN
@@ -66,13 +66,13 @@ function callJson(args, { timeout = 20000, bin = null } = {}) {
   const exe = claudeBin(bin)
   try {
     const out = execFileSync(exe, args, {
-      encoding: 'utf8', timeout, windowsHide: true, env: 계정환경(),
+      encoding: 'utf8', timeout, windowsHide: true, env: accountEnv(),
       maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
-      shell: 셸필요(exe), // .exe 면 false — 콘솔 창이 뜨지 않는다
+      shell: needsShell(exe), // .exe 면 false — 콘솔 창이 뜨지 않는다
     })
     return { ok: true, data: JSON.parse(out) }
   } catch (e) {
-    return { ok: false, 오류: 실패설명(exe, e), data: null }
+    return { ok: false, 오류: failureText(exe, e), data: null }
   }
 }
 
@@ -86,7 +86,7 @@ function callJson(args, { timeout = 20000, bin = null } = {}) {
  *   깨진 글자를 옮기느니 **우리가 아는 사실**을 적는다. 이 도구는 고장 났을 때
  *   읽히려고 있는 것이다.
  */
-export function 실패설명(exe, e) {
+export function failureText(exe, e) {
   const raw = (e.stderr || e.message || String(e)).toString()
   const 깨짐 = raw.includes('�')   // 디코딩이 어긋났다는 확실한 표시
   if (깨짐 || e.code === 'ENOENT') {
@@ -130,13 +130,13 @@ export function runningSessions({ all = false, ttlMs = 5000 } = {}) {
       name: s.name,
       startedAtEpoch: s.startedAt,
       // 프로세스가 실제로 살아있는지 한 번 더 본다 — 목록이 낡아 있을 수 있다
-      살아있음: 살아있나(s.pid),
+      살아있음: isAlive(s.pid),
     })),
   }
 }
 
 /** pid 가 살아있나. 신호 0 은 아무것도 보내지 않고 존재만 확인한다 */
-export function 살아있나(pid) {
+export function isAlive(pid) {
   if (!pid) return false
   try { process.kill(pid, 0); return true } catch { return false }
 }
@@ -172,8 +172,8 @@ export function cliVersion({ ttlMs = 600000 } = {}) {
   try {
     const exe = claudeBin()
     v = execFileSync(exe, ['--version'], {
-      encoding: 'utf8', timeout: 20000, windowsHide: true, env: 계정환경(),
-      stdio: ['ignore', 'pipe', 'pipe'], shell: 셸필요(exe),
+      encoding: 'utf8', timeout: 20000, windowsHide: true, env: accountEnv(),
+      stdio: ['ignore', 'pipe', 'pipe'], shell: needsShell(exe),
     }).trim()
   } catch { v = null }
   _cache.set('ver', { at: Date.now(), v })

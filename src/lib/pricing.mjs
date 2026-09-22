@@ -25,7 +25,7 @@ export function 단가표() {
  * 모델 id 를 단가표 키로 정규화한다.
  * CLI 는 컨텍스트 창을 접미사로 붙인다 — `claude-opus-5[1m]` (실측).
  */
-export function 모델정규화(id) {
+export function normalizeModel(id) {
   return String(id || '').replace(/\[.*?\]$/, '').trim()
 }
 
@@ -43,7 +43,7 @@ export const 빈토큰 = () => ({ 입력: 0, 캐시쓰기1h: 0, 캐시쓰기5m: 
  *   애초에 모델이 아닌 것은 그 판정에서 빼야 한다.
  */
 const 모델아님 = new Set(['<synthetic>'])
-export const 과금대상인가 = (id) => !모델아님.has(모델정규화(id))
+export const isBillable = (id) => !모델아님.has(normalizeModel(id))
 
 /** 토큰 두 묶음을 합친다 (순수) */
 export function 토큰합(a, b) {
@@ -56,12 +56,12 @@ export function 토큰합(a, b) {
  * 한 모델의 토큰 묶음 → USD. 순수 함수.
  * @returns {{usd:number, 추정:boolean}} 추정=단가표에 없는 모델이라 기본 단가를 썼다
  */
-export function 모델비용(modelId, 토큰, 표 = 단가표()) {
-  const key = 모델정규화(modelId)
+export function modelCost(modelId, 토큰, 표 = 단가표()) {
+  const key = normalizeModel(modelId)
 
   // 모델이 아닌 엔트리(`<synthetic>` 등)는 비용도 0 이고 추정도 아니다.
   // 토큰이 0 이 아니면 우리가 잘못 안 것이므로 추정으로 되돌린다 — 조용히 감추지 않는다.
-  if (!과금대상인가(key)) {
+  if (!isBillable(key)) {
     const 합 = (토큰.입력 || 0) + (토큰.캐시쓰기1h || 0) + (토큰.캐시쓰기5m || 0) +
       (토큰.캐시읽기 || 0) + (토큰.출력 || 0)
     if (합 === 0) return { usd: 0, 추정: false }
@@ -92,11 +92,11 @@ export function 모델비용(modelId, 토큰, 표 = 단가표()) {
  * `{모델id: 토큰}` 묶음 전체의 비용.
  * @returns {{usd:number, 추정포함:boolean, 모델별:object}}
  */
-export function 총비용(모델별, 표 = 단가표()) {
+export function totalCost(모델별, 표 = 단가표()) {
   let usd = 0, 추정포함 = false
   const out = {}
   for (const [id, tok] of Object.entries(모델별 || {})) {
-    const c = 모델비용(id, tok, 표)
+    const c = modelCost(id, tok, 표)
     out[id] = { ...tok, usd: c.usd, 추정: c.추정 }
     usd += c.usd
     if (c.추정) 추정포함 = true
@@ -105,7 +105,7 @@ export function 총비용(모델별, 표 = 단가표()) {
 }
 
 /** 큰 수를 읽기 쉽게 — 12.9K / 1.3M */
-export function 압축(n) {
+export function compact(n) {
   const v = Number(n) || 0
   if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(1) + 'B'
   if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + 'M'

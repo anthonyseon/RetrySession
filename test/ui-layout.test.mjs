@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { UI소스, 스타일 } from './_ui-files.mjs'
+import { uiSource, styleSource } from './_ui-files.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 /**
@@ -22,7 +22,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
  * index.html 만 읽던 이 시험들이 13개나 한꺼번에 깨졌다 — 규칙이 어느 파일에
  * 있는지는 시험의 관심사가 아니다.
  */
-const html = 스타일()
+const html = styleSource()
 /**
  * 화면 스크립트 **전체**를 하나로 본다.
  *
@@ -34,7 +34,7 @@ const html = 스타일()
  *   🔴 목록을 손으로 적지도 않는다 — setup.js 를 새로 만들었을 때 시험 다섯 곳 중
  *   한 곳의 목록에서 빠져, 그 파일이 검사에서 통째로 빠졌다. 폴더에서 읽는다.
  */
-const appjs = UI소스()
+const appjs = uiSource()
 
 test('🔴 스크롤 영역이 둘 있다 — 목록(#slist)과 상세(#dscroll)', () => {
   assert.match(html, /id="slist"/, '#slist 가 있어야 한다')
@@ -96,15 +96,15 @@ test('좁은 화면에서는 페이지 스크롤로 되돌린다 (두 패널이 
 /* ── 스크롤 위치 보존 ────────────────────────────────────────── */
 
 test('🔴 다시 그릴 때 스크롤 위치를 보존한다 — 없으면 3초마다 맨 위로 튕긴다', () => {
-  assert.match(appjs, /function 스크롤유지/, '스크롤 보존 함수가 있어야 한다')
-  assert.match(appjs, /스크롤유지\('#slist'/, '목록에 적용돼야 한다')
-  assert.match(appjs, /스크롤유지\('#dscroll'/, '상세에 적용돼야 한다')
+  assert.match(appjs, /function keepScroll/, '스크롤 보존 함수가 있어야 한다')
+  assert.match(appjs, /keepScroll\('#slist'/, '목록에 적용돼야 한다')
+  assert.match(appjs, /keepScroll\('#dscroll'/, '상세에 적용돼야 한다')
 })
 
 test('상세를 다시 그리는 모든 경로가 보존을 거친다', () => {
   // 상세그리기() 를 직접 부르면 보존을 건너뛴다. 호출은 상세다시그리기() 안에서만.
-  const 직접호출 = [...appjs.matchAll(/(?<!function )(?<!function 상세다시그리기\(\) \{[\s\S]{0,200})\n\s*상세그리기\(\)/g)]
-  assert.match(appjs, /function 상세다시그리기/)
+  const 직접호출 = [...appjs.matchAll(/(?<!function )(?<!function redrawDetail\(\) \{[\s\S]{0,200})\n\s*drawDetail\(\)/g)]
+  assert.match(appjs, /function redrawDetail/)
   assert.ok(직접호출.length <= 1,
     `상세그리기() 직접 호출이 ${직접호출.length}곳 있다 — 상세다시그리기() 를 거쳐야 스크롤이 보존된다`)
 })
@@ -152,7 +152,7 @@ test('🔴 접기 단추는 요약 묶음 바로 위에 붙어 있다 (머리말
 
 test('접은 상태를 기억한다 — 열 때마다 다시 접게 하지 않는다', () => {
   assert.match(appjs, /localStorage/, '접힘 상태를 저장해야 한다')
-  assert.match(appjs, /요약적용\(/, '적용 함수를 통해야 상태가 한 곳에서 관리된다')
+  assert.match(appjs, /applySummary\(/, '적용 함수를 통해야 상태가 한 곳에서 관리된다')
   assert.match(appjs, /aria-expanded/, 'JS 도 aria 를 갱신해야 한다')
 })
 
@@ -160,8 +160,8 @@ test('🔴 접었을 때도 한 줄 요지는 남는다 (접는 것은 자리를
   assert.match(html, /id="sumdigest"/, '요지를 담을 자리가 있어야 한다')
   assert.match(html, /\.sumbar\[aria-expanded="true"\] \.sumdigest\{display:none\}/,
     '펴 있을 때는 요지가 중복이므로 감춘다')
-  assert.match(appjs, /function 요지갱신/, '요지를 채우는 코드가 있어야 한다')
-  assert.match(appjs, /요지갱신\(d\)/, '상태를 받을 때마다 갱신해야 한다')
+  assert.match(appjs, /function updateDigest/, '요지를 채우는 코드가 있어야 한다')
+  assert.match(appjs, /updateDigest\(d\)/, '상태를 받을 때마다 갱신해야 한다')
 })
 
 /* ── 묶음 배치: "한번에 파악"의 핵심 ────────────────────────── */
@@ -229,8 +229,8 @@ test('🔴 OS 트리거 값은 배지 하나다 — 상태 글자와 겹쳐 적�
     'OS 트리거 줄은 값(배지) 하나만 넘겨야 한다')
   assert.ok(!/값 = w\.상태/.test(구간), '상태 글자를 값으로 쓰면 배지와 중복된다')
   // 긴 결과뜻을 배지 라벨에 넣으면 칸을 넘친다 — title 과 경보 배너가 맡는다
-  assert.ok(!/badge\([^)]*\$\{w\.결과뜻\}/.test(구간), '결과뜻을 배지 라벨에 넣지 마라 — 칸을 넘친다')
-  assert.ok(/설명 = .*결과뜻/.test(구간), '결과뜻은 설명(title)에 남겨야 한다')
+  assert.ok(!/badge\([^)]*\$\{w\.resultText\}/.test(구간), '결과뜻을 배지 라벨에 넣지 마라 — 칸을 넘친다')
+  assert.ok(/설명 = .*resultText/.test(구간), '결과뜻은 설명(title)에 남겨야 한다')
 })
 
 test('요약을 접으면 본문이 그 공간을 가져간다', () => {

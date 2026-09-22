@@ -22,12 +22,12 @@
 import { readFileSync } from 'node:fs'
 import { localStamp } from './lib/stamp.mjs'
 import { heartbeatVerdict } from './lib/guard.mjs'
-import { loadTargets, statePaths, 세션id인가 } from './lib/targets.mjs'
-import { 원자JSON쓰기, 덧붙이기 } from './lib/io.mjs'
+import { loadTargets, statePaths, isSessionId } from './lib/targets.mjs'
+import { writeJsonAtomic, appendLine } from './lib/io.mjs'
 import { fullStatus } from './lib/status.mjs'
 import { sessionDetail } from './lib/detail.mjs'
 import { 작업이름 } from './lib/scheduler.mjs'
-import { 단일실행 } from './lib/single.mjs'
+import { singleInstance } from './lib/single.mjs'
 import { 변화기록 } from './lib/alerts.mjs'
 
 const argv = process.argv.slice(2)
@@ -55,7 +55,7 @@ if (flag('--check')) {
   let 죽음 = 0
   for (const [id, v] of 감시) {
     // 형태가 아닌 id 는 판정할 수 없다 = 살아있다고 말할 수 없다 (fail-closed)
-    if (!세션id인가(id)) {
+    if (!isSessionId(id)) {
       죽음++
       console.error(`✖ '${String(id).slice(0, 40)}' — 세션 id 형태가 아니다. 등록부를 확인하라`)
       continue
@@ -97,15 +97,15 @@ if (flag('--check')) {
  *   화면·트레이에서 "지금 실행"을 누른 경우가 겹칠 수 있다.
  *   한 회차는 보통 몇 초다 — 30분을 넘겼다면 죽은 락으로 본다.
  */
-단일실행('heartbeat', { 낡음분: 30 })
+singleInstance('heartbeat', { 낡음분: 30 })
 
 const 등록 = loadTargets()
 const 켜진것 = Object.entries(등록.targets).filter(([, v]) => v.감시).map(([id]) => id)
 
 // 세션 id 형태가 아닌 항목은 경로가 될 수 없다. 알린 뒤 건너뛴다 —
 // 한 줄이 이상하다고 나머지 감시까지 멈추면 그게 더 나쁘다.
-const 감시대상 = 켜진것.filter(세션id인가)
-for (const 나쁜 of 켜진것.filter((id) => !세션id인가(id))) {
+const 감시대상 = 켜진것.filter(isSessionId)
+for (const 나쁜 of 켜진것.filter((id) => !isSessionId(id))) {
   console.warn(`⚠ 등록부의 '${String(나쁜).slice(0, 40)}' 는 세션 id 형태가 아니다 — 건너뛴다`)
 }
 
@@ -124,8 +124,8 @@ const 세션맵 = new Map(S.세션.map((s) => [s.sessionId, s]))
  * 화면을 닫아둔 사이에 생긴 일을 놓치면 안 되고, 그렇다고 Windows 풍선으로
  * 띄우지도 않는다(너무 자주 떠서 진짜 경고가 묻혔다). **변화가 있을 때만** 적는다.
  */
-const 경보변화 = 변화기록(S.경보 || [])
-if (경보변화.기록) {
+const alertDiff = 변화기록(S.경보 || [])
+if (alertDiff.기록) {
   const n = (S.경보 || []).length
   console.log(n ? `⚠ 경보 ${n}건 (변화 기록됨)` : '✅ 경보 해소 (기록됨)')
   for (const a of S.경보 || []) console.log(`   ${a.수준} · ${a.제목} — ${a.설명}`)
@@ -142,8 +142,8 @@ for (const id of 감시대상) {
       at: localStamp(), atEpoch: Date.now(), sessionId: id,
       오류: '이 세션을 찾을 수 없다 — 트랜스크립트가 정리됐거나 claude project purge 된 것으로 보인다',
     }
-    원자JSON쓰기(P.하트비트, 없음)
-    덧붙이기(P.하트비트로그, `${없음.at} · (세션 없음) · ${없음.오류}`)
+    writeJsonAtomic(P.하트비트, 없음)
+    appendLine(P.하트비트로그, `${없음.at} · (세션 없음) · ${없음.오류}`)
     console.warn(`⚠ ${id.slice(0, 8)} — 세션을 찾을 수 없다`)
     continue
   }
@@ -182,10 +182,10 @@ for (const id of 감시대상) {
    *   반쯤 쓰인 JSON 은 곧바로 "감시 끊김" 경보가 된다. 5분마다 쓰는 파일이니
    *   그 창을 없애 두지 않으면 언젠가 그 순간에 맞는다.
    */
-  원자JSON쓰기(P.하트비트, snap)
+  writeJsonAtomic(P.하트비트, snap)
 
   const 도구 = 미완결.length ? `도구중 ${미완결.map((t) => t.이름).join(',')}` : (진행?.마지막종류 || '-')
-  덧붙이기(P.하트비트로그, [
+  appendLine(P.하트비트로그, [
     snap.at,
     // 🔴 조회 실패를 '정지'로 적으면 나중에 이 기록을 읽는 사람이 속는다
     s.실행여부앎 === false ? '실행여부모름' : (s.실행중 ? '실행중' : '정지'),

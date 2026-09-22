@@ -16,7 +16,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { UI모듈 } from './_ui-files.mjs'
+import { uiModules } from './_ui-files.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const UI = join(ROOT, 'src', 'ui')
@@ -27,7 +27,7 @@ const UI = join(ROOT, 'src', 'ui')
  *   (같은 부류로 이미 여러 번 다쳤다: /api/ping 을 써야 하는 .ps1 네 개 중 세 개,
  *    runhidden.exe 를 거쳐야 하는 작업 네 개 중 하나.)
  */
-const 모듈들 = UI모듈()
+const 모듈들 = uiModules()
 /** app.js(진입점)를 뺀 조각들 */
 const 조각들 = 모듈들.filter((f) => f !== 'app.js')
 /** 그리는 조각들 — common.js 는 공용 도구라 그리지 않는다 */
@@ -97,7 +97,7 @@ test('🔴 export 한 것 중 아무도 안 쓰는 것이 없다 (죽은 코드)
 
 test('🔴 조각이 정의되지 않은 이름을 부르지 않는다 (나눌 때 실제로 남아 있었다)', () => {
   // app.js 에만 있는 함수들을 조각이 직접 부르면 브라우저에서 ReferenceError 다.
-  const app만 = ['보내기', '상태읽기', '상세읽기', '그리기', '신선도갱신', '오류이유', '요약적용', '메타']
+  const app만 = ['보내기', 'loadStatus', 'loadDetail', '그리기', 'updateFreshness', 'errorReason', 'applySummary', '메타']
   for (const f of 조각들) {
     const src = 읽기(f)
     const 코드 = src.split('\n')
@@ -198,16 +198,16 @@ test('🔴 app.js 가 동작 등록소를 채운다 (빠뜨리면 클릭이 조�
   const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
   const m = /Object\.assign\(동작, \{([^}]*)\}\)/.exec(app)
   assert.ok(m, '동작 등록이 있어야 한다')
-  for (const k of ['그리기', '상태읽기', '상세읽기', '보내기', '메타']) {
+  for (const k of ['draw', 'loadStatus', 'loadDetail', 'post', '메타']) {
     assert.ok(m[1].includes(k), `동작.${k} 가 등록되지 않았다`)
   }
   // 등록이 폴링 시작보다 앞이어야 한다
-  assert.ok(app.indexOf('Object.assign(동작') < app.indexOf('\n상태읽기()'),
+  assert.ok(app.indexOf('Object.assign(동작') < app.indexOf('\nloadStatus()'),
     '등록이 첫 갱신보다 뒤면 그 사이의 클릭이 아무 일도 하지 않는다')
 })
 
 test('조각이 쓰는 동작은 등록소에 다 있다', () => {
-  const 등록 = new Set(['그리기', '상태읽기', '상세읽기', '보내기', '메타'])
+  const 등록 = new Set(['draw', 'loadStatus', 'loadDetail', 'post', '메타'])
   for (const f of 그리는조각) {
     const src = readFileSync(join(ROOT, 'src', 'ui', f), 'utf8')
     for (const m of src.matchAll(/동작\.([^\s(.,)]+)/g)) {
@@ -228,8 +228,8 @@ test('조각이 쓰는 동작은 등록소에 다 있다', () => {
  *
  *   그려보는 시험이 가장 확실하지만, 이 정적 검사는 조각이 늘어나도 공짜로 돈다.
  */
-const 주석뺀 = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '')
-const 정규탈출 = (s) => s.replace(/[.*+?^${}()|[\]\\$]/g, (c) => '\\' + c)
+const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '')
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\$]/g, (c) => '\\' + c)
 
 test('🔴 조각이 쓰는 common.js 이름은 반드시 import 되어 있다', () => {
   const common = 읽기('common.js')
@@ -242,7 +242,7 @@ test('🔴 조각이 쓰는 common.js 이름은 반드시 import 되어 있다',
   assert.ok(내보냄.size >= 8, `common.js 의 export 를 못 읽었다 (${[...내보냄].join(',')})`)
 
   for (const f of 모듈들.filter((x) => x !== 'common.js')) {
-    const src = 주석뺀(읽기(f))
+    const src = stripComments(읽기(f))
     const 가져온 = new Set()
     for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/common\.js'/g)) {
       for (const x of m[1].split(',')) 가져온.add(x.trim().split(/\s+as\s+/)[0])
@@ -250,9 +250,9 @@ test('🔴 조각이 쓰는 common.js 이름은 반드시 import 되어 있다',
     for (const 이름 of 내보냄) {
       if (가져온.has(이름)) continue
       // 스스로 선언했으면 제 것이다
-      if (new RegExp('(const|let|var|function|class)\\s+' + 정규탈출(이름) + '[\\s(=]').test(src)) continue
+      if (new RegExp('(const|let|var|function|class)\\s+' + escapeRegex(이름) + '[\\s(=]').test(src)) continue
       // 이름 뒤에 ( . [ 가 오면 실제로 쓰는 것이다
-      const 씀 = new RegExp('(^|[^\\w$가-힣.])' + 정규탈출(이름) + '\\s*[(.[]', 'm')
+      const 씀 = new RegExp('(^|[^\\w$가-힣.])' + escapeRegex(이름) + '\\s*[(.[]', 'm')
       assert.ok(!씀.test(src),
         `${f} 가 common.js 의 '${이름}' 을 import 없이 쓴다 — 브라우저에서 ReferenceError 다`)
     }

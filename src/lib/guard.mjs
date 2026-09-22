@@ -11,7 +11,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { localStamp, dayKey, minutesSince, minuteOfDay, parseHhmm } from './stamp.mjs'
-import { 원자JSON쓰기 } from './io.mjs'
+import { writeJsonAtomic } from './io.mjs'
 
 /* ── 하트비트 낡음 판정 ───────────────────────────────────────── */
 
@@ -76,7 +76,7 @@ export function heartbeatVerdict(hb, limitMin = 15, now = Date.now(), 켠epoch =
  * @param 목록 {{ok:boolean, 오류:string|null, sessions:Array<{sessionId,pid}>}} runningSessions() 결과
  * @param 살아있나 pid 생존 확인 함수 — 목록이 낡았을 수 있으므로 한 번 더 본다
  */
-export function 세션실행중(목록, sessionId, 살아있나 = () => true) {
+export function sessionRunning(목록, sessionId, isAlive = () => true) {
   if (!목록 || 목록.ok !== true) {
     return {
       실행중: true, 확실한가: false,
@@ -85,7 +85,7 @@ export function 세션실행중(목록, sessionId, 살아있나 = () => true) {
   }
   const s = (목록.sessions || []).find((x) => x.sessionId === sessionId)
   if (!s) return { 실행중: false, 확실한가: true, why: null }
-  if (!살아있나(s.pid)) return { 실행중: false, 확실한가: true, why: null }
+  if (!isAlive(s.pid)) return { 실행중: false, 확실한가: true, why: null }
   return { 실행중: true, 확실한가: true, why: `세션이 실행 중이다 (pid ${s.pid}) — 사람이 쓰는 중이므로 건드리지 않는다` }
 }
 
@@ -109,7 +109,7 @@ export function 세션실행중(목록, sessionId, 살아있나 = () => true) {
  *
  * @param 할당량 트랜스크립트에서 읽은 quotaLimits (resetsAt 은 **초** 단위)
  */
-export function 제한상태(할당량, now = Date.now()) {
+export function limitState(할당량, now = Date.now()) {
   const 없음 = { 제한중: false, 해제됨: false, 남은분: null, 해제epoch: null, why: null }
   if (!할당량 || typeof 할당량 !== 'object') return 없음
 
@@ -136,7 +136,7 @@ export function 제한상태(할당량, now = Date.now()) {
  * 그때 이것을 실패로 세면 세 번 만에 회로가 차단된다 — 기다리면 될 일에.
  * 🔴 모르면 실패로 센다(false) — 진짜 고장을 제한으로 감추면 안 된다.
  */
-export function 제한실패인가(글) {
+export function isLimitFailure(글) {
   const s = String(글 || '')
   if (!s) return false
   return /limit/i.test(s) && /(usage|rate|quota|reset|weekly|session limit)/i.test(s)
@@ -161,7 +161,7 @@ export function quietNow(quiet, now = new Date()) {
 
 /* ── 실행 상태(예산·회로차단기) ───────────────────────────────── */
 
-export const 빈상태 = () => ({ 마지막실행: null, 일별: {}, 비용일별: {}, 연속실패: 0, 차단: null })
+export const 빈상태 = () => ({ 마지막실행: null, 일별: {}, costByDay: {}, 연속실패: 0, 차단: null })
 
 /**
  * 실행 상태를 읽는다.
@@ -184,7 +184,7 @@ export function loadRunState(path) {
  *   쓰다 죽었다는 이유로 자율 재개가 멈추면 안 된다.
  */
 export function saveRunState(path, state) {
-  원자JSON쓰기(path, state)
+  writeJsonAtomic(path, state)
 }
 
 /**
@@ -200,7 +200,7 @@ export function saveRunState(path, state) {
 export function budgetVerdict(state, cfg, now = Date.now()) {
   const today = dayKey(new Date(now))
   const 오늘실행 = (state.일별 || {})[today] || 0
-  const 오늘비용 = +((state.비용일별 || {})[today] || 0).toFixed(4)
+  const 오늘비용 = +((state.costByDay || {})[today] || 0).toFixed(4)
   const no = (why) => ({ ok: false, why, 오늘실행, 오늘비용 })
 
   if (state.손상) return no(state.손상)
@@ -246,7 +246,7 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
   const 제한 = 결과 === '제한'
   const 연속실패 = 성공 ? 0 : 제한 ? (state.연속실패 || 0) : (state.연속실패 || 0) + 1
   const 한계 = cfg.연속실패한계 ?? 3
-  const 이전비용 = (state.비용일별 || {})[today] || 0
+  const 이전비용 = (state.costByDay || {})[today] || 0
 
   const next = {
     ...state,
@@ -259,7 +259,7 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
       소요초,
     },
     일별: { ...(state.일별 || {}), [today]: ((state.일별 || {})[today] || 0) + 1 },
-    비용일별: { ...(state.비용일별 || {}), [today]: +(이전비용 + (비용USD || 0)).toFixed(4) },
+    costByDay: { ...(state.costByDay || {}), [today]: +(이전비용 + (비용USD || 0)).toFixed(4) },
     연속실패,
     차단: 연속실패 >= 한계
       ? { at: localStamp(new Date(now)), 이유: `연속 ${연속실패}회 실패` }

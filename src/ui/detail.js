@@ -4,19 +4,19 @@
 'use strict'
 // 🔴 n(숫자 서식)을 빠뜨려 상세 탭이 전부 ReferenceError 로 죽었다 (2026-09-22 실측).
 //   app.js 를 조각으로 나눌 때 한 파일 안에 있던 이름이 import 목록에서 누락됐다.
-import { $, el, n, 압축, 짧은경로, S, badge, 스크롤유지, 동작 } from './common.js'
+import { $, el, n, compact, shortPath, S, badge, keepScroll, 동작 } from './common.js'
 
 /** 상세를 다시 그린다. 보고 있던 세션·탭이 바뀌었으면 맨 위에서 시작한다 */
-function 상세다시그리기() {
+function redrawDetail() {
   const 키 = `${S.열린세션 || ''}|${S.탭}`
   const 바뀜 = 키 !== S.마지막상세키
   S.마지막상세키 = 키
-  스크롤유지('#dscroll', 상세그리기, { 맨위로: 바뀜 })
+  keepScroll('#dscroll', drawDetail, { 맨위로: 바뀜 })
 }
 
 
 /* ── 상세 ────────────────────────────────────────────────────── */
-function 상세그리기() {
+function drawDetail() {
   const d = S.상세
   const s = S.상태?.세션.find((x) => x.sessionId === S.열린세션)
 
@@ -36,7 +36,7 @@ function 상세그리기() {
       ? `이 세션의 상세를 읽을 수 없습니다 — ${S.상세오류}`
       : '세션 행을 누르면 처리 상황과 내용이 실시간으로 표시됩니다.'
     $('#dtitle').textContent = S.탭 === 'al' ? '알림 이력' : '상세 — 왼쪽에서 세션을 고르세요'
-    탭그리기()
+    drawTab()
     return
   }
   $('#dempty').classList.add('hide'); $('#dbody').classList.remove('hide')
@@ -67,9 +67,9 @@ function 상세그리기() {
   const dl = el('dl', 'kv')
   const kv = (k, v) => { dl.append(el('dt', null, k), el('dd', null, v ?? '-')) }
   kv('마지막 활동', `${d.항목.at(-1)?.at || '?'} · ${d.활성분}분 전 · 마지막 ${d.진행.마지막종류 || '?'}`)
-  kv('실행 위치', 짧은경로(s.실행cwd))
-  kv('주 작업 위치', 짧은경로(s.주작업cwd))
-  if (s.cwd상위?.length > 1) kv('오간 위치', s.cwd상위.map((c) => `${짧은경로(c.경로)} (${n(c.엔트리)})`).join('\n'))
+  kv('실행 위치', shortPath(s.실행cwd))
+  kv('주 작업 위치', shortPath(s.주작업cwd))
+  if (s.cwd상위?.length > 1) kv('오간 위치', s.cwd상위.map((c) => `${shortPath(c.경로)} (${n(c.엔트리)})`).join('\n'))
   kv('저장소', `${s.저장소id}${s.저장소설정있음 ? ' (설정 있음)' : ' (설정 없음 — 기본값으로 돈다)'}`)
   kv('git', s.git ? `${s.git.브랜치 || '?'} · ${s.git.head || '?'} · 커밋 ${s.git.커밋수 || '?'} · 미커밋 ${s.git.미커밋파일수}` : '감시를 켜면 조회한다')
   kv('트랜스크립트', `${(d.바이트 / 1048576).toFixed(1)}MB · 꼬리 ${(d.꼬리읽음 / 1024).toFixed(0)}KB 읽음 · 항목 ${n(d.항목수)}`)
@@ -98,8 +98,8 @@ function 상세그리기() {
     for (const [id, t] of Object.entries(s.모델별)) {
       const r = el('tr')
       r.append(el('td', null, id + (t.추정 ? ' (추정)' : '')),
-        el('td', null, 압축(t.입력)), el('td', null, 압축(t.캐시쓰기1h + t.캐시쓰기5m)),
-        el('td', null, 압축(t.캐시읽기)), el('td', null, 압축(t.출력)),
+        el('td', null, compact(t.입력)), el('td', null, compact(t.캐시쓰기1h + t.캐시쓰기5m)),
+        el('td', null, compact(t.캐시읽기)), el('td', null, compact(t.출력)),
         el('td', null, '$' + t.usd.toFixed(2)))
       body.append(r)
     }
@@ -135,7 +135,7 @@ function 상세그리기() {
     if (it.모델) hd.append(el('span', null, it.모델))
     if (it.사고있음) hd.append(el('span', null, '· 사고'))
     if (it.사이드체인) hd.append(el('span', null, '· 서브에이전트'))
-    if (it.토큰) hd.append(el('span', 'tok', `· 출력 ${n(it.토큰.출력)}${it.토큰.사고 ? ` (사고 ${n(it.토큰.사고)})` : ''} · 캐시읽기 ${압축(it.토큰.캐시읽기)}`))
+    if (it.토큰) hd.append(el('span', 'tok', `· 출력 ${n(it.토큰.출력)}${it.토큰.사고 ? ` (사고 ${n(it.토큰.사고)})` : ''} · 캐시읽기 ${compact(it.토큰.캐시읽기)}`))
     w.append(hd)
     if (it.글) w.append(el('div', 'body', it.글))
     if (it.결과?.length) {
@@ -170,26 +170,26 @@ function 상세그리기() {
   const save = el('button', 'sm primary', '재개지시 저장')
   save.addEventListener('click', async () => {
     save.disabled = true
-    await 동작.보내기('/api/targets', { sessionIds: [S.열린세션], 재개지시: ta.value, meta: 동작.메타(s) })
-    save.disabled = false; 동작.상세읽기()
+    await 동작.post('/api/targets', { sessionIds: [S.열린세션], 재개지시: ta.value, meta: 동작.메타(s) })
+    save.disabled = false; 동작.loadDetail()
   })
   const row = el('div'); row.style.marginTop = '8px'; row.style.display = 'flex'; row.style.gap = '7px'
   row.append(save)
   const b1 = el('button', 'sm', '지금 감시 실행')
-  b1.addEventListener('click', () => 동작.보내기('/api/run', { kind: 'heartbeat' }).then(() => setTimeout(동작.상세읽기, 2500)))
+  b1.addEventListener('click', () => 동작.post('/api/run', { kind: 'heartbeat' }).then(() => setTimeout(동작.loadDetail, 2500)))
   const b2 = el('button', 'sm', '지금 재시작 실행')
   b2.addEventListener('click', () => {
     if (!confirm('이 세션을 지금 재시작합니다. 사람이 보지 않는 상태로 토큰을 쓰고 파일을 고칠 수 있습니다. 계속할까요?')) return
-    동작.보내기('/api/run', { kind: 'resume', sessionId: S.열린세션 }).then(() => setTimeout(동작.상세읽기, 3000))
+    동작.post('/api/run', { kind: 'resume', sessionId: S.열린세션 }).then(() => setTimeout(동작.loadDetail, 3000))
   })
   row.append(b1, b2)
   cfg.append(row)
   cfg.append(el('div', 'note', `대상 등록 ${d.대상 ? '됨' : '안 됨'} · 감시 ${d.대상?.감시 ? 'O' : 'X'} · 재시작 ${d.대상?.재시작 ? 'O' : 'X'}`))
 
-  탭그리기()
+  drawTab()
 }
 
-function 탭그리기() {
+function drawTab() {
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === S.탭)
   for (const k of ['now', 'tl', 'hb', 'rs', 'cfg', 'al']) $('#tab-' + k).classList.toggle('hide', k !== S.탭)
   // 알림 탭에서는 세션 상세 묶음을 숨긴다 (알림은 그 바깥에 있다)
@@ -197,4 +197,4 @@ function 탭그리기() {
 }
 
 
-export { 상세다시그리기 }
+export { redrawDetail }

@@ -49,7 +49,7 @@ function query() {
 }
 
 /** 명령행에서 필요한 조각만. 순수 함수라 시험할 수 있다 */
-export function 명령행해석(cmd) {
+export function parseCmdline(cmd) {
   const c = String(cmd || '')
 
   const resume = /--resume[= ]([0-9a-fA-F-]{36})/.exec(c)?.[1] || null
@@ -93,7 +93,7 @@ export function claudeProcesses({ ttlMs = 10000 } = {}) {
 
   const r = query()
   const 목록 = r.rows.filter(Boolean).map((x) => {
-    const p = 명령행해석(x.cmd)
+    const p = parseCmdline(x.cmd)
     return {
       pid: x.pid, ppid: x.ppid,
       시작: x.started || null,

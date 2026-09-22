@@ -17,7 +17,7 @@ import { readFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { RS_HOME } from './config.mjs'
 import { localStamp } from './stamp.mjs'
-import { 원자JSON쓰기, 덧붙이기 } from './io.mjs'
+import { writeJsonAtomic, appendLine } from './io.mjs'
 
 const 상태폴더 = () => { const d = join(RS_HOME, 'state'); mkdirSync(d, { recursive: true }); return d }
 export const 경보로그 = () => join(상태폴더(), 'alerts.log')
@@ -30,7 +30,7 @@ export const 수준순 = { critical: 3, warning: 2, info: 1 }
  * 지금 살아 있는 경보. 순수 함수 — fullStatus() 결과만 보고 판정한다.
  * @returns {Array<{코드:string, 수준:'critical'|'warning'|'info', 제목:string, 설명:string, 대상?:string}>}
  */
-export function 현재경보(d) {
+export function currentAlerts(d) {
   const out = []
   if (!d) return out
   const push = (코드, 수준, 제목, 설명, 대상) => out.push({ 코드, 수준, 제목, 설명, 대상 })
@@ -45,7 +45,7 @@ export function 현재경보(d) {
    *   대기 창은 한계 시간까지만이다(guard.mjs). 그 뒤엔 여기로 온다.
    */
   for (const s of d.세션 || []) {
-    const v = s.감시?.판정
+    const v = s.감시?.verdict
     if (s.감시?.켜짐 && v && !v.alive && !v.대기) {
       push('감시끊김', 'critical', '감시가 끊겼습니다',
         `${s.제목 || s.짧은id} — ${v.why}`, s.sessionId)
@@ -97,9 +97,9 @@ export function 현재경보(d) {
        *   정말 멈춰 있을 때만 "멈춰 있다"고 — 되살리는 법과 함께 — 말한다.
        */
       push('예약중지', 'warning', '예약 작업이 멈춰 있습니다',
-        `${키} — ${w.결과뜻}. 다시 띄우려면 start.exe -Restart`)
+        `${키} — ${w.resultText}. 다시 띄우려면 start.exe -Restart`)
     } else if (w.등록됨 && !w.정상) {
-      push('예약실패', 'warning', '예약 작업이 실패로 끝났습니다', `${키} — ${w.결과뜻 || w.마지막결과}`)
+      push('예약실패', 'warning', '예약 작업이 실패로 끝났습니다', `${키} — ${w.resultText || w.마지막결과}`)
     }
   }
 
@@ -165,17 +165,17 @@ export function 변화기록(경보들) {
     ? 경보들.map((a) => `${at} · ${a.수준.toUpperCase()} · ${a.코드} · ${a.제목} — ${a.설명}`).join('\n')
     : `${at} · OK · 해소 · 살아 있는 경보가 없습니다`
 
-  try { 덧붙이기(경보로그(), 줄) } catch { /* 로그 실패로 감시를 막지 않는다 */ }
+  try { appendLine(경보로그(), 줄) } catch { /* 로그 실패로 감시를 막지 않는다 */ }
   try {
     // 지문이 찢어지면 다음 회차가 "바뀌었다"고 오판해 같은 경보를 다시 적는다
-    원자JSON쓰기(마지막파일(), { 지문: 지금, at, 개수: 경보들.length })
+    writeJsonAtomic(마지막파일(), { 지문: 지금, at, 개수: 경보들.length })
   } catch { /* 위와 같다 */ }
 
   return { 기록: true, 이전, 지금 }
 }
 
 /** 경보 로그 꼬리 — 화면의 "알림" 탭이 읽는다 */
-export function 최근경보(n = 60) {
+export function recentAlerts(n = 60) {
   const p = 경보로그()
   if (!existsSync(p)) return []
   try {

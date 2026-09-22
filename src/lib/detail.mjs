@@ -13,10 +13,10 @@ import { existsSync, readdirSync, statSync, openSync, readSync, closeSync } from
 import { join } from 'node:path'
 import { claudeProjectsRoot } from './config.mjs'
 import { localStamp } from './stamp.mjs'
-import { 모델정규화 } from './pricing.mjs'
+import { normalizeModel } from './pricing.mjs'
 
 /** 세션 id → 트랜스크립트 경로 */
-export function 트랜스크립트찾기(sessionId) {
+export function findTranscript(sessionId) {
   const root = claudeProjectsRoot()
   if (!root || !existsSync(root)) return null
   for (const slug of readdirSync(root)) {
@@ -32,7 +32,7 @@ const 건너뛸까 = (line) =>
   line.includes('"type":"file-history-delta"')
 
 /** 도구 입력에서 사람이 알아볼 한 줄을 뽑는다 */
-function 도구요지(name, input) {
+function toolDigest(name, input) {
   const i = input || {}
   const 첫 = (...keys) => { for (const k of keys) if (i[k]) return String(i[k]) ; return null }
   const v =
@@ -51,7 +51,7 @@ function 도구요지(name, input) {
 }
 
 /** 어시스턴트 content 배열 → { 글, 사고있음, 도구[] } */
-function 어시스턴트내용(content) {
+function assistantText(content) {
   let 글 = '', 사고있음 = false
   const 도구 = []
   if (!Array.isArray(content)) return { 글, 사고있음, 도구 }
@@ -59,13 +59,13 @@ function 어시스턴트내용(content) {
     if (!b || typeof b !== 'object') continue
     if (b.type === 'text' && b.text) 글 += (글 ? '\n' : '') + b.text
     else if (b.type === 'thinking') 사고있음 = true
-    else if (b.type === 'tool_use') 도구.push({ 이름: b.name, 요지: 도구요지(b.name, b.input), id: b.id })
+    else if (b.type === 'tool_use') 도구.push({ 이름: b.name, 요지: toolDigest(b.name, b.input), id: b.id })
   }
   return { 글, 사고있음, 도구 }
 }
 
 /** 사용자 content → 글 (도구 결과는 따로 표시한다) */
-function 사용자내용(content) {
+function userText(content) {
   if (typeof content === 'string') return { 글: content, 도구결과: [] }
   let 글 = ''
   const 도구결과 = []
@@ -97,7 +97,7 @@ const 자르기 = (s, n) => {
  * @param {object} opts.maxBytes 꼬리에서 읽을 바이트 (기본 512KB)
  */
 export function sessionDetail(sessionId, { turns = 40, maxBytes = 512 * 1024, 글길이 = 1200 } = {}) {
-  const 찾음 = 트랜스크립트찾기(sessionId)
+  const 찾음 = findTranscript(sessionId)
   if (!찾음) return { ok: false, 오류: `트랜스크립트를 찾을 수 없다: ${sessionId}` }
 
   const { 경로, slug } = 찾음
@@ -130,7 +130,7 @@ export function sessionDetail(sessionId, { turns = 40, maxBytes = 512 * 1024, �
     const atEpoch = j.timestamp ? Date.parse(j.timestamp) : null
 
     if (j.type === 'user') {
-      const { 글, 도구결과 } = 사용자내용(j.message?.content)
+      const { 글, 도구결과 } = userText(j.message?.content)
       for (const r of 도구결과) 결과맵.set(r.id, r)
       // 도구 결과만 있는 사용자 엔트리는 사람의 발화가 아니다 — 타임라인을 어지럽히지 않게 접는다
       if (글.trim()) {
@@ -142,11 +142,11 @@ export function sessionDetail(sessionId, { turns = 40, maxBytes = 512 * 1024, �
         })
       }
     } else if (j.type === 'assistant') {
-      const { 글, 사고있음, 도구 } = 어시스턴트내용(j.message?.content)
+      const { 글, 사고있음, 도구 } = assistantText(j.message?.content)
       const u = j.message?.usage || {}
       항목.push({
         종류: '어시스턴트', at, atEpoch, 사이드체인: !!j.isSidechain,
-        모델: 모델정규화(j.message?.model),
+        모델: normalizeModel(j.message?.model),
         글: 자르기(글, 글길이),
         사고있음,
         도구,

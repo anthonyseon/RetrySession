@@ -6,7 +6,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { 빈누적, foldEntry, foldLines } from '../src/lib/sessions.mjs'
-import { 할당량보기 } from '../src/lib/status.mjs'
+import { quotaView } from '../src/lib/status.mjs'
 
 const A = (o) => ({ type: 'assistant', timestamp: '2026-09-18T01:00:00.000Z', ...o })
 
@@ -120,27 +120,27 @@ test('깨진 줄은 건너뛰고 나머지를 접는다 (쓰는 중인 마지막
 /* ── 할당량 해석 ─────────────────────────────────────────────── */
 
 test('할당량 — 기록이 없으면 없다고 말한다', () => {
-  const v = 할당량보기(null)
+  const v = quotaView(null)
   assert.equal(v.있음, false)
   assert.match(v.설명, /기록 없음/)
 })
 
 test('🔴 할당량 — resetsAt 이 과거면 "이미 해제됨"이라고 말한다', () => {
   const 과거 = Math.floor((Date.now() - 3600_000) / 1000)
-  const v = 할당량보기({ status: 'rejected', resetsAt: 과거, rateLimitType: 'five_hour', _at: Date.now() - 7200_000 })
+  const v = quotaView({ status: 'rejected', resetsAt: 과거, rateLimitType: 'five_hour', _at: Date.now() - 7200_000 })
   assert.equal(v.이미해제됨, true)
   assert.match(v.설명, /이미 해제/)
 })
 
 test('할당량 — 미래면 남은 시간을 말한다', () => {
   const 미래 = Math.floor((Date.now() + 30 * 60_000) / 1000)
-  const v = 할당량보기({ status: 'rejected', resetsAt: 미래, rateLimitType: 'five_hour', _at: Date.now() })
+  const v = quotaView({ status: 'rejected', resetsAt: 미래, rateLimitType: 'five_hour', _at: Date.now() })
   assert.equal(v.이미해제됨, false)
   assert.ok(v.해제_남은분 >= 29 && v.해제_남은분 <= 30)
 })
 
 test('할당량 — 초과사용 상태를 그대로 옮긴다', () => {
-  const v = 할당량보기({
+  const v = quotaView({
     status: 'rejected', resetsAt: 1, rateLimitType: 'five_hour',
     isUsingOverage: false, overageStatus: 'rejected', overageDisabledReason: 'org_level_disabled',
     unifiedRateLimitFallbackAvailable: false, _at: Date.now(),
@@ -151,7 +151,7 @@ test('할당량 — 초과사용 상태를 그대로 옮긴다', () => {
 })
 
 test('🔴 할당량 — 기록 시각을 반드시 함께 준다 (지금 상태가 아닐 수 있다)', () => {
-  const v = 할당량보기({ status: 'rejected', resetsAt: 1, _at: Date.now() - 60_000 })
+  const v = quotaView({ status: 'rejected', resetsAt: 1, _at: Date.now() - 60_000 })
   assert.ok(v.기록시각, '기록 시각이 없으면 낡은 값을 현재로 오해한다')
   assert.ok(v.기록_분전 >= 1)
 })
