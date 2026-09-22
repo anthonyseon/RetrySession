@@ -187,7 +187,17 @@ const server = createServer(async (req, res) => {
       const patch = {}
       const w = boolOf('watch', '감시')
       const r = boolOf('restart', 'resume', '재시작')
-      const ins = strOf('재개지시', 'instruction')
+      /**
+       * 🔴 `resumePrompt` 를 **맨 앞에** 둔다 — 화면이 보내는 이름이다.
+       *
+       *   실측 결함 (2026-09-22): 받는 목록이 `재개지시`·`instruction` 뿐이었는데
+       *   화면은 저장된 필드 이름 그대로 `resumePrompt` 를 보냈다. 그래서 상세의
+       *   [재개지시 저장]이 늘 400 "바꿀 것이 없다" 로 떨어졌다. 추적기가 없는
+       *   세션은 재개지시가 **유일한 재개 지점**이라, 이 단추가 죽어 있으면
+       *   재시작을 켜 둬도 영원히 돌지 않는다.
+       *   이름을 영어로 옮길 때 문자열로 들고 다니는 키를 놓친 것이다(CLAUDE.md 2-2).
+       */
+      const ins = strOf('resumePrompt', 'instruction', '재개지시')
       if (w !== undefined) patch.watch = w
       if (r !== undefined) patch.restart = r
       if (ins !== undefined) patch.resumePrompt = ins.trim() || null
@@ -195,7 +205,7 @@ const server = createServer(async (req, res) => {
       if (!Object.keys(patch).length) {
         return json(res, 400, {
           error: '바꿀 것이 없다',
-          acceptedKeys: ['감시 | watch (boolean)', '재시작 | resume (boolean)', '재개지시 | instruction (string)'],
+          acceptedKeys: ['watch | 감시 (boolean)', 'restart | resume | 재시작 (boolean)', 'resumePrompt | instruction | 재개지시 (string)'],
           gotKeys: Object.keys(b),
         })
       }

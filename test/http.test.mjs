@@ -210,3 +210,76 @@ test('트레이가 읽는 새 키도 ASCII 다 (tray.ps1 이 코드에 적는다
     assert.match(m[1], /^[\x20-\x7e]+$/, `trayStatus 의 키 '${m[1]}' 가 ASCII 가 아니다`)
   }
 })
+
+/* ── 화면이 보내는 키를 서버가 정말 받는가 ───────────────────── */
+
+/**
+ * 🔴 실측 결함 (2026-09-22): 화면은 `resumePrompt` 를 보내는데 서버는
+ *   `재개지시`·`instruction` 만 받았다. 그래서 상세의 [재개지시 저장]이 늘
+ *   400 "바꿀 것이 없다" 로 떨어졌다. 추적기가 없는 세션에게 재개지시는
+ *   **유일한 재개 지점**이라, 이 한 글자 차이로 재시작을 켜 둬도 영원히 안 돈다.
+ *
+ *   이름을 영어로 옮길 때 문자열로 들고 다니는 키를 놓친 것이다(CLAUDE.md 2-2).
+ *   같은 부류가 이미 두 번 있었다(설정 모달 드롭다운 · OS 트리거 타일).
+ *   양쪽을 **맞춰 보는** 시험이 없으면 이 어긋남은 화면을 눌러 보기 전엔 안 보인다.
+ */
+const serverSource = () => readFileSync(join(ROOT, 'src', 'ui', 'server.mjs'), 'utf8')
+
+/** 서버의 한 경로 처리 구역이 받아들이는 키 */
+function acceptedKeys(path) {
+  const src = serverSource()
+  const start = src.indexOf(`p === '${path}'`)
+  assert.ok(start > 0, `서버에 ${path} 처리가 없다`)
+  const next = src.indexOf("if (req.method ===", start + 10)
+  const block = src.slice(start, next > 0 ? next : src.length)
+  const keys = new Set()
+  const readInto = (text) => {
+    for (const m of text.matchAll(/\bb\.([A-Za-z_$][\w$]*)/g)) keys.add(m[1])
+    // boolOf('a','b') · strOf('a','b') 로 별칭을 받는 자리
+    for (const m of text.matchAll(/\b(?:boolOf|strOf)\(([^)]*)\)/g)) {
+      for (const q of m[1].matchAll(/['"]([^'"]+)['"]/g)) keys.add(q[1])
+    }
+  }
+  readInto(block)
+  /**
+   * 🔴 본문을 **대신 읽어 주는 도우미**까지 따라간다.
+   *   remove·rearm 은 `checkIds(b)` 로 sessionIds 를 읽는다. 블록만 보면 "아무 키도
+   *   안 받는다"가 되어 멀쩡한 경로가 거짓 경보를 낸다 — 거짓 경보는 시험을 끄게 만든다.
+   */
+  for (const call of block.matchAll(/\b([A-Za-z_$][\w$]*)\(\s*b\s*\)/g)) {
+    const name = call[1]
+    const at = src.search(new RegExp(`(?:const|function)\\s+${name}\\b`))
+    if (at < 0) continue
+    readInto(src.slice(at, at + 400))
+  }
+  return keys
+}
+
+/** 화면이 보내는 (경로, 키들) — post('/api/x', { … }) 를 읽는다 */
+function uiPosts() {
+  const out = []
+  for (const m of uiSource().matchAll(/post\(\s*['"`](\/api\/[^'"`]+)['"`]\s*,\s*\{([^}]*)\}/g)) {
+    const keys = [...m[2].matchAll(/(?:^|,)\s*([A-Za-z_$][\w$]*)\s*:/g)].map((x) => x[1])
+    out.push({ path: m[1], keys })
+  }
+  return out
+}
+
+test('🔴 화면이 보내는 키를 서버가 하나도 빠짐없이 받는다', () => {
+  const posts = uiPosts()
+  assert.ok(posts.length >= 8, `화면의 POST 를 못 읽었다 (${posts.length}개)`)
+  const missing = []
+  for (const { path, keys } of posts) {
+    const ok = acceptedKeys(path)
+    for (const k of keys) if (!ok.has(k)) missing.push(`${path} 의 '${k}' — 서버가 받는 키: ${[...ok].join(', ')}`)
+  }
+  assert.deepEqual(missing, [],
+    `화면은 보내는데 서버가 읽지 않는 키가 있다 — 그 단추는 눌러도 안 먹는다:\n  ${missing.join('\n  ')}`)
+})
+
+test('재개지시는 화면 이름(resumePrompt)으로도, 스크립트 별칭으로도 받는다', () => {
+  const ok = acceptedKeys('/api/targets')
+  for (const k of ['resumePrompt', 'instruction', '재개지시']) {
+    assert.ok(ok.has(k), `재개지시를 '${k}' 로 받지 않는다`)
+  }
+})
