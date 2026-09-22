@@ -189,7 +189,7 @@ function updateApplyButton() {
 
 /**
  * 모달 내용. 상태를 새로 받을 때마다 호출되지만, 내용이 같으면 그냥 돌아간다.
- * @param 강제 창을 새로 열 때처럼 무조건 다시 그려야 할 때
+ * @param force 창을 새로 열 때처럼 무조건 다시 그려야 할 때
  */
 export function drawSettings({ force = false } = {}) {
   if (!isSettingsOpen()) return

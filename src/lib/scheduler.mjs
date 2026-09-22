@@ -140,7 +140,7 @@ function refreshAsync() {
 
 /**
  * 네 작업의 상태. 30초 캐시 — UI 가 몇 초마다 물어봐도 PowerShell 을 그만큼 띄우지 않는다.
- * @returns {{하트비트:object, 재시작:object, UI:object, 트레이:object, 캐시됨:boolean}}
+ * @returns {{heartbeat:object, restart:object, UI:object, tray:object, cached:boolean, stale?:boolean, ageMs:number}}
  *
  * 🔴 낡았으면 **낡은 값을 먼저 주고 뒤에서 새로 읽는다.**
  *
@@ -171,6 +171,24 @@ export function taskState({ ttlMs = 30000 } = {}) {
   _cache.set('tasks', { at: Date.now(), v })
   return { ...v, cached: false, ageMs: 0 }
 }
+
+/**
+ * `taskState()` 결과에서 **진짜 작업만** 골라낸다.
+ *
+ * 🔴 왜 따로 두나 (실측 결함, 2026-09-22)
+ *   `taskState()` 는 작업 넷에 캐시 사정(`cached`·`stale`·`ageMs`)을 **같은 평면에**
+ *   섞어 돌려준다. 그래서 `Object.entries(tasks)` 를 그냥 돌면 `cached` 를 다섯째
+ *   작업으로 세게 된다. 경보와 트레이가 각자 `키 !== '캐시됨'` 으로 막고 있었는데,
+ *   이름을 영어로 바꾸면서 그 키가 `cached` 가 되자 **두 곳의 방패가 동시에 헛돌았다.**
+ *   지금은 값이 전부 원시형이라 우연히 조용했을 뿐이다 — 캐시 사정에 객체 하나만
+ *   늘면 없는 작업이 경보로 튀어나온다.
+ *
+ *   막는 규칙을 두 벌 만들지 않는다. 여기 한 곳에서만 판단한다. 그리고 "작업이
+ *   아닌 것"을 값 모양으로 알아맞히지 않는다 — **작업 이름은 이미 알고 있다.**
+ *   아는 것으로 고르면 뒤에 무엇이 더 붙든 흔들리지 않는다.
+ */
+export const taskEntries = (tasks) =>
+  Object.keys(taskNames).filter((k) => tasks?.[k]).map((k) => [k, tasks[k]])
 
 /** 조회 결과 → 작업별 판정. 순수 함수 (동기·비동기 두 길이 함께 쓴다) */
 function buildTaskTable(r) {

@@ -18,6 +18,7 @@ import { join } from 'node:path'
 import { RS_HOME } from './config.mjs'
 import { localStamp } from './stamp.mjs'
 import { writeJsonAtomic, appendLine } from './io.mjs'
+import { taskEntries } from './scheduler.mjs'
 
 const stateDir = () => { const d = join(RS_HOME, 'state'); mkdirSync(d, { recursive: true }); return d }
 export const alertLog = () => join(stateDir(), 'alerts.log')
@@ -80,8 +81,7 @@ export function currentAlerts(d) {
   }
 
   /* OS 트리거가 없거나 실패 — 이게 없으면 세션 밖에서 아무것도 돌지 않는다 */
-  for (const [key, w] of Object.entries(d.tasks || {})) {
-    if (key === '캐시됨' || !w || typeof w !== 'object') continue
+  for (const [key, w] of taskEntries(d.tasks)) {
     if (w.queryFailed) push('예약조회실패', 'warning', '예약 작업을 조회할 수 없습니다', `${key} — ${w.error || ''}`)
     else if (w.registered === false) {
       push('예약미등록', 'warning', '예약 작업이 등록되지 않았습니다',

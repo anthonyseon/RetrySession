@@ -73,8 +73,8 @@ export function heartbeatVerdict(hb, limitMin = 15, now = Date.now(), onEpoch = 
  *
  *   **목록이 비어 있는 것과 "아무도 안 돈다"는 다르다.** 전자는 모른다는 뜻일 수 있다.
  *
- * @param 목록 {{ok:boolean, 오류:string|null, sessions:Array<{sessionId,pid}>}} runningSessions() 결과
- * @param 살아있나 pid 생존 확인 함수 — 목록이 낡았을 수 있으므로 한 번 더 본다
+ * @param items {{ok:boolean, error:string|null, sessions:Array<{sessionId,pid}>}} runningSessions() 결과
+ * @param isAlive pid 생존 확인 함수 — 목록이 낡았을 수 있으므로 한 번 더 본다
  */
 export function sessionRunning(items, sessionId, isAlive = () => true) {
   if (!items || items.ok !== true) {
@@ -107,7 +107,7 @@ export function sessionRunning(items, sessionId, isAlive = () => true) {
  *   그래서 **확실히 제한 중일 때만** 막고, 나머지는 통과시킨다.
  *   놓친 경우는 실행 결과가 받아낸다(제한실패인가 → 연속실패로 세지 않는다).
  *
- * @param 할당량 트랜스크립트에서 읽은 quotaLimits (resetsAt 은 **초** 단위)
+ * @param quota 트랜스크립트에서 읽은 quotaLimits (resetsAt 은 **초** 단위)
  */
 export function limitState(quota, now = Date.now()) {
   const none = { limited: false, lifted: false, leftMin: null, liftedEpoch: null, why: null }

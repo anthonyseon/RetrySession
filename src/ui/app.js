@@ -154,7 +154,9 @@ function updateFreshness() {
   dot.className = 'dot' + (isBad ? ' off' : seconds === null ? ' off' : seconds > 12 ? ' stale' : '')
   if (S.error) $('#freshness').textContent = `읽기 실패${seconds !== null ? ` (${seconds}초 전 성공)` : ''} — ${S.error}`
   else if (!S.state) $('#freshness').textContent = '연결 중…'
-  else $('#freshness').textContent = `${S.state.at} · ${seconds}초 전 갱신 · 스캔 ${S.state.scan.ms}ms`
+  // 🔴 여기는 drawPiece 바깥이다 — 한 칸이 없다고 던지면 신선도 줄이 통째로 멈춘다.
+  //   "몇 초 전 화면이냐"는 고장났을 때 가장 필요한 한 줄이므로 값이 모자라도 그린다.
+  else $('#freshness').textContent = `${S.state.at} · ${seconds}초 전 갱신 · 스캔 ${S.state.scan?.ms ?? '?'}ms`
     + (S.drawError ? ` · ⚠ 화면 그리기 실패 — ${S.drawError}` : '')
 }
 
@@ -163,18 +165,28 @@ document.querySelector('.actions').addEventListener('click', async (e) => {
   const act = e.target.dataset?.act
   if (!act || !S.picked.size) return
   const ids = [...S.picked]
-  const meta = {}
+  /**
+   * 🔴 이름을 `meta` 로 두지 마라 — 위의 `meta(s)` 를 가린다.
+   *
+   *   실측 결함 (2026-09-22): 이름을 영어로 바꾸는 과정에서 세션 정보를 만드는
+   *   `meta(s)` 와 그 결과를 담는 그릇이 **둘 다 `meta`** 가 됐다. 안쪽 `const meta = {}`
+   *   가 바깥 함수를 가려 `meta(s)` 가 `TypeError: meta is not a function` 으로 터졌고,
+   *   **동작줄의 단추 여섯 개가 전부 아무것도 보내지 않았다.** 오류는 콘솔에만 남아
+   *   화면은 조용했다 — 눌렀는데 아무 일도 안 일어나는, 가장 알아채기 어려운 고장이다.
+   *   시험은 소스 정규식과 그리기만 봤기 때문에 못 잡았다(이제 ui-actions 가 눌러 본다).
+   */
+  const metaById = {}
   for (const id of ids) {
     const s = S.state?.sessions.find((x) => x.sessionId === id)
-    if (s) meta[id] = meta(s)
+    if (s) metaById[id] = meta(s)
   }
-  if (act === 'watch-on') await post('/api/targets', { sessionIds: ids, watch: true, meta })
-  else if (act === 'watch-off') await post('/api/targets', { sessionIds: ids, watch: false, meta })
+  if (act === 'watch-on') await post('/api/targets', { sessionIds: ids, watch: true, meta: metaById })
+  else if (act === 'watch-off') await post('/api/targets', { sessionIds: ids, watch: false, meta: metaById })
   else if (act === 'resume-on') {
     if (!confirm(`${ids.length}개 세션에 자율 재시작을 켭니다.\n\n사람이 보지 않는 상태에서 OS 예약이 claude --resume 을 띄워 토큰을 쓰고 파일을 고칠 수 있습니다. 가드(실행 중 확인·하루 횟수·비용 상한·연속실패 차단)는 걸려 있습니다.\n\n계속할까요?`)) return
-    await post('/api/targets', { sessionIds: ids, restart: true, meta })
+    await post('/api/targets', { sessionIds: ids, restart: true, meta: metaById })
   }
-  else if (act === 'resume-off') await post('/api/targets', { sessionIds: ids, restart: false, meta })
+  else if (act === 'resume-off') await post('/api/targets', { sessionIds: ids, restart: false, meta: metaById })
   else if (act === 'rearm') await post('/api/rearm', { sessionIds: ids })
   else if (act === 'remove') {
     if (!confirm(`${ids.length}개 세션의 등록을 해제합니다. 감시·재시작이 모두 꺼집니다.`)) return

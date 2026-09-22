@@ -20,7 +20,7 @@ import { heartbeatVerdict, loadRunState, budgetVerdict } from './guard.mjs'
 import { scanSessions } from './sessions.mjs'
 import { runningSessions, account, cliVersion } from './cli.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath } from './targets.mjs'
-import { taskState } from './scheduler.mjs'
+import { taskState, taskEntries } from './scheduler.mjs'
 import { ideWindows, findWindow, sessionsByFolder } from './ide.mjs'
 import { claudeProcesses } from './procs.mjs'
 import { allLockState } from './single.mjs'
@@ -35,7 +35,7 @@ export { tail, quotaView }
 /* ── 세션 하나의 감시·재시작 상태 ────────────────────────────── */
 
 /**
- * @param 실행중앎 실행 중 목록 조회가 성공했는가. false 면 "정지"라고 말할 수 없다.
+ * @param runKnown 실행 중 목록 조회가 성공했는가. false 면 "정지"라고 말할 수 없다.
  */
 function sessionView(s, registry, runMap, ideWins = [], procMap = new Map(), runKnown = true) {
   const run = runMap.get(s.sessionId) || null
@@ -190,10 +190,7 @@ function sessionView(s, registry, runMap, ideWins = [], procMap = new Map(), run
 
 /* ── 전체 ────────────────────────────────────────────────────── */
 
-/**
- * 화면 한 장에 필요한 모든 것.
- * @param {boolean} opts.가벼움 true 면 git 조회 같은 느린 것을 건너뛴다
- */
+/** 화면 한 장에 필요한 모든 것. */
 export function fullStatus() {
   const registry = loadTargets()
   const scan = scanSessions()
@@ -347,9 +344,7 @@ export function trayStatus() {
   const blocked = sessions.filter((s) => s.restart.on && s.restart.blocked).length
   const watched = d.totals.watchOn
   const limited = !!(d.quota.exists && !d.quota.alreadyLifted)
-  const unregisteredTasks = Object.entries(d.tasks)
-    .filter(([k]) => k !== '캐시됨')
-    .filter(([, v]) => v.registered === false).length
+  const unregisteredTasks = taskEntries(d.tasks).filter(([, v]) => v.registered === false).length
 
   // 실행 여부를 모르면 자율 재개가 멈춘 상태다(fail-closed). 조용히 넘기면 안 된다.
   const unknownRun = d.totals.runKnown === false

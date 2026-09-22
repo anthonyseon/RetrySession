@@ -97,6 +97,37 @@ test('미등록은 그대로 미등록이다', () => {
   assert.ok(a.find((x) => x.code === '예약미등록'))
 })
 
+/* ── 캐시 사정을 작업으로 세지 않는다 ────────────────────────── */
+
+/**
+ * 🔴 실측 결함 (2026-09-22)
+ *   `taskState()` 는 작업 넷과 캐시 사정(`cached`·`stale`·`ageMs`)을 **같은 평면에**
+ *   담아 돌려준다. 경보와 트레이는 각각 `키 !== '캐시됨'` 으로 그것을 걸러 왔는데,
+ *   이름을 영어로 바꾸면서 그 키가 `cached` 가 되자 **두 곳의 방패가 함께 헛돌았다.**
+ *   값이 전부 원시형이라 그때는 조용했다 — 객체 하나만 늘면 없는 작업이 경보가 된다.
+ *   그래서 이제는 **아는 작업 이름으로만** 고른다.
+ */
+test('🔴 캐시 사정(cached·stale·ageMs)은 다섯째 작업이 아니다', () => {
+  const withCache = {
+    sessions: [], locks: {}, totals: { runKnown: true },
+    tasks: {
+      tray: { name: 'T', registered: true, isRunning: true, healthy: true, stopped: false },
+      cached: true, stale: true, ageMs: 12345,
+    },
+  }
+  assert.deepEqual(currentAlerts(withCache), [], '캐시 사정을 미등록 작업으로 읽었다')
+})
+
+test('🔴 캐시 사정에 **객체**가 늘어도 작업으로 세지 않는다 (값 모양으로 알아맞히지 않는다)', async () => {
+  const { taskEntries } = await import('../src/lib/scheduler.mjs')
+  const got = taskEntries({
+    heartbeat: { registered: true }, restart: { registered: true },
+    UI: { registered: true }, tray: { registered: true },
+    cached: true, ageMs: 1, source: { kind: 'async', at: 0 },   // ← 나중에 늘 법한 객체
+  })
+  assert.deepEqual(got.map(([k]) => k), ['heartbeat', 'restart', 'UI', 'tray'])
+})
+
 /* ── 화면이 트레이를 보여주는가 ──────────────────────────────── */
 
 test('🔴 경보가 말하는 작업은 화면에도 있어야 한다 (트레이 타일)', () => {

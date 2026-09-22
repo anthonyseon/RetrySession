@@ -56,9 +56,9 @@ export function lockState(name, staleMin = 60) {
 /**
  * 잡거나 실패한다. 잡으면 프로세스가 끝날 때 자동으로 푼다.
  *
- * @param 이름 구성요소 이름 (heartbeat · resume · ui)
- * @param 낡음분 이 시간을 넘긴 락은 회수한다. 오래 도는 것일수록 크게 준다.
- * @returns {{ok:boolean, why:string|null, 이전:object|null}}
+ * @param name 구성요소 이름 (heartbeat · resume · ui)
+ * @param staleMin 이 시간을 넘긴 락은 회수한다. 오래 도는 것일수록 크게 준다.
+ * @returns {{ok:boolean, why:string|null, prev:object|null}}
  */
 export function grab(name, { staleMin = 60 } = {}) {
   const p = lockPath(name)

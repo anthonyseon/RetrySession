@@ -98,8 +98,8 @@ function group(title) {
  *   "6개"만 보이고 세션/보조 구분이 없으면 많은 건지 알 수 없다.
  *   세부는 화면에 있고, 세 줄을 넘치는 부분만 title 로 넘긴다.
  *
- * @param 값 문자열이거나 DOM 노드(배지 등)
- * @param 설명 값의 근거. 줄바꿈을 쓰면 그대로 보인다.
+ * @param value 문자열이거나 DOM 노드(배지 등)
+ * @param desc 값의 근거. 줄바꿈을 쓰면 그대로 보인다.
  */
 function line(g, name, value, desc, badgeEl) {
   const r = el('div', 'grow')
