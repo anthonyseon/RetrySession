@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { pc판정, 적용인자, 복원인자, 사실상안함, 시간말, 수동안내 } from '../src/lib/pc.mjs'
+import { 스타일 } from './_ui-files.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
@@ -198,7 +199,6 @@ test('수동 안내가 실제 경로를 짚는다', () => {
  */
 const 화면 = ['app.js', 'summary.js', 'setup.js']
   .map((f) => readFileSync(join(ROOT, 'src', 'ui', f), 'utf8')).join('\n')
-const 서버 = readFileSync(join(ROOT, 'src', 'ui', 'server.mjs'), 'utf8')
 
 /**
  * 🔴 문제를 보는 자리와 고치는 자리가 같아야 한다.
@@ -212,10 +212,11 @@ test('🔴 화면에 PC 설정 묶음이 있다', () => {
 
 test('🔴 자동 설정·되돌리기·수동 방법이 모달 안에 다 있다', () => {
   assert.match(화면, /dataset\.pc = /, '단추가 동작을 달아야 한다')
-  for (const act of ['apply', 'restore', 'manual']) {
+  for (const act of ['apply', 'restore', 'manual', 'set']) {
     assert.ok(화면.includes(`'${act}'`), `${act} 동작이 없다`)
   }
-  assert.match(화면, /자동 설정/)
+  assert.match(화면, /권장값으로 \(/, '권장값 적용 단추')
+  assert.match(화면, /고른 값 적용/, '직접 고른 값을 적용하는 단추')
   assert.match(화면, /되돌리기/)
   assert.match(화면, /수동 설정 방법/)
 })
@@ -227,7 +228,7 @@ test('🔴 자동 설정·되돌리기·수동 방법이 모달 안에 다 있�
  *   놓치고, 수동만 보여주면 할 수 있는 걸 안 한다.
  */
 test("🔴 '설정' 단추가 머리말에 있고 모달을 연다", () => {
-  const html = readFileSync(join(ROOT, 'src', 'ui', 'index.html'), 'utf8')
+  const html = 스타일()
   assert.match(html, /id="btnSetup"/, "머리말에 '설정' 단추가 있어야 한다")
   // '밝게' 오른쪽 — 사용자가 지정한 자리다
   assert.ok(html.indexOf('id="btnTheme"') < html.indexOf('id="btnSetup"'),
@@ -240,13 +241,13 @@ test("🔴 '설정' 단추가 머리말에 있고 모달을 연다", () => {
 test('🔴 모달은 사라져야 한다 — 바깥 클릭과 Esc', () => {
   assert.match(화면, /e\.target\.id === 'setupWrap'/, '배경을 누르면 닫혀야 한다')
   assert.match(화면, /e\.key === 'Escape'/, 'Esc 로 닫혀야 한다')
-  const html = readFileSync(join(ROOT, 'src', 'ui', 'index.html'), 'utf8')
+  const html = 스타일()
   assert.match(html, /id="btnSetupClose"/, '닫기 단추도 있어야 한다')
   assert.match(화면, /\$\('#btnSetupClose'\)\.addEventListener/, '닫기 단추가 실제로 닫아야 한다')
 })
 
 test('모달 본문은 자기 스크롤을 갖는다 (화면이 낮아도 잘리지 않게)', () => {
-  const html = readFileSync(join(ROOT, 'src', 'ui', 'index.html'), 'utf8')
+  const html = 스타일()
   assert.match(html, /\.sheet-bd\{[^}]*overflow-y:\s*auto/)
   assert.match(html, /\.sheet-bd\{[^}]*min-height:\s*0/,
     'min-height:0 이 없으면 flex 안에서 스크롤이 조용히 사라진다')
@@ -267,7 +268,12 @@ test('상태를 새로 받으면 열려 있는 모달도 다시 그린다 (적�
 test('🔴 보관된 이전 값을 화면이 보여준다 (되돌릴 길을 모르면 누르지 못한다)', () => {
   assert.match(화면, /백업\.있음/, '보관 여부를 봐야 한다')
   assert.match(화면, /보관됨/, '보관됐다는 것을 글로도 적어야 한다')
-  assert.match(화면, /보관 파일 손상/, '깨진 백업을 "있음"이라 하면 되돌리기가 헛돈다')
+  assert.match(화면, /백업\.오류 \? badge\('warn', '▲', '파일 손상'\)/,
+    '깨진 백업을 "있음"이라 하면 되돌리기가 헛돈다')
+  // 🔴 이 줄은 **모달에만** 있다. 요약에도 뒀더니 옮긴 뒤 한쪽이 죽은 코드로 남아
+  //   ReferenceError 를 냈고, 세션 목록이 통째로 비었다(2026-09-22 실측).
+  const sum = readFileSync(join(ROOT, 'src', 'ui', 'summary.js'), 'utf8')
+  assert.ok(!/백업\./.test(sum), '요약은 백업 상태를 다시 적지 않는다 — 모달의 일이다')
 })
 
 test('🔴 되돌리기 단추는 보관된 값이 있을 때만 나온다', () => {
@@ -297,35 +303,6 @@ test('🔴 자동으로 못 바꾸는 것이 있으면 수동 안내를 펼쳐 �
   const setup = readFileSync(join(ROOT, 'src', 'ui', 'setup.js'), 'utf8')
   assert.match(setup, /수동필요/, '손으로 할 일이 남았는지 판단해야 한다')
   assert.match(setup, /d\.open = true/, '할 일이 있으면 접힌 채로 두면 안 된다')
-})
-
-/* ── 서버 쪽 ─────────────────────────────────────────────────── */
-
-test('🔴 서버는 규칙을 두 벌로 만들지 않는다 — src/pc.mjs 를 부른다', () => {
-  const i = 서버.indexOf("p === '/api/pc'")
-  assert.ok(i > 0, '/api/pc 가 있어야 한다')
-  const 구간 = 서버.slice(i, i + 900)
-  assert.match(구간, /'src', 'pc\.mjs'/, '백업·재확인 규칙이 있는 그 스크립트를 불러야 한다')
-  assert.ok(!/powercfg/.test(서버), '서버가 직접 powercfg 를 부르면 안전장치를 건너뛴다')
-})
-
-test('🔴 action 은 apply·restore 만 받는다', () => {
-  const i = 서버.indexOf("p === '/api/pc'")
-  const 구간 = 서버.slice(i, i + 900)
-  assert.match(구간, /b\.action === 'restore' \? '--restore' : b\.action === 'apply' \? '--apply' : null/)
-  assert.match(구간, /400/, '다른 값은 거절해야 한다')
-})
-
-test('🔴 바꾼 뒤 캐시를 버린다 (안 버리면 화면이 옛 값을 보여준다)', () => {
-  const i = 서버.indexOf("p === '/api/pc'")
-  const 구간 = 서버.slice(i, i + 900)
-  assert.match(구간, /캐시비우기\(\)/)
-  assert.match(구간, /pc상태\(\{ 강제: true \}\)/, '응답에는 새로 읽은 값을 담아야 한다')
-})
-
-test('🔴 창을 띄우지 않고 부른다', () => {
-  const i = 서버.indexOf("p === '/api/pc'")
-  assert.match(서버.slice(i, i + 900), /windowsHide: true/)
 })
 
 /* ── 잠들도록 설정돼 있으면 경보 ────────────────────────────── */

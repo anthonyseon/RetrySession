@@ -17,7 +17,9 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { RS_HOME } from './lib/config.mjs'
 import { 원자JSON쓰기 } from './lib/io.mjs'
-import { pc판정, 적용인자, 복원인자, 수동안내, 읽기 } from './lib/pc.mjs'
+import {
+  pc판정, 적용인자, 복원인자, 수동안내, 읽기, 값검증, 설정인자, 반영확인,
+} from './lib/pc.mjs'
 import { localStamp } from './lib/stamp.mjs'
 
 const argv = process.argv.slice(2)
@@ -85,6 +87,68 @@ if (flag('--restore')) {
 
 const 앞 = 읽기()
 const 판정 = pc판정(앞)
+
+/**
+ * `--set standbyAc=600 lidAc=0` — **사람이 고른 값을 그대로** 쓴다.
+ *
+ * 🔴 권장값 적용(--apply)과 다른 점: 여기서는 배터리(Dc)도 바꿀 수 있다.
+ *   우리가 알아서 배터리를 끄는 것은 월권이지만, 사람이 알고 고르는 것은 선택이다.
+ *
+ * 🔴 안전장치는 --apply 와 **똑같이** 거친다: 백업 먼저 · 바꾼 뒤 다시 읽어 확인.
+ *   게다가 값마다 대조한다 — 이 PC 의 덮개 항목처럼 powercfg 가 **성공한 척하고
+ *   아무것도 바꾸지 않는** 경우가 실제로 있다(실측).
+ */
+if (flag('--set')) {
+  const 값들 = {}
+  const 잘못 = []
+  for (const a of argv) {
+    const m = /^([A-Za-z]+)=(-?\d+)$/.exec(a)
+    if (!m) continue
+    const r = 값검증(m[1], m[2])
+    if (r.ok) 값들[m[1]] = r.값
+    else 잘못.push(`${a} — ${r.why}`)
+  }
+  for (const w of 잘못) console.error(`⚠ 무시함: ${w}`)
+  if (!Object.keys(값들).length) {
+    console.error('✖ 바꿀 값이 없다. 예: node src/pc.mjs --set standbyAc=0 lidAc=0')
+    process.exit(1)
+  }
+  if (!판정.읽음) {
+    console.error('✖ 설정을 읽지 못해 바꿀 수 없다. 무엇을 되돌려야 할지 모르는 채로 바꾸지 않는다.')
+    process.exit(1)
+  }
+
+  try {
+    원자JSON쓰기(백업경로, {
+      _주의: '설정을 바꾸기 직전의 PC 전원 설정. node src/pc.mjs --restore 로 되돌린다.',
+      at: localStamp(), 바꾼것: Object.keys(값들),
+      이전: {
+        standbyAc: 앞.standbyAc, hibernateAc: 앞.hibernateAc, lidAc: 앞.lidAc,
+        standbyDc: 앞.standbyDc, hibernateDc: 앞.hibernateDc, lidDc: 앞.lidDc,
+      },
+    })
+  } catch (e) {
+    console.error(`✖ 되돌리기 기록을 저장하지 못했다: ${e.message}`)
+    console.error('  되돌릴 수 없는 변경은 하지 않는다. 바꾸지 않고 끝낸다.')
+    process.exit(1)
+  }
+
+  console.log(`바꾼다: ${Object.entries(값들).map(([k, v]) => `${k}=${v}`).join(' ')}`)
+  const 뒤2 = 읽기(설정인자(값들))
+  보이기(pc판정(뒤2))
+
+  const 확인 = 반영확인(값들, 뒤2)
+  if (!확인.ok) {
+    console.error('')
+    for (const x of 확인.안된것) {
+      console.error(`✖ ${x.키}: ${x.요청} 로 바꾸려 했는데 실제는 ${x.실제 === null ? '읽을 수 없음' : x.실제} 이다`)
+    }
+    console.error('  이 항목은 이 PC 의 전원 구성에 없을 수 있다(숨김). --manual 의 방법으로 직접 바꿔라.')
+    process.exit(1)
+  }
+  console.log('✅ 적용됐다. 되돌리려면: node src/pc.mjs --restore')
+  process.exit(0)
+}
 
 if (!flag('--apply')) {
   보이기(판정)

@@ -28,3 +28,19 @@ export const UI소스 = () => UI모듈()
 
 /** 한 파일만 */
 export const UI읽기 = (f) => readFileSync(join(UI디렉터리, f), 'utf8')
+
+/** 뼈대 */
+export const HTML = () => UI읽기('index.html')
+
+/**
+ * 모양(CSS) — `index.html` 의 `<style>` 이든 `app.css` 든 **어디 있든** 한 벌로 본다.
+ *
+ * 🔴 실측 (2026-09-22): index.html 이 475줄이 되어(규칙은 400줄) CSS 를 app.css 로
+ *   뺐더니, index.html 만 읽던 레이아웃 시험 **13개가 한꺼번에 깨졌다.** 규칙은
+ *   "이 스타일이 있나"이지 "어느 파일에 있나"가 아니다 — 같은 부류로 또 다치지 않게
+ *   여기서 합쳐 준다.
+ */
+export const 스타일 = () => [
+  HTML(),
+  ...readdirSync(UI디렉터리).filter((f) => f.endsWith('.css')).sort().map((f) => UI읽기(f)),
+].join('\n')

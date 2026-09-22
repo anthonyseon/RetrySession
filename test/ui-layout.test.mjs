@@ -14,10 +14,15 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { UI소스 } from './_ui-files.mjs'
+import { UI소스, 스타일 } from './_ui-files.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const html = readFileSync(join(ROOT, 'src', 'ui', 'index.html'), 'utf8')
+/**
+ * 뼈대(HTML)와 모양(CSS)을 **한 벌로** 본다. CSS 를 app.css 로 뺐을 때
+ * index.html 만 읽던 이 시험들이 13개나 한꺼번에 깨졌다 — 규칙이 어느 파일에
+ * 있는지는 시험의 관심사가 아니다.
+ */
+const html = 스타일()
 /**
  * 화면 스크립트 **전체**를 하나로 본다.
  *

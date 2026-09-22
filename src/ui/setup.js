@@ -11,12 +11,17 @@
  *   항목이 전원 구성에 아예 없어 영원히 '모름'이다). 자동만 보여주면 남은 것을
  *   놓치고, 수동만 보여주면 할 수 있는 걸 안 한다.
  *
+ * 🔴 권장값 적용만으로는 **설정 화면이 아니다.**
+ *   실측 (2026-09-22): 이 PC 는 이미 권장값이라 `고칠것`이 0 이었고, 그래서
+ *   [자동 설정] 단추조차 나오지 않았다 — 설정 창을 열면 읽기 전용이었다.
+ *   그래서 항목마다 직접 고르는 칸을 둔다.
+ *
  * 🔴 규칙은 여기 없다. 백업 먼저·배터리 제외·바꾼 뒤 재확인은 전부 src/pc.mjs 에
  *   있고 서버가 그것을 부른다. 화면이 따로 구현하면 안전장치를 건너뛰는
  *   두 번째 경로가 생긴다.
  */
 'use strict'
-import { $, el, S, badge, 동작 } from './common.js'
+import { $, el, S, badge } from './common.js'
 
 const 색 = { crit: 'crit', warn: 'warn', unknown: 'off', info: 'off', ok: 'good' }
 const 표 = { crit: '▲', warn: '▲', unknown: '?', info: 'ℹ', ok: '●' }
@@ -24,10 +29,24 @@ const 표 = { crit: '▲', warn: '▲', unknown: '?', info: 'ℹ', ok: '●' }
 /** 모달이 열려 있나 — 열려 있을 때만 다시 그린다 */
 export const 열렸나 = () => !$('#setupWrap').classList.contains('hide')
 
+/**
+ * 🔴 사람이 고르던 값은 **다시 그려도 잃지 않는다.**
+ *   화면은 3초마다 상태를 다시 읽고 모달까지 다시 그린다. 그대로 두면 드롭다운을
+ *   고르는 중에 선택이 되돌려진다 — 목록 스크롤·체크박스에서 이미 당한 부류다.
+ *   그래서 (1) 고른 값을 여기 담아 두고, (2) 내용이 그대로면 아예 다시 그리지 않는다.
+ */
+const 고른것 = new Map()
+let 그린지문 = null
+let 적용단추 = null
+
+/** 적용이 끝났으면 고르던 것을 비운다 (현재 값이 곧 그 값이 된다) */
+export const 고른값비우기 = () => { 고른것.clear(); 그린지문 = null }
+
 export function 설정열기() {
   $('#setupWrap').classList.remove('hide')
   $('#btnSetup').setAttribute('aria-expanded', 'true')
-  설정그리기()
+  고른값비우기()
+  설정그리기({ 강제: true })
 }
 
 export function 설정닫기() {
@@ -35,28 +54,168 @@ export function 설정닫기() {
   $('#btnSetup').setAttribute('aria-expanded', 'false')
 }
 
+/** 그려야 할 내용의 지문 — 이게 같으면 다시 그릴 이유가 없다 */
+const 지문 = (pc) => JSON.stringify([
+  pc.수준, pc.고칠것, pc.백업?.있음, pc.백업?.at, (pc.안내 || []).length,
+  (pc.목록 || []).map((x) => [x.키, x.수준, x.현재, x.원값]),
+])
+
 /**
- * 모달 내용. 상태를 새로 받을 때마다 다시 그린다 —
- * 자동 설정을 누른 뒤 결과가 바로 반영되어야 한다.
+ * 이 값을 고르면 **감시가 멎을 수 있나.** 순수 함수.
+ *
+ * 확인 창에 "무슨 일이 일어나는지"를 적기 위해 있다. 이 도구의 전부는 예약 작업이고
+ * 잠든 PC 는 예약 작업을 돌리지 않는다 — 사람이 그걸 모르고 고르면 감시가 조용히 멎는다.
+ * 0('안 함')만 안전하다.
  */
-export function 설정그리기() {
+export function 멎을수있나(키, 값) {
+  const n = Number(값)
+  if (!Number.isFinite(n) || n === 0) return ''
+  if (키 === 'standbyAc') return '전원이 연결돼 있어도 PC 가 잠들어 그때부터 감시가 멎습니다'
+  if (키 === 'hibernateAc') return '전원이 연결돼 있어도 최대 절전에 들어 그때부터 감시가 멎습니다'
+  if (키 === 'standbyDc' || 키 === 'hibernateDc') return '배터리로 쓸 때 잠들어 감시가 멎습니다 (배터리를 아끼려면 이게 맞습니다)'
+  if (키 === 'lidAc' || 키 === 'lidDc') return '덮개를 닫으면 감시가 멎습니다'
+  return ''
+}
+
+const 고른글 = (sel) => {
+  for (const op of sel.children || []) {
+    if (String(op.value) === String(sel.value)) return op.textContent
+  }
+  return String(sel.value)
+}
+
+/**
+ * 화면에서 고른 값 중 **실제로 바뀐 것만** 모은다.
+ *
+ * 🔴 손대지 않은 항목은 보내지 않는다. 화면에 보이는 값 전부를 보내면 우리가 고르지도
+ *   않은 배터리 설정까지 매번 덮어쓰게 되고, 그건 사람이 시킨 일이 아니다.
+ */
+export function 고른값() {
+  const values = {}
+  const 바뀜 = []
+  const 본문 = $('#setupBody')
+  for (const sel of 본문.querySelectorAll('select.pcsel')) {
+    const 키 = sel.dataset?.key
+    const 후 = sel.value
+    if (!키 || 후 === '' || 후 === null || 후 === undefined) continue
+    if (String(sel.dataset.was) === String(후)) continue
+    values[키] = Number(후)
+    바뀜.push({
+      키, 이름: sel.dataset.nm || 키,
+      전: sel.dataset.wasTx || sel.dataset.was,
+      후: 고른글(sel),
+      경고: 멎을수있나(키, 후),
+    })
+  }
+  return { values, 바뀜 }
+}
+
+/**
+ * 🔴 직접 고르는 칸.
+ *
+ *   배터리 항목도 고를 수 있다 — **사람이 직접 고를 때만.** 우리가 알아서 배터리
+ *   절전을 끄는 것은 월권이지만, 알고 고르는 것은 선택이다. (자동 적용은 여전히 AC 만)
+ *
+ * @returns {boolean} 칸을 만들었나
+ */
+function 고르는칸(r, pc, x) {
+  const 종류 = pc.쓸수있는키?.[x.키]
+  const 보기 = 종류 ? pc.선택지?.[종류] : null
+  if (!보기) return false
+
+  /**
+   * 🔴 값을 못 읽은 항목에는 칸을 주지 않는다.
+   *   실측 (2026-09-22): 이 PC 의 전원 구성에는 덮개 항목이 없는데도
+   *   `powercfg /setacvalueindex ... LIDACTION 0` 은 **성공을 돌려준다**
+   *   (다시 읽으면 그대로 null). 고를 수 있게 해 두면 사람은 고르고, 바뀌었다고
+   *   믿고, 실제로는 안 바뀐다. 모를 때는 손으로 하라고 말하는 것이 맞다.
+   */
+  if (!Number.isFinite(x.원값)) return false
+
+  const sel = el('select', 'pcsel')
+  sel.id = `pcsel-${x.키}`
+  sel.dataset.key = x.키
+  sel.dataset.was = String(x.원값)
+  sel.dataset.nm = x.이름
+  sel.dataset.wasTx = String(x.현재)
+
+  const 고를값 = 고른것.has(x.키) ? String(고른것.get(x.키)) : String(x.원값)
+  let 맞음 = false
+  for (const o of 보기) {
+    const op = el('option', null, o.글)
+    op.value = String(o.값)
+    sel.append(op)
+    if (String(o.값) === 고를값) { op.selected = true; 맞음 = true }
+  }
+  /**
+   * 보기에 없는 값(20분처럼 어중간한 값, OEM 이 쓰는 2147483647 등)도 **그대로** 보여준다.
+   * 없는 값을 첫 보기로 대신 표시하면 화면이 거짓말을 한다 — 사람은 '안 함'으로
+   * 돼 있다고 믿고 창을 닫는다.
+   */
+  if (!맞음) {
+    const op = el('option', null, `${x.현재} (현재 값)`)
+    op.value = 고를값
+    op.selected = true
+    sel.append(op)
+  }
+  sel.value = 고를값
+  sel.addEventListener('change', () => {
+    고른것.set(x.키, sel.value)
+    적용단추갱신()
+  })
+
+  const 칸 = el('div', 'ed')
+  const lb = el('label', 'edl', '바꾸기')
+  lb.setAttribute('for', sel.id)
+  칸.append(lb, sel)
+  r.append(칸)
+  return true
+}
+
+/**
+ * 적용 단추의 글자·활성 상태를 고른 개수에 맞춘다.
+ * 🔴 모달을 다시 그리지 않고 이것만 고친다 — 다시 그리면 고르던 칸이 닫힌다.
+ */
+function 적용단추갱신() {
+  if (!적용단추) return
+  const n = 고른값().바뀜.length
+  적용단추.textContent = n ? `고른 값 적용 (${n}개)` : '고른 값 적용'
+  적용단추.disabled = n === 0
+  적용단추.className = n ? 'sm primary' : 'sm'
+  적용단추.title = n
+    ? '고른 값만 바꿉니다. 바꾸기 전 값을 저장하고, 바꾼 뒤 다시 읽어 확인합니다.'
+    : '바꿀 값을 먼저 고르세요 — 손대지 않은 항목은 보내지 않습니다.'
+}
+
+/**
+ * 모달 내용. 상태를 새로 받을 때마다 호출되지만, 내용이 같으면 그냥 돌아간다.
+ * @param 강제 창을 새로 열 때처럼 무조건 다시 그려야 할 때
+ */
+export function 설정그리기({ 강제 = false } = {}) {
   if (!열렸나()) return
   const pc = S.상태?.pc
-  const 본문 = $('#setupBody'); 본문.textContent = ''
-  const 바닥 = $('#setupFoot'); 바닥.textContent = ''
+  const 본문 = $('#setupBody')
+  const 바닥 = $('#setupFoot')
 
   if (!pc || !Array.isArray(pc.목록)) {
+    본문.textContent = ''; 바닥.textContent = ''; 적용단추 = null; 그린지문 = null
     본문.append(el('div', 'empty', '아직 PC 설정을 읽지 못했습니다. 잠시 뒤 다시 열어 주세요.'))
     return
   }
 
+  const 이번지문 = 지문(pc)
+  if (!강제 && 이번지문 === 그린지문) return
+  그린지문 = 이번지문
+  본문.textContent = ''; 바닥.textContent = ''; 적용단추 = null
+
   /* ── 왜 이걸 보는지 한 줄 ── */
   const 머리 = el('div', 'note')
   머리.textContent = '잠든 PC 는 예약 작업을 돌리지 않습니다 — 감시도 재개도 그때 멎습니다. '
-    + '전원이 연결된 상태만 권장하고, 배터리 설정은 건드리지 않습니다.'
+    + '자동 설정은 전원이 연결된 상태만 바꾸고, 배터리는 직접 고를 때만 바꿉니다.'
   본문.append(머리)
 
-  /* ── 항목별 현재/권장 ── */
+  /* ── 항목별 현재/권장/고르기 ── */
+  let 칸수 = 0
   for (const x of pc.목록) {
     const r = el('div', 'srow2')
     r.append(el('div', 'nm', x.이름))
@@ -76,6 +235,8 @@ export function 설정그리기() {
       : x.고칠수있나 ? ' · 자동으로 바꿀 수 있습니다'
         : ' · 자동으로는 못 바꿉니다 — 아래 수동 방법을 보세요'
     r.append(el('div', 'rec', `권장: ${x.권장}${꼬리}`))
+
+    if (고르는칸(r, pc, x)) 칸수 += 1
     본문.append(r)
   }
 
@@ -91,7 +252,7 @@ export function 설정그리기() {
     ? `${백업.at} 에 ${(백업.바꾼것 || []).join(', ') || '설정'} 을 바꾸기 전 값을 저장했습니다. '되돌리기'로 복구합니다.`
     : 백업.오류
       ? 백업.오류
-      : '자동 설정을 누르면 바꾸기 전 값을 먼저 저장합니다. 저장에 실패하면 바꾸지 않습니다.'))
+      : '설정을 바꾸면 바꾸기 전 값을 먼저 저장합니다. 저장에 실패하면 바꾸지 않습니다.'))
   본문.append(b)
 
   /* ── 수동 설정 방법 (자동으로 못 바꾸는 것) ── */
@@ -110,14 +271,21 @@ export function 설정그리기() {
   }
 
   /* ── 바닥 단추 ── */
+  if (칸수) {
+    적용단추 = el('button', 'sm', '고른 값 적용')
+    적용단추.type = 'button'
+    적용단추.dataset.pc = 'set'
+    바닥.append(적용단추)
+    적용단추갱신()
+  }
   const 고칠수 = (pc.고칠것 || []).length
   if (고칠수) {
-    const a = el('button', 'sm primary', `자동 설정 (${고칠수}개)`)
+    const a = el('button', 'sm primary', `권장값으로 (${고칠수}개)`)
     a.type = 'button'
     a.dataset.pc = 'apply'
     a.title = '전원 연결 상태에서 잠들지 않게 합니다. 배터리는 건드리지 않고, 이전 값은 보관합니다.'
     바닥.append(a)
-  } else {
+  } else if (!칸수) {
     바닥.append(el('span', 'note', pc.수준 === 'ok'
       ? '자동으로 바꿀 것이 없습니다 — 이대로 계속 돌 수 있습니다.'
       : '자동으로 바꿀 수 있는 항목이 없습니다. 위 수동 방법을 보세요.'))

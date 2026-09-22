@@ -28,12 +28,14 @@ import { readTracker } from '../lib/tracker.mjs'
 import { localStamp } from '../lib/stamp.mjs'
 import { 단일실행 } from '../lib/single.mjs'
 import { 로컬인가, 출처괜찮나 } from '../lib/http.mjs'
-import { pc상태, 캐시비우기 } from '../lib/pc.mjs'
+import { pc상태, 캐시비우기, 값검증 } from '../lib/pc.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
 const PORT = Number((argv.indexOf('--port') >= 0 ? argv[argv.indexOf('--port') + 1] : null) || process.env.RS_UI_PORT || 7345)
 const HOST = '127.0.0.1'
+/** 이 프로세스가 뜬 시각. 화면은 이 값이 바뀌면 자기를 다시 읽는다(/api/ping 참조) */
+const 기동epoch = Date.now()
 
 /**
  * 🔴 서버도 하나만 돈다.
@@ -161,6 +163,16 @@ const server = createServer(async (req, res) => {
     }
 
     /**
+     * 스타일. index.html 이 400줄을 넘어 CSS 를 app.css 로 뺐다.
+     *
+     * 🔴 content-type 이 text/css 여야 한다. 브라우저는 MIME 이 틀린 스타일시트를
+     *   **조용히 무시한다** — 화면이 무늬 없이 뜨는데 오류는 아무 데도 안 남는다.
+     */
+    if (req.method === 'GET' && /^\/[a-z][a-z0-9-]{0,30}\.css$/.test(p)) {
+      return 파일(res, join(HERE, p.slice(1)), 'text/css; charset=utf-8')
+    }
+
+    /**
      * 🔴 살아있음 확인은 여기로 한다 — 값싸야 한다.
      *
      * 실측 사고: 상태 점검이 /api/tray 를 4초 타임아웃으로 불렀는데, 캐시가 식었을 때
@@ -173,6 +185,17 @@ const server = createServer(async (req, res) => {
       return json(res, 200, {
         ok: true, at: localStamp(), pid: process.pid,
         uptimeSec: Math.round(process.uptime()),
+        /**
+         * 🔴 이 서버가 **언제 뜬 것인지**. 화면이 이 값을 보고 자기를 다시 읽는다.
+         *
+         *   실측 (2026-09-22): `start.ps1 -Restart` 로 서버는 새 코드를 들고 떴는데
+         *   이미 열려 있던 창은 **옛 모듈을 그대로** 들고 폴링을 계속했다. 고친
+         *   결함이 화면에서는 그대로 남아 있고 아무도 경고하지 않는다 —
+         *   이 저장소를 만드는 동안 세 번 걸린 함정이다.
+         */
+        // 🔴 키 이름이 ASCII 다. 이 응답은 ANSI(cp949)로 읽히는 .ps1 들이 본다 —
+        //   한글 키를 넣으면 그쪽에서 깨진다(시험이 이것을 잡는다).
+        bootEpoch: 기동epoch,
       })
     }
 
@@ -279,10 +302,33 @@ const server = createServer(async (req, res) => {
      */
     if (req.method === 'POST' && p === '/api/pc') {
       const b = await 본문읽기(req)
-      const 동작 = b.action === 'restore' ? '--restore' : b.action === 'apply' ? '--apply' : null
-      if (!동작) return json(res, 400, { 오류: "action 은 'apply' 또는 'restore' 여야 한다" })
 
-      const r = spawnSync(process.execPath, [join(RS_HOME, 'src', 'pc.mjs'), 동작], {
+      /**
+       * 셋 중 하나다:
+       *   apply   — 권장값으로 (AC 만)
+       *   restore — 보관된 값으로 되돌리기
+       *   set     — **사람이 고른 값 그대로** (배터리도 가능 — 직접 고른 것이므로)
+       */
+      let 인자 = null
+      if (b.action === 'restore') 인자 = ['--restore']
+      else if (b.action === 'apply') 인자 = ['--apply']
+      else if (b.action === 'set') {
+        // 🔴 브라우저에서 온 값이다. 서버에서 다시 검증한다 —
+        //   화면이 막아준다고 믿으면 그 화면을 거치지 않는 요청에 뚫린다.
+        const 값들 = b.values && typeof b.values === 'object' ? b.values : {}
+        const 좋은 = [], 나쁜 = []
+        for (const [k, v] of Object.entries(값들)) {
+          const r = 값검증(k, v)
+          if (r.ok) 좋은.push(`${k}=${r.값}`)
+          else 나쁜.push(`${k}: ${r.why}`)
+        }
+        if (나쁜.length) return json(res, 400, { 오류: '쓸 수 없는 값이다', 자세히: 나쁜 })
+        if (!좋은.length) return json(res, 400, { 오류: 'values 가 비었다' })
+        인자 = ['--set', ...좋은]
+      }
+      if (!인자) return json(res, 400, { 오류: "action 은 'apply' · 'restore' · 'set' 중 하나여야 한다" })
+
+      const r = spawnSync(process.execPath, [join(RS_HOME, 'src', 'pc.mjs'), ...인자], {
         cwd: RS_HOME, encoding: 'utf8', timeout: 60000, windowsHide: true,
       })
       // 바꿨으면 캐시가 거짓말을 한다 — 다음 조회가 새로 읽게 한다

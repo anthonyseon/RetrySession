@@ -23,6 +23,13 @@ class 노드 {
     this.tag = tag; this.children = []; this.attrs = {}; this._text = ''
     // 스크롤 관련 값. 실제 브라우저에서는 레이아웃이 정하지만 시험에서는 직접 준다.
     this.scrollTop = 0; this.scrollHeight = 0; this.clientHeight = 0
+    /**
+     * 🔴 dataset·style·value 가 없으면 **그려보는 시험 자체가 불가능하다.**
+     *   setup.js 는 `sel.dataset.key = …` 와 `sm.style.cursor = …` 를 쓴다.
+     *   없는 것에 대입하면 TypeError 이고, 브라우저에서는 그 순간 모달이 빈 채로 뜬다.
+     *   그래서 여기 둔다 — 시험이 잡아야 하는 게 바로 그 부류의 사고다.
+     */
+    this.dataset = {}; this.style = {}; this.value = undefined
   }
   set className(v) { this.attrs.class = v }
   get className() { return this.attrs.class || '' }
@@ -33,10 +40,20 @@ class 노드 {
   append(...xs) { for (const x of xs) this.children.push(typeof x === 'string' ? new 글(x) : x) }
   setAttribute(k, v) { this.attrs[k] = String(v) }
   getAttribute(k) { return this.attrs[k] ?? null }
-  addEventListener() { }
+  addEventListener(종류, fn) { (this._on ||= {})[종류] = fn }
+  /** 시험에서 사건을 흉내낸다 — 사람이 드롭다운을 고른 것과 같은 경로를 탄다 */
+  발생(종류) { this._on?.[종류]?.({ target: this }) }
   get classList() { return { toggle() { }, add() { }, remove() { }, contains: () => false } }
-  querySelector() { return null }
-  querySelectorAll() { return [] }
+  /** `select.pcsel` · `.pcsel` · `select` 만 안다 — 그 이상은 시험에 필요 없다 */
+  querySelectorAll(선택자) {
+    const [t, c] = String(선택자).split('.')
+    const 맞나 = (n) => (!t || n.tag === t) && (!c || String(n.className).split(/\s+/).includes(c))
+    const 모음 = []
+    const 훑기 = (n) => { for (const ch of n.children) { if (맞나(ch)) 모음.push(ch); 훑기(ch) } }
+    훑기(this)
+    return 모음
+  }
+  querySelector(선택자) { return this.querySelectorAll(선택자)[0] ?? null }
 }
 class 글 extends 노드 { constructor(t) { super('#text'); this._text = t } }
 
@@ -65,12 +82,22 @@ globalThis.document = {
 }
 globalThis.localStorage = { getItem: () => null, setItem: () => { } }
 
-const { 타일들 } = await import(pathToFileURL(join(ROOT, 'src', 'ui', 'summary.js')).href)
+const UI = (f) => import(pathToFileURL(join(ROOT, 'src', 'ui', f)).href)
+const { 타일들 } = await UI('summary.js')
+/**
+ * setup.js 도 함께 가져온다 — 부작용이 없다(폴링·바인딩은 app.js 에 있다).
+ * PC 설정 모달은 **남의 PC 전원 설정을 바꾸는 화면**이다. 소스 정규식만으로
+ * 시험하면 그려보지 않은 코드가 남고, 그 코드가 사고를 낸다.
+ */
+const 설정 = await UI('setup.js')
+const { S } = await UI('common.js')
 
 /** 시험마다 화면을 비운다 (모듈은 한 번만 평가되므로 칸만 갈아준다) */
 export function 그리기준비() {
   칸.clear()
-  return { 타일들, 칸, 복원() { /* 전역 DOM 은 파일 전체에서 공유한다 */ } }
+  S.상태 = null
+  설정.고른값비우기()   // 지난 시험에서 고른 값·지문을 물려받지 않는다
+  return { 타일들, 칸, S, 설정, 복원() { /* 전역 DOM 은 파일 전체에서 공유한다 */ } }
 }
 
 /**

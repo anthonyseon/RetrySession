@@ -128,8 +128,13 @@ test('의존 방향이 한 쪽이다 — app -> 조각 -> common', () => {
   }
 })
 
-test('🔴 모든 조각이 400줄 규칙 안에 있다', () => {
-  for (const f of 모듈들) {
+/**
+ * 🔴 .js 만 재면 규칙이 반만 지켜진다.
+ *   실측 (2026-09-22): 이 검사가 `src/ui/*.js` 만 보는 동안 index.html 은 475줄까지
+ *   자랐다(규칙은 400줄) — 대부분이 CSS 였다. 화면 폴더의 **모든** 파일을 잰다.
+ */
+test('🔴 화면 폴더의 모든 파일이 400줄 규칙 안에 있다', () => {
+  for (const f of readdirSync(UI)) {
     const n = 읽기(f).split('\n').length
     assert.ok(n <= 400, `src/ui/${f} 가 ${n}줄이다 — 400줄을 넘으면 단일 책임으로 더 쪼갠다`)
   }
@@ -139,6 +144,28 @@ test('🔴 화면은 type="module" 로 불러온다 (아니면 import 가 구문
   const html = readFileSync(join(UI, 'index.html'), 'utf8')
   assert.match(html, /<script type="module" src="\/app\.js">/,
     'type="module" 이 없으면 import 줄에서 바로 죽는다')
+})
+
+/**
+ * 🔴 CSS 를 파일로 뺐으면 **불러오고 내보내야** 한다.
+ *   브라우저는 MIME 이 틀린 스타일시트를 조용히 무시한다 — 무늬 없는 화면이 뜨는데
+ *   오류는 아무 데도 안 남는다. 404 도 콘솔에만 남는다. 그래서 여기서 못 박는다.
+ */
+test('🔴 뺀 스타일을 화면이 불러오고 서버가 내보낸다', () => {
+  const css = readdirSync(UI).filter((f) => f.endsWith('.css'))
+  if (!css.length) return          // 전부 <style> 안에 있다면 확인할 것이 없다
+  const html = readFileSync(join(UI, 'index.html'), 'utf8')
+  for (const f of css) {
+    assert.match(html, new RegExp(`<link rel="stylesheet" href="/${f}">`),
+      `${f} 를 불러오지 않으면 화면이 무늬 없이 뜬다`)
+  }
+  const server = readFileSync(join(ROOT, 'src', 'ui', 'server.mjs'), 'utf8')
+  const i = server.indexOf('.css$/')
+  assert.ok(i > 0, '.css 라우트가 있어야 한다')
+  assert.match(server.slice(i, i + 200), /text\/css/, 'content-type 이 text\\/css 여야 한다')
+  const 규칙 = /^\/[a-z][a-z0-9-]{0,30}\.css$/
+  for (const f of css) assert.ok(규칙.test('/' + f), `${f} 가 규칙을 통과하지 못한다`)
+  assert.ok(!규칙.test('/../x.css'), '경로 탈출은 막아야 한다')
 })
 
 test('🔴 서버가 조각을 전부 내보낸다 (한 개만 열어주면 화면이 안 뜬다)', () => {

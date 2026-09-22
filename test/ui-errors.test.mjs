@@ -55,3 +55,88 @@ test('세션 상세를 못 읽으면 그 이유를 적는다 (조용히 넘기�
   assert.match(det, /이 세션의 상세를 읽을 수 없습니다/, '화면에 이유를 적어야 한다')
 })
 
+
+/* ── 조각 하나가 죽어도 화면 전체를 잃지 않는다 ──────────────── */
+
+/**
+ * 🔴 실측 결함 (2026-09-22, 사용자 보고: "세션 목록에 아무 것도 없다")
+ *
+ *   그리기() 가 `경보그리기(d); 타일들(d); 폴더그리기(d); 설정그리기()` 를 한 줄에
+ *   이어 부르고 **그 다음에** 목록을 그렸다. summary.js 에 남은 죽은 코드가
+ *   ReferenceError 를 내자 뒤가 전부 실행되지 않아 세션 목록이 빈 채로 남았다 —
+ *   서버는 그때 8개를 정상으로 돌려주고 있었다. 있는 것을 없다고 말한 것이다.
+ *
+ *   조각별로 잡고, 잡은 것은 숨기지 않고 화면에 적는다.
+ */
+test('🔴 조각그리기 — 던진 조각만 실패로 남고 나머지는 계속 그린다', async () => {
+  const { 조각그리기 } = await import('../src/ui/common.js')
+  const 순서 = []
+  const 실패 = [
+    조각그리기('가', () => { 순서.push('가') }),
+    조각그리기('나', () => { 순서.push('나'); throw new ReferenceError('백업 is not defined') }),
+    조각그리기('다', () => { 순서.push('다') }),
+  ].filter(Boolean)
+
+  assert.deepEqual(순서, ['가', '나', '다'], '앞이 던져도 뒤를 그려야 한다')
+  assert.deepEqual(실패, ['나: 백업 is not defined'], '어느 조각이 왜 죽었는지 남아야 한다')
+})
+
+test('🔴 실패를 삼키지 않는다 — 화면과 콘솔에 남긴다', () => {
+  const common = readFileSync(join(ROOT, 'src', 'ui', 'common.js'), 'utf8')
+  assert.match(common, /console\.error/, '자취(stack)는 콘솔에 남겨야 한다')
+
+  const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
+  assert.match(app, /S\.그리기오류/, '그리기 실패를 기억해야 한다')
+  assert.match(app, /화면 그리기 실패/, '신선도 줄에 적어야 한다 — 값은 새것인데 화면이 빈 수 있다')
+  assert.match(app, /S\.오류 \|\| S\.그리기오류/, '그리기가 깨진 것도 점(dot)이 이상으로 보여야 한다')
+})
+
+/**
+ * 🔴 조각을 **맨손으로** 부르면 이 보호가 사라진다. 한 곳이라도 빠지면
+ *   그 조각이 던지는 날 화면이 다시 통째로 빈다.
+ */
+test('🔴 그리기() 는 모든 조각을 조각그리기로 감싼다', () => {
+  const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
+  const i = app.indexOf('function 그리기()')
+  const j = app.indexOf('function 신선도갱신()')
+  assert.ok(i > 0 && j > i)
+  const 본문 = app.slice(i, j)
+  /**
+   * 조각을 부르는 **줄마다** 같은 줄에 조각그리기 가 있어야 한다.
+   * (목록·선택갱신은 스크롤유지 안에 있으므로 줄 단위로 봐야 맞다)
+   */
+  const 조각들 = ['경보그리기', '타일들', '폴더그리기', '설정그리기', '목록', '상세다시그리기']
+  for (const 줄 of 본문.split('\n')) {
+    if (줄.trim().startsWith("*") || 줄.trim().startsWith('//')) continue
+    const 부름 = 조각들.filter((c) => new RegExp('(^|[^가-힣\\w.])' + c + '\\(').test(줄))
+    if (!부름.length) continue
+    assert.ok(줄.includes('조각그리기'),
+      `${부름.join('·')} 을 맨손으로 부른다 — 던지면 뒤가 다 죽는다: ${줄.trim()}`)
+  }
+  // 이름을 붙여 부른다 — 실패 줄에 "무엇이" 죽었는지 나와야 조치할 수 있다
+  const 이름들 = [...본문.matchAll(/조각그리기\('([^']+)'/g)].map((m) => m[1])
+  for (const 이름 of ['계정', '경보', '요약', '폴더', 'PC 설정', '세션 목록', '상세']) {
+    assert.ok(이름들.includes(이름), `${이름} 조각이 감싸여 있지 않다 (실제: ${이름들.join(', ')})`)
+  }
+})
+
+/* ── 고친 코드가 화면에 반영되는가 ──────────────────────────── */
+
+/**
+ * 🔴 실측 (2026-09-22): start.ps1 -Restart 로 서버는 새 코드를 들고 떴는데,
+ *   이미 열려 있던 창은 옛 모듈을 그대로 들고 폴링을 계속했다. 방금 고친 결함이
+ *   화면에서는 살아 있고 아무도 경고하지 않는다. 창은 하나만 띄우는 규칙이라
+ *   사람이 "닫고 다시 열기"로 풀 수도 없다 — 같은 창을 앞으로 가져온다.
+ */
+test('🔴 서버가 새로 떴으면 화면이 스스로 다시 읽는다', () => {
+  const server = readFileSync(join(ROOT, 'src', 'ui', 'server.mjs'), 'utf8')
+  const i = server.indexOf("p === '/api/ping'")
+  assert.ok(i > 0)
+  assert.match(server.slice(i, i + 900), /bootEpoch/, '살아있음 확인에 기동 시각을 담아야 한다')
+  assert.match(server, /const 기동epoch = Date\.now\(\)/, '프로세스마다 다른 값이어야 한다')
+
+  const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
+  assert.match(app, /location\.reload\(\)/, '값이 바뀌면 다시 읽어야 한다')
+  assert.match(app, /if \(서버기동 === null\)/, '첫 응답을 기준으로 삼아야 한다 (바로 새로고침하면 무한 반복이다)')
+  assert.match(app, /setInterval\(기동확인/, '주기적으로 확인해야 한다')
+})
