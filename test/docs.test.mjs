@@ -1,0 +1,85 @@
+/**
+ * docs.test.mjs — 문서가 **없는 것을 가리키지 않는가.**
+ *
+ * 🔴 왜 (이 저장소가 반복해서 다친 부류)
+ *   설명서가 `npm run resume:rearm` 이라고 적어 뒀는데 그 스크립트가 없으면, 사람은
+ *   시키는 대로 하고 실패한 뒤 **도구를 의심하는 게 아니라 자기를 의심한다.**
+ *   그리고 이 저장소는 이미 같은 부류로 여러 번 다쳤다 — 읽지 않는 설정(config.test),
+ *   화면이 보내는데 서버가 안 받는 키(http.test), 없는 이름을 가리키는 @param(naming.test).
+ *   **문서도 같은 규칙을 받는다.**
+ *
+ * 🔴 숫자는 검사하지 않는다(시험 개수 같은 것). 그런 것은 적지 않는 편이 낫고,
+ *   적었다면 어차피 금방 낡는다 — 검사할 것은 **가리키는 대상이 있는가**다.
+ */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url))
+const DOCS = ['Manual.md', 'README.md', 'CLAUDE.md', 'docs/claude-auto-retry.md']
+const read = (f) => readFileSync(join(ROOT, f), 'utf8')
+const scripts = JSON.parse(read('package.json')).scripts || {}
+
+test('🔴 문서가 가리키는 npm 명령이 실제로 있다', () => {
+  const missing = []
+  for (const f of DOCS) {
+    for (const m of read(f).matchAll(/npm run ([\w:-]+)/g)) {
+      if (!scripts[m[1]]) missing.push(`${f}: npm run ${m[1]}`)
+    }
+  }
+  assert.deepEqual([...new Set(missing)], [],
+    `문서가 없는 명령을 시킨다 — 사람은 시키는 대로 하고 실패한다:\n  ${missing.join('\n  ')}`)
+})
+
+test('🔴 문서가 가리키는 파일·폴더가 실제로 있다', () => {
+  const missing = []
+  for (const f of DOCS) {
+    const base = f.includes('/') ? join(ROOT, 'docs') : ROOT
+    for (const m of read(f).matchAll(/\]\((\.\.?\/[^)#]+)(?:#[^)]*)?\)/g)) {
+      const target = join(base, m[1])
+      if (!existsSync(target)) missing.push(`${f} → ${m[1]}`)
+    }
+  }
+  assert.deepEqual([...new Set(missing)], [],
+    `문서의 링크가 없는 곳을 가리킨다:\n  ${missing.join('\n  ')}`)
+})
+
+test('🔴 검사기가 헛돌지 않는다 (없는 것을 넣으면 잡아야 한다)', () => {
+  assert.equal(Boolean(scripts['그런명령없음']), false)
+  assert.equal(existsSync(join(ROOT, '그런파일없음.md')), false)
+})
+
+/* ── 설명서가 실제 화면·동작과 맞는가 ────────────────────────── */
+
+test('🔴 설명서의 단추 이름이 화면의 단추와 같다', () => {
+  const html = read('src/ui/index.html')
+  const manual = read('Manual.md')
+  const buttons = [...html.matchAll(/data-act="[^"]*">([^<]+)</g)].map((m) => m[1].trim())
+  assert.ok(buttons.length >= 6, `단추를 못 읽었다 (${buttons.length}개)`)
+  for (const b of buttons) {
+    assert.ok(manual.includes(b), `설명서에 '${b}' 단추가 없다 — 화면과 설명이 갈라졌다`)
+  }
+})
+
+test('🔴 설명서의 상세 탭 이름이 화면의 탭과 같다', () => {
+  const html = read('src/ui/index.html')
+  const manual = read('Manual.md')
+  const tabs = [...html.matchAll(/data-tab="[^"]*"[^>]*>([^<]+)</g)].map((m) => m[1].trim())
+  assert.ok(tabs.length >= 6, `탭을 못 읽었다 (${tabs.length}개)`)
+  for (const t of tabs) {
+    assert.ok(manual.includes(t), `설명서에 '${t}' 탭이 없다`)
+  }
+})
+
+test('🔴 설명서가 말하는 재시작 결과가 코드가 내는 것과 같다', () => {
+  const src = read('src/resume.mjs')
+  const manual = read('Manual.md')
+  // resume.mjs 가 result 로 쓰는 값들
+  const results = ['ok', 'limited', 'overload', 'timeout', 'fail']
+  for (const r of results) {
+    assert.match(src, new RegExp(`'${r}'`), `resume.mjs 가 '${r}' 를 더는 쓰지 않는다`)
+    assert.ok(manual.includes(`\`${r}\``), `설명서에 결과 '${r}' 설명이 없다`)
+  }
+})
