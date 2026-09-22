@@ -19,12 +19,12 @@ import { RS_HOME } from './config.mjs'
 import { localStamp } from './stamp.mjs'
 import { writeJsonAtomic, appendLine } from './io.mjs'
 
-const 상태폴더 = () => { const d = join(RS_HOME, 'state'); mkdirSync(d, { recursive: true }); return d }
-export const 경보로그 = () => join(상태폴더(), 'alerts.log')
-const 마지막파일 = () => join(상태폴더(), 'alerts-last.json')
+const stateDir = () => { const d = join(RS_HOME, 'state'); mkdirSync(d, { recursive: true }); return d }
+export const alertLog = () => join(stateDir(), 'alerts.log')
+const lastFile = () => join(stateDir(), 'alerts-last.json')
 
 /** 수준 — 화면이 색과 아이콘을 고르는 기준 */
-export const 수준순 = { critical: 3, warning: 2, info: 1 }
+export const levelOrder = { critical: 3, warning: 2, info: 1 }
 
 /**
  * 지금 살아 있는 경보. 순수 함수 — fullStatus() 결과만 보고 판정한다.
@@ -82,7 +82,7 @@ export function currentAlerts(d) {
   /* OS 트리거가 없거나 실패 — 이게 없으면 세션 밖에서 아무것도 돌지 않는다 */
   for (const [키, w] of Object.entries(d.작업 || {})) {
     if (키 === '캐시됨' || !w || typeof w !== 'object') continue
-    if (w.조회실패) push('예약조회실패', 'warning', '예약 작업을 조회할 수 없습니다', `${키} — ${w.오류 || ''}`)
+    if (w.queryFailed) push('예약조회실패', 'warning', '예약 작업을 조회할 수 없습니다', `${키} — ${w.오류 || ''}`)
     else if (w.등록됨 === false) {
       push('예약미등록', 'warning', '예약 작업이 등록되지 않았습니다',
         `${키} (${w.이름}) — 등록하지 않으면 세션 밖에서 돌지 않습니다. start.exe -Install`)
@@ -111,9 +111,9 @@ export function currentAlerts(d) {
    *   고칠 수 있는 항목이므로 고치는 법까지 적는다.
    */
   if (d.pc && d.pc.수준 === 'crit') {
-    const 문제 = (d.pc.목록 || []).filter((x) => x.수준 === 'crit')
+    const trouble = (d.pc.목록 || []).filter((x) => x.수준 === 'crit')
     push('PC절전', 'critical', 'PC 가 잠들도록 설정돼 있습니다',
-      문제.map((x) => x.이름 + ' = ' + x.현재).join(' · ') +
+      trouble.map((x) => x.이름 + ' = ' + x.현재).join(' · ') +
       ' — 잠들면 감시도 재개도 멎습니다. 화면의 PC 설정에서 고치거나 start.exe -Pc -Apply')
   }
 
@@ -139,12 +139,12 @@ export function currentAlerts(d) {
     }
   }
 
-  return out.sort((a, b) => 수준순[b.수준] - 수준순[a.수준])
+  return out.sort((a, b) => levelOrder[b.수준] - levelOrder[a.수준])
 }
 
 /** 경보 목록을 비교 가능한 지문으로 — 같은 상태면 같은 문자열 */
-export const 지문 = (경보들) =>
-  경보들.map((a) => `${a.코드}:${a.대상 || ''}`).sort().join('|') || '(없음)'
+export const 지문 = (alerts) =>
+  alerts.map((a) => `${a.코드}:${a.대상 || ''}`).sort().join('|') || '(없음)'
 
 /**
  * 바뀌었을 때만 로그에 남긴다.
@@ -153,30 +153,30 @@ export const 지문 = (경보들) =>
  *   시끄러웠던 것과 같은 이유다 — 변화만 기록해야 읽을 수 있다.
  * @returns {{기록:boolean, 이전:string|null, 지금:string}}
  */
-export function 변화기록(경보들) {
-  const 지금 = 지문(경보들)
+export function changeLog(alerts) {
+  const nowMs = 지문(alerts)
   let 이전 = null
-  try { 이전 = JSON.parse(readFileSync(마지막파일(), 'utf8')).지문 ?? null } catch { 이전 = null }
+  try { 이전 = JSON.parse(readFileSync(lastFile(), 'utf8')).지문 ?? null } catch { 이전 = null }
 
-  if (이전 === 지금) return { 기록: false, 이전, 지금 }
+  if (이전 === nowMs) return { record: false, 이전, nowMs }
 
   const at = localStamp()
-  const 줄 = 경보들.length
-    ? 경보들.map((a) => `${at} · ${a.수준.toUpperCase()} · ${a.코드} · ${a.제목} — ${a.설명}`).join('\n')
+  const line = alerts.length
+    ? alerts.map((a) => `${at} · ${a.수준.toUpperCase()} · ${a.코드} · ${a.제목} — ${a.설명}`).join('\n')
     : `${at} · OK · 해소 · 살아 있는 경보가 없습니다`
 
-  try { appendLine(경보로그(), 줄) } catch { /* 로그 실패로 감시를 막지 않는다 */ }
+  try { appendLine(alertLog(), line) } catch { /* 로그 실패로 감시를 막지 않는다 */ }
   try {
     // 지문이 찢어지면 다음 회차가 "바뀌었다"고 오판해 같은 경보를 다시 적는다
-    writeJsonAtomic(마지막파일(), { 지문: 지금, at, 개수: 경보들.length })
+    writeJsonAtomic(lastFile(), { 지문: nowMs, at, 개수: alerts.length })
   } catch { /* 위와 같다 */ }
 
-  return { 기록: true, 이전, 지금 }
+  return { record: true, 이전, nowMs }
 }
 
 /** 경보 로그 꼬리 — 화면의 "알림" 탭이 읽는다 */
 export function recentAlerts(n = 60) {
-  const p = 경보로그()
+  const p = alertLog()
   if (!existsSync(p)) return []
   try {
     return readFileSync(p, 'utf8').split('\n').filter(Boolean).slice(-n).reverse()

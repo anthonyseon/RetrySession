@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import { interpret, resumePrompt } from '../src/lib/tracker.mjs'
 
 const 추적기 = (steps, extra = {}) => ({
-  _재개규약: "status가 'doing'인 항목이 중단 지점이다.",
+  _resumeContract: "status가 'doing'인 항목이 중단 지점이다.",
   steps,
   ...extra,
 })
@@ -41,7 +41,7 @@ test('전부 done 이면 전부완료 — 재개할 것이 없다', () => {
   const t = interpret(추적기([{ id: 'A', status: 'done' }, { id: 'B', status: 'done' }]))
   assert.equal(t.전부완료, true)
   assert.equal(t.완료표기, '2/2')
-  assert.equal(t.남음, 0)
+  assert.equal(t.remaining, 0)
 })
 
 test('doing 이 둘 이상이면 규약 위반을 알린다', () => {

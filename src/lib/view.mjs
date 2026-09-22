@@ -46,8 +46,8 @@ export function tail(path, n = 40, maxBytes = 65536) {
 export function quotaView(q) {
   if (!q) return { 있음: false, 설명: '기록 없음 — 이 PC 의 트랜스크립트에 제한 기록이 없다' }
   const resetMs = q.resetsAt ? q.resetsAt * 1000 : null
-  const 남은분 = resetMs ? Math.round((resetMs - Date.now()) / 60000) : null
-  const 지남 = 남은분 !== null && 남은분 <= 0
+  const leftMin = resetMs ? Math.round((resetMs - Date.now()) / 60000) : null
+  const passed = leftMin !== null && leftMin <= 0
   return {
     있음: true,
     status: q.status || null,
@@ -55,15 +55,15 @@ export function quotaView(q) {
     기록시각: q._at ? localStamp(new Date(q._at)) : null,
     기록_분전: q._at ? Math.round(minutesSince(q._at)) : null,
     해제시각: resetMs ? localStamp(new Date(resetMs)) : null,
-    해제_남은분: 남은분,
-    이미해제됨: 지남,
+    해제_남은분: leftMin,
+    이미해제됨: passed,
     초과사용중: !!q.isUsingOverage,
     초과상태: q.overageStatus || null,
     초과불가이유: q.overageDisabledReason || null,
     대체가능: !!q.unifiedRateLimitFallbackAvailable,
-    설명: 지남
+    설명: passed
       ? `마지막 제한(${q.rateLimitType || '?'})은 이미 해제됐다 — ${resetMs ? localStamp(new Date(resetMs)) : '?'} 기준`
-      : `제한 ${q.status || '?'} · ${q.rateLimitType || '?'} · ${남은분}분 후 해제`,
+      : `제한 ${q.status || '?'} · ${q.rateLimitType || '?'} · ${leftMin}분 후 해제`,
   }
 }
 

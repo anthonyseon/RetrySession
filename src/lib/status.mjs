@@ -37,9 +37,9 @@ export { tail, quotaView }
 /**
  * @param 실행중앎 실행 중 목록 조회가 성공했는가. false 면 "정지"라고 말할 수 없다.
  */
-function sessionView(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = new Map(), 실행중앎 = true) {
-  const run = 실행중맵.get(s.sessionId) || null
-  const 대상 = 등록.targets[s.sessionId] || null
+function sessionView(s, registry, runMap, ideWins = [], procMap = new Map(), runKnown = true) {
+  const run = runMap.get(s.sessionId) || null
+  const 대상 = registry.targets[s.sessionId] || null
 
   /**
    * 🔴 세션의 cwd 는 하나가 아니다(실측). 셋을 구별해 쓴다:
@@ -48,53 +48,53 @@ function sessionView(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = new
    *   최근cwd — 마지막으로 있던 곳. 중단 지점의 단서다.
    */
   const 실행cwd = run?.cwd || s.cwd시작 || s.주작업cwd || null
-  const 짝cwd = s.주작업cwd || s.cwd최근 || 실행cwd
-  const { project, 설정있음 } = 짝cwd ? resolveRepo(짝cwd) : { project: null, 설정있음: false }
+  const pairCwd2 = s.주작업cwd || s.cwd최근 || 실행cwd
+  const { project, hasConfig } = pairCwd2 ? resolveRepo(pairCwd2) : { project: null, hasConfig: false }
   const P = 대상 ? statePaths(s.sessionId) : null
 
   /* 감시 */
-  let 감시상태 = { 켜짐: !!대상?.감시, 기록있음: false, verdict: null, 마지막기록: null }
+  let watchView = { 켜짐: !!대상?.감시, 기록있음: false, verdict: null, 마지막기록: null }
   if (P) {
     let hb = null
     try { hb = JSON.parse(readFileSync(P.하트비트, 'utf8')) } catch { hb = null }
-    const 한계 = project?.하트비트?.낡음한계분 ?? 15
+    const limit = project?.하트비트?.낡음한계분 ?? 15
     /**
      * 감시를 켠 시각. 이것이 있어야 "첫 기록 대기"와 "끊김"을 가를 수 있다.
      * 옛 등록부에는 epoch 이 없으므로 문자열 시각으로 물러선다(없으면 null).
      */
-    const 켠epoch = typeof 대상.감시켠epoch === 'number'
+    const onEpoch = typeof 대상.감시켠epoch === 'number'
       ? 대상.감시켠epoch
       : (Date.parse(대상.갱신시각 || 대상.추가시각 || '') || null)
-    감시상태 = {
+    watchView = {
       켜짐: !!대상.감시,
       기록있음: !!hb,
-      verdict: 대상.감시 ? heartbeatVerdict(hb, 한계, Date.now(), 켠epoch) : null,
-      한계분: 한계,
+      verdict: 대상.감시 ? heartbeatVerdict(hb, limit, Date.now(), onEpoch) : null,
+      한계분: limit,
       마지막기록: hb ? { at: hb.at, 단계: hb.현재단계?.id, 완료: hb.현재단계?.완료단계 } : null,
-      로그: tail(P.하트비트로그, 12),
+      로그: tail(P.hbLogPath, 12),
     }
   }
 
   /* 재시작 */
-  let 재시작상태 = { 켜짐: !!대상?.재시작 }
+  let resumeView = { 켜짐: !!대상?.재시작 }
   if (P && project) {
-    const st = loadRunState(P.재개상태)
-    const b = budgetVerdict(st, project.재개)
-    재시작상태 = {
+    const st = loadRunState(P.resumeState)
+    const b = budgetVerdict(st, project.resume)
+    resumeView = {
       켜짐: !!대상.재시작,
-      권한모드: project.재개.권한모드,
+      권한모드: project.resume.권한모드,
       오늘실행: b.오늘실행,
-      하루최대회: project.재개.하루최대회,
+      하루최대회: project.resume.하루최대회,
       오늘비용: b.오늘비용,
-      하루최대비용USD: project.재개.하루최대비용USD ?? null,
+      하루최대비용USD: project.resume.하루최대비용USD ?? null,
       연속실패: st.연속실패 || 0,
-      연속실패한계: project.재개.연속실패한계,
+      연속실패한계: project.resume.연속실패한계,
       차단: st.차단 || null,
       손상: st.손상 || null,
       예산통과: b.ok,
       예산이유: b.why,
       마지막실행: st.마지막실행 || null,
-      로그: tail(P.재개로그, 24),
+      로그: tail(P.resumeLogPath, 24),
     }
   }
 
@@ -114,7 +114,7 @@ function sessionView(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = new
     }
   }
 
-  const 비용 = totalCost(s.모델별)
+  const cost = totalCost(s.모델별)
 
   return {
     sessionId: s.sessionId,
@@ -140,8 +140,8 @@ function sessionView(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = new
      *   resume.mjs 에서 고친 것과 같은 부류다(guard.mjs 의 세션실행중 참조).
      *   모를 때는 모른다고 말한다.
      */
-    실행중: 실행중앎 ? !!run?.살아있음 : false,
-    실행여부앎: 실행중앎,
+    실행중: runKnown ? !!run?.살아있음 : false,
+    실행여부앎: runKnown,
     pid: run?.pid ?? null,
     kind: run?.kind ?? null,
     시작시각: run?.startedAtEpoch ? localStamp(new Date(run.startedAtEpoch)) : null,
@@ -161,30 +161,30 @@ function sessionView(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = new
     어시스턴트메시지: s.어시스턴트메시지,
     도구호출: s.도구호출,
     토큰합: s.토큰합,
-    비용USD: 비용.usd,
-    비용추정포함: 비용.추정포함,
-    모델별: 비용.모델별,
+    비용USD: cost.usd,
+    비용추정포함: cost.추정포함,
+    모델별: cost.모델별,
     바이트: s.바이트,
 
     // 이 세션이 어느 VS Code 창에서 열린 폴더에 있나 (살아있는 창만)
-    ide: findWindow(실행cwd, ide창) || findWindow(짝cwd, ide창),
+    ide: findWindow(실행cwd, ideWins) || findWindow(pairCwd2, ideWins),
 
     /**
      * 실제 프로세스. `claude agents --json` 이 주는 pid 로 짝짓는다.
      * 여기서만 알 수 있는 것: 어느 바이너리인지(VS Code 확장 vs npm), 권한 우회 여부,
      * --add-dir 로 붙은 폴더. 특히 권한 우회는 사람이 알아야 한다.
      */
-    프로세스: run?.pid ? (프로세스맵.get(run.pid) || null) : null,
+    프로세스: run?.pid ? (procMap.get(run.pid) || null) : null,
 
     등록됨: !!대상,
     재개지시: 대상?.재개지시 || null,
-    저장소설정있음: 설정있음,
+    저장소설정있음: hasConfig,
     저장소id: project?.id || null,
-    감시: 감시상태,
-    재시작: 재시작상태,
+    감시: watchView,
+    재시작: resumeView,
     추적기,
     // git 조회는 프로세스를 띄운다 — 감시를 켠 대상만 본다
-    git: 짝cwd && 대상?.감시 ? gitState(짝cwd) : null,
+    git: pairCwd2 && 대상?.감시 ? gitState(pairCwd2) : null,
   }
 }
 
@@ -195,7 +195,7 @@ function sessionView(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = new
  * @param {boolean} opts.가벼움 true 면 git 조회 같은 느린 것을 건너뛴다
  */
 export function fullStatus() {
-  const 등록 = loadTargets()
+  const registry = loadTargets()
   const scan = scanSessions()
   /**
    * 🔴 여기는 **보여주기용**이다. 판정용과 캐시 수명을 다르게 잡는다.
@@ -209,12 +209,12 @@ export function fullStatus() {
    *   끼어들지 않으려면 그쪽은 묵은 값을 쓰면 안 된다.
    */
   const run = runningSessions({ ttlMs: 15000 })
-  const 실행중맵 = new Map(run.sessions.map((s) => [s.sessionId, s]))
+  const runMap = new Map(run.sessions.map((s) => [s.sessionId, s]))
 
   // CLI 가 아는데 트랜스크립트에 아직 없는 세션(방금 시작)도 목록에 넣는다
-  const 본것 = new Set(scan.sessions.map((s) => s.sessionId))
-  const 추가 = run.sessions
-    .filter((r) => !본것.has(r.sessionId))
+  const seen = new Set(scan.sessions.map((s) => s.sessionId))
+  const extra = run.sessions
+    .filter((r) => !seen.has(r.sessionId))
     .map((r) => ({
       sessionId: r.sessionId, slug: null, title: r.name,
       cwd시작: r.cwd, cwd최근: r.cwd, 주작업cwd: r.cwd,
@@ -227,9 +227,9 @@ export function fullStatus() {
   const ide = ideWindows()
   // 같은 이유로 프로세스 목록도 보여주기용 수명을 쓴다 (실측 0.7초, 동기)
   const procs = claudeProcesses({ ttlMs: 15000 })
-  const 프로세스맵 = new Map(procs.목록.map((p) => [p.pid, p]))
-  const 세션 = [...scan.sessions, ...추가]
-    .map((s) => sessionView(s, 등록, 실행중맵, ide.창, 프로세스맵, run.ok))
+  const procMap = new Map(procs.목록.map((p) => [p.pid, p]))
+  const 세션 = [...scan.sessions, ...extra]
+    .map((s) => sessionView(s, registry, runMap, ide.창, procMap, run.ok))
 
   /**
    * 🔴 세션 행에 짝지어지지 않은 claude.exe — "목록에 없는 것"의 정체다.
@@ -239,8 +239,8 @@ export function fullStatus() {
    * CLI 만 믿었으면 그 존재조차 몰랐다. 무엇이 돌고 있는지는 전부 보여주고,
    * 세션이 아닌 것은 그렇다고 적는다.
    */
-  const 짝지어진pid = new Set(세션.map((s) => s.pid).filter(Boolean))
-  const 짝없는프로세스 = procs.목록.filter((p) => !짝지어진pid.has(p.pid))
+  const pairedPids = new Set(세션.map((s) => s.pid).filter(Boolean))
+  const orphanProcs = procs.목록.filter((p) => !pairedPids.has(p.pid))
 
   /**
    * 열린 폴더별 세션 수 — "왜 이 폴더의 세션이 목록에 없나"에 답하기 위한 것이다.
@@ -258,7 +258,7 @@ export function fullStatus() {
   const 총USD = +세션.reduce((a, s) => a + s.비용USD, 0).toFixed(2)
   const 락 = allLockState()
 
-  const 기본 = {
+  const fallback = {
     at: localStamp(),
     atEpoch: Date.now(),
     계정: acct,
@@ -281,7 +281,7 @@ export function fullStatus() {
       목록: procs.목록,
       세션수: procs.세션수,
       보조수: procs.보조수,
-      짝없음: 짝없는프로세스,
+      짝없음: orphanProcs,
       // CLI 가 보고한 세션 수와 실제 세션형 프로세스 수가 다르면 그 자체가 정보다
       불일치: procs.ok && procs.세션수 !== 세션.filter((s) => s.실행중).length,
     },
@@ -313,13 +313,13 @@ export function fullStatus() {
    * 경보는 나머지가 다 모인 뒤에 판정한다 — 세션·작업·할당량·락을 모두 본다.
    * 🔴 판정은 alerts.mjs 하나다. 화면이 따로 계산하면 트레이·로그와 말이 갈라진다.
    */
-  const 경보 = currentAlerts(기본)
+  const 경보 = currentAlerts(fallback)
   return {
-    ...기본,
+    ...fallback,
     경보,
     경보이력: recentAlerts(60),
     합계: {
-      ...기본.합계,
+      ...fallback.합계,
       경보: 경보.length,
       치명경보: 경보.filter((a) => a.수준 === 'critical').length,
     },
@@ -347,7 +347,7 @@ export function trayStatus() {
   const blocked = 세션.filter((s) => s.재시작.켜짐 && s.재시작.차단).length
   const watched = d.합계.감시켜짐
   const limited = !!(d.할당량.있음 && !d.할당량.이미해제됨)
-  const 미등록작업 = Object.entries(d.작업)
+  const unregisteredTasks = Object.entries(d.작업)
     .filter(([k]) => k !== '캐시됨')
     .filter(([, v]) => v.등록됨 === false).length
 
@@ -372,7 +372,7 @@ export function trayStatus() {
     watched,
     resumeOn: d.합계.재시작켜짐,
     dead, blocked, limited,
-    unregisteredTasks: 미등록작업,
+    unregisteredTasks: unregisteredTasks,
     limitText: d.할당량.설명 || '',
     account: d.계정.email || '',
     plan: d.계정.subscriptionType || '',

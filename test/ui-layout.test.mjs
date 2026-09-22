@@ -80,10 +80,10 @@ test('상세 내용이 #dscroll 안에 들어 있다', () => {
 })
 
 test('탭 묶음은 #dscroll 바깥이다 — 스크롤해도 탭은 보여야 한다', () => {
-  const 탭위치 = html.indexOf('id="dtabs"')
-  const 스크롤위치 = html.indexOf('id="dscroll"')
-  assert.ok(탭위치 > 0 && 스크롤위치 > 0)
-  assert.ok(탭위치 < 스크롤위치, '탭이 스크롤 영역 안에 들어가면 함께 밀려 올라간다')
+  const tabAt = html.indexOf('id="dtabs"')
+  const scrollTop2 = html.indexOf('id="dscroll"')
+  assert.ok(tabAt > 0 && scrollTop2 > 0)
+  assert.ok(tabAt < scrollTop2, '탭이 스크롤 영역 안에 들어가면 함께 밀려 올라간다')
 })
 
 test('좁은 화면에서는 페이지 스크롤로 되돌린다 (두 패널이 쌓이면 각자 스크롤은 못 쓴다)', () => {
@@ -103,20 +103,20 @@ test('🔴 다시 그릴 때 스크롤 위치를 보존한다 — 없으면 3초
 
 test('상세를 다시 그리는 모든 경로가 보존을 거친다', () => {
   // 상세그리기() 를 직접 부르면 보존을 건너뛴다. 호출은 상세다시그리기() 안에서만.
-  const 직접호출 = [...appjs.matchAll(/(?<!function )(?<!function redrawDetail\(\) \{[\s\S]{0,200})\n\s*drawDetail\(\)/g)]
+  const directCalls = [...appjs.matchAll(/(?<!function )(?<!function redrawDetail\(\) \{[\s\S]{0,200})\n\s*drawDetail\(\)/g)]
   assert.match(appjs, /function redrawDetail/)
-  assert.ok(직접호출.length <= 1,
-    `상세그리기() 직접 호출이 ${직접호출.length}곳 있다 — 상세다시그리기() 를 거쳐야 스크롤이 보존된다`)
+  assert.ok(directCalls.length <= 1,
+    `상세그리기() 직접 호출이 ${directCalls.length}곳 있다 — 상세다시그리기() 를 거쳐야 스크롤이 보존된다`)
 })
 
 test('바닥에 붙어 있었으면 바닥에 붙여둔다 (로그는 아래로 자란다)', () => {
-  assert.match(appjs, /바닥이었나/, '바닥 판정이 있어야 한다')
+  assert.match(appjs, /wasAtBottom/, '바닥 판정이 있어야 한다')
   assert.match(appjs, /scrollTop = box\.scrollHeight/, '바닥이면 바닥으로 되돌려야 한다')
 })
 
 test('세션·탭을 바꾸면 맨 위에서 시작한다', () => {
-  assert.match(appjs, /맨위로/, '전환 시 맨 위로 가는 처리가 있어야 한다')
-  assert.match(appjs, /마지막상세키/, '무엇이 바뀌었는지 기억해야 한다')
+  assert.match(appjs, /toTop/, '전환 시 맨 위로 가는 처리가 있어야 한다')
+  assert.match(appjs, /lastDetailKey/, '무엇이 바뀌었는지 기억해야 한다')
 })
 
 /* ── 요약 접기 ───────────────────────────────────────────────── */
@@ -141,12 +141,12 @@ test('🔴 요약을 접는 단추가 있고, 화살표 모양만으로 말하�
 })
 
 test('🔴 접기 단추는 요약 묶음 바로 위에 붙어 있다 (머리말 구석에 두니 눈에 안 띄었다)', () => {
-  const 단추 = html.indexOf('id="btnTop"')
-  const 묶음 = html.indexOf('<div class="top" id="top">')
-  const 머리끝 = html.indexOf('</header>')
-  assert.ok(단추 > 0 && 묶음 > 0 && 머리끝 > 0)
-  assert.ok(단추 > 머리끝, '접기 단추가 머리말 안에 있으면 무엇을 접는지 안 보인다')
-  assert.ok(단추 < 묶음, '접기 단추는 접히는 묶음 바로 앞에 있어야 한다')
+  const btn = html.indexOf('id="btnTop"')
+  const group = html.indexOf('<div class="top" id="top">')
+  const headEnd = html.indexOf('</header>')
+  assert.ok(btn > 0 && group > 0 && headEnd > 0)
+  assert.ok(btn > headEnd, '접기 단추가 머리말 안에 있으면 무엇을 접는지 안 보인다')
+  assert.ok(btn < group, '접기 단추는 접히는 묶음 바로 앞에 있어야 한다')
   assert.match(html, /class="sumbar"/, '띠 자체가 단추여야 누르기 쉽다')
 })
 
@@ -179,7 +179,7 @@ test('🔴 요약은 묶음으로 나뉜다 — 같은 질문에 답하는 것�
   assert.match(html, /\.grp > h3\{/, '묶음마다 이름이 있어야 한다 — 이름 없는 묶음은 묶음이 아니다')
 
   for (const 이름 of ['계정', '실행 중', '사용량', 'OS 트리거']) {
-    assert.ok(appjs.includes(`묶음('${이름}')`), `'${이름}' 묶음이 없다`)
+    assert.ok(appjs.includes(`group('${이름}')`), `'${이름}' 묶음이 없다`)
   }
 })
 
@@ -221,16 +221,16 @@ test('🔴 상태는 색만으로 나르지 않는다 — 배지가 아이콘과
 })
 
 test('🔴 OS 트리거 값은 배지 하나다 — 상태 글자와 겹쳐 적으면 좁은 칸에서 잘린다', () => {
-  const i = appjs.indexOf("묶음('OS 트리거')")
+  const i = appjs.indexOf("group('OS 트리거')")
   assert.ok(i > 0)
-  const 구간 = appjs.slice(i, appjs.indexOf('box.append(g4)', i))
+  const section = appjs.slice(i, appjs.indexOf('box.append(g4)', i))
   // 배지를 다섯 번째 인자로 따로 넘기면 값 + 배지가 같은 칸에 둘 다 들어간다
-  assert.ok(/줄\(g4, 라벨, 값, 설명\)/.test(구간),
+  assert.ok(/line\(g4, label, 값, 설명\)/.test(section),
     'OS 트리거 줄은 값(배지) 하나만 넘겨야 한다')
-  assert.ok(!/값 = w\.상태/.test(구간), '상태 글자를 값으로 쓰면 배지와 중복된다')
+  assert.ok(!/값 = w\.상태/.test(section), '상태 글자를 값으로 쓰면 배지와 중복된다')
   // 긴 결과뜻을 배지 라벨에 넣으면 칸을 넘친다 — title 과 경보 배너가 맡는다
-  assert.ok(!/badge\([^)]*\$\{w\.resultText\}/.test(구간), '결과뜻을 배지 라벨에 넣지 마라 — 칸을 넘친다')
-  assert.ok(/설명 = .*resultText/.test(구간), '결과뜻은 설명(title)에 남겨야 한다')
+  assert.ok(!/badge\([^)]*\$\{w\.resultText\}/.test(section), '결과뜻을 배지 라벨에 넣지 마라 — 칸을 넘친다')
+  assert.ok(/설명 = .*resultText/.test(section), '결과뜻은 설명(title)에 남겨야 한다')
 })
 
 test('요약을 접으면 본문이 그 공간을 가져간다', () => {

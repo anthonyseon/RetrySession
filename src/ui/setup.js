@@ -23,8 +23,8 @@
 'use strict'
 import { $, el, S, badge } from './common.js'
 
-const 색 = { crit: 'crit', warn: 'warn', unknown: 'off', info: 'off', ok: 'good' }
-const 표 = { crit: '▲', warn: '▲', unknown: '?', info: 'ℹ', ok: '●' }
+const color = { crit: 'crit', warn: 'warn', unknown: 'off', info: 'off', ok: 'good' }
+const table = { crit: '▲', warn: '▲', unknown: '?', info: 'ℹ', ok: '●' }
 
 /** 모달이 열려 있나 — 열려 있을 때만 다시 그린다 */
 export const isSettingsOpen = () => !$('#setupWrap').classList.contains('hide')
@@ -35,18 +35,18 @@ export const isSettingsOpen = () => !$('#setupWrap').classList.contains('hide')
  *   고르는 중에 선택이 되돌려진다 — 목록 스크롤·체크박스에서 이미 당한 부류다.
  *   그래서 (1) 고른 값을 여기 담아 두고, (2) 내용이 그대로면 아예 다시 그리지 않는다.
  */
-const 고른것 = new Map()
-let 그린지문 = null
-let 적용단추 = null
+const chosen = new Map()
+let drawnPrint = null
+let applyBtn = null
 
 /** 적용이 끝났으면 고르던 것을 비운다 (현재 값이 곧 그 값이 된다) */
-export const clearChosen = () => { 고른것.clear(); 그린지문 = null }
+export const clearChosen = () => { chosen.clear(); drawnPrint = null }
 
 export function openSettings() {
   $('#setupWrap').classList.remove('hide')
   $('#btnSetup').setAttribute('aria-expanded', 'true')
   clearChosen()
-  drawSettings({ 강제: true })
+  drawSettings({ force: true })
 }
 
 export function closeSettings() {
@@ -92,22 +92,22 @@ const chosenLabel = (sel) => {
  */
 export function chosenValues() {
   const values = {}
-  const 바뀜 = []
-  const 본문 = $('#setupBody')
-  for (const sel of 본문.querySelectorAll('select.pcsel')) {
+  const changed = []
+  const body = $('#setupBody')
+  for (const sel of body.querySelectorAll('select.pcsel')) {
     const 키 = sel.dataset?.key
     const 후 = sel.value
     if (!키 || 후 === '' || 후 === null || 후 === undefined) continue
     if (String(sel.dataset.was) === String(후)) continue
     values[키] = Number(후)
-    바뀜.push({
+    changed.push({
       키, 이름: sel.dataset.nm || 키,
-      전: sel.dataset.wasTx || sel.dataset.was,
+      prev: sel.dataset.wasTx || sel.dataset.was,
       후: chosenLabel(sel),
-      경고: mayStopWatching(키, 후),
+      warnText: mayStopWatching(키, 후),
     })
   }
-  return { values, 바뀜 }
+  return { values, changed }
 }
 
 /**
@@ -120,8 +120,8 @@ export function chosenValues() {
  */
 function renderSelect(r, pc, x) {
   const 종류 = pc.쓸수있는키?.[x.키]
-  const 보기 = 종류 ? pc.선택지?.[종류] : null
-  if (!보기) return false
+  const view = 종류 ? pc.선택지?.[종류] : null
+  if (!view) return false
 
   /**
    * 🔴 값을 못 읽은 항목에는 칸을 주지 않는다.
@@ -139,36 +139,36 @@ function renderSelect(r, pc, x) {
   sel.dataset.nm = x.이름
   sel.dataset.wasTx = String(x.현재)
 
-  const 고를값 = 고른것.has(x.키) ? String(고른것.get(x.키)) : String(x.원값)
-  let 맞음 = false
-  for (const o of 보기) {
+  const wantValue = chosen.has(x.키) ? String(chosen.get(x.키)) : String(x.원값)
+  let matched = false
+  for (const o of view) {
     const op = el('option', null, o.글)
     op.value = String(o.값)
     sel.append(op)
-    if (String(o.값) === 고를값) { op.selected = true; 맞음 = true }
+    if (String(o.값) === wantValue) { op.selected = true; matched = true }
   }
   /**
    * 보기에 없는 값(20분처럼 어중간한 값, OEM 이 쓰는 2147483647 등)도 **그대로** 보여준다.
    * 없는 값을 첫 보기로 대신 표시하면 화면이 거짓말을 한다 — 사람은 '안 함'으로
    * 돼 있다고 믿고 창을 닫는다.
    */
-  if (!맞음) {
+  if (!matched) {
     const op = el('option', null, `${x.현재} (현재 값)`)
-    op.value = 고를값
+    op.value = wantValue
     op.selected = true
     sel.append(op)
   }
-  sel.value = 고를값
+  sel.value = wantValue
   sel.addEventListener('change', () => {
-    고른것.set(x.키, sel.value)
+    chosen.set(x.키, sel.value)
     updateApplyButton()
   })
 
-  const 칸 = el('div', 'ed')
+  const cell = el('div', 'ed')
   const lb = el('label', 'edl', '바꾸기')
   lb.setAttribute('for', sel.id)
-  칸.append(lb, sel)
-  r.append(칸)
+  cell.append(lb, sel)
+  r.append(cell)
   return true
 }
 
@@ -177,12 +177,12 @@ function renderSelect(r, pc, x) {
  * 🔴 모달을 다시 그리지 않고 이것만 고친다 — 다시 그리면 고르던 칸이 닫힌다.
  */
 function updateApplyButton() {
-  if (!적용단추) return
-  const n = chosenValues().바뀜.length
-  적용단추.textContent = n ? `고른 값 적용 (${n}개)` : '고른 값 적용'
-  적용단추.disabled = n === 0
-  적용단추.className = n ? 'sm primary' : 'sm'
-  적용단추.title = n
+  if (!applyBtn) return
+  const n = chosenValues().changed.length
+  applyBtn.textContent = n ? `고른 값 적용 (${n}개)` : '고른 값 적용'
+  applyBtn.disabled = n === 0
+  applyBtn.className = n ? 'sm primary' : 'sm'
+  applyBtn.title = n
     ? '고른 값만 바꿉니다. 바꾸기 전 값을 저장하고, 바꾼 뒤 다시 읽어 확인합니다.'
     : '바꿀 값을 먼저 고르세요 — 손대지 않은 항목은 보내지 않습니다.'
 }
@@ -191,36 +191,36 @@ function updateApplyButton() {
  * 모달 내용. 상태를 새로 받을 때마다 호출되지만, 내용이 같으면 그냥 돌아간다.
  * @param 강제 창을 새로 열 때처럼 무조건 다시 그려야 할 때
  */
-export function drawSettings({ 강제 = false } = {}) {
+export function drawSettings({ force = false } = {}) {
   if (!isSettingsOpen()) return
   const pc = S.상태?.pc
-  const 본문 = $('#setupBody')
-  const 바닥 = $('#setupFoot')
+  const body = $('#setupBody')
+  const foot = $('#setupFoot')
 
   if (!pc || !Array.isArray(pc.목록)) {
-    본문.textContent = ''; 바닥.textContent = ''; 적용단추 = null; 그린지문 = null
-    본문.append(el('div', 'empty', '아직 PC 설정을 읽지 못했습니다. 잠시 뒤 다시 열어 주세요.'))
+    body.textContent = ''; foot.textContent = ''; applyBtn = null; drawnPrint = null
+    body.append(el('div', 'empty', '아직 PC 설정을 읽지 못했습니다. 잠시 뒤 다시 열어 주세요.'))
     return
   }
 
-  const 이번지문 = 지문(pc)
-  if (!강제 && 이번지문 === 그린지문) return
-  그린지문 = 이번지문
-  본문.textContent = ''; 바닥.textContent = ''; 적용단추 = null
+  const thisPrint = 지문(pc)
+  if (!force && thisPrint === drawnPrint) return
+  drawnPrint = thisPrint
+  body.textContent = ''; foot.textContent = ''; applyBtn = null
 
   /* ── 왜 이걸 보는지 한 줄 ── */
-  const 머리 = el('div', 'note')
-  머리.textContent = '잠든 PC 는 예약 작업을 돌리지 않습니다 — 감시도 재개도 그때 멎습니다. '
+  const head = el('div', 'note')
+  head.textContent = '잠든 PC 는 예약 작업을 돌리지 않습니다 — 감시도 재개도 그때 멎습니다. '
     + '자동 설정은 전원이 연결된 상태만 바꾸고, 배터리는 직접 고를 때만 바꿉니다.'
-  본문.append(머리)
+  body.append(head)
 
   /* ── 항목별 현재/권장/고르기 ── */
-  let 칸수 = 0
+  let cellCount = 0
   for (const x of pc.목록) {
     const r = el('div', 'srow2')
     r.append(el('div', 'nm', x.이름))
     const st = el('div', 'st')
-    st.append(badge(색[x.수준] || 'off', 표[x.수준] || '●', String(x.현재)))
+    st.append(badge(color[x.수준] || 'off', table[x.수준] || '●', String(x.현재)))
     r.append(st)
     if (x.왜) r.append(el('div', 'wh', x.왜))
 
@@ -230,14 +230,14 @@ export function drawSettings({ 강제 = false } = {}) {
      *   뜻이 "이건 자동으로 못 고친다"는 능력 문제처럼 읽혔다(실측: 다섯 줄 전부).
      *   문제가 있을 때만 고칠 수 있는지 없는지를 말한다.
      */
-    const 문제 = x.수준 !== 'ok' && x.수준 !== 'info'
-    const 꼬리 = !문제 ? ''
+    const trouble = x.수준 !== 'ok' && x.수준 !== 'info'
+    const tail2 = !trouble ? ''
       : x.고칠수있나 ? ' · 자동으로 바꿀 수 있습니다'
         : ' · 자동으로는 못 바꿉니다 — 아래 수동 방법을 보세요'
-    r.append(el('div', 'rec', `권장: ${x.권장}${꼬리}`))
+    r.append(el('div', 'rec', `권장: ${x.권장}${tail2}`))
 
-    if (renderSelect(r, pc, x)) 칸수 += 1
-    본문.append(r)
+    if (renderSelect(r, pc, x)) cellCount += 1
+    body.append(r)
   }
 
   /* ── 보관된 이전 값 — 되돌릴 수 있다는 것을 보여준다 ── */
@@ -253,40 +253,40 @@ export function drawSettings({ 강제 = false } = {}) {
     : 백업.오류
       ? 백업.오류
       : '설정을 바꾸면 바꾸기 전 값을 먼저 저장합니다. 저장에 실패하면 바꾸지 않습니다.'))
-  본문.append(b)
+  body.append(b)
 
   /* ── 수동 설정 방법 (자동으로 못 바꾸는 것) ── */
-  const 수동필요 = pc.목록.some((x) => x.수준 !== 'ok' && x.수준 !== 'info' && !x.고칠수있나)
+  const needsManual = pc.목록.some((x) => x.수준 !== 'ok' && x.수준 !== 'info' && !x.고칠수있나)
   const 안내 = Array.isArray(pc.안내) ? pc.안내 : []
   if (안내.length) {
     const d = el('details')
-    const sm = el('summary', null, 수동필요
+    const sm = el('summary', null, needsManual
       ? '수동 설정 방법 — 자동으로 못 바꾸는 항목이 있습니다'
       : '수동 설정 방법 (직접 바꾸려면)')
     sm.style.cursor = 'pointer'
     sm.style.fontSize = '12.5px'
     d.append(sm, el('pre', 'manual', 안내.join('\n')))
-    if (수동필요) d.open = true     // 할 일이 있으면 펼쳐서 보여준다
-    본문.append(d)
+    if (needsManual) d.open = true     // 할 일이 있으면 펼쳐서 보여준다
+    body.append(d)
   }
 
   /* ── 바닥 단추 ── */
-  if (칸수) {
-    적용단추 = el('button', 'sm', '고른 값 적용')
-    적용단추.type = 'button'
-    적용단추.dataset.pc = 'set'
-    바닥.append(적용단추)
+  if (cellCount) {
+    applyBtn = el('button', 'sm', '고른 값 적용')
+    applyBtn.type = 'button'
+    applyBtn.dataset.pc = 'set'
+    foot.append(applyBtn)
     updateApplyButton()
   }
-  const 고칠수 = (pc.고칠것 || []).length
-  if (고칠수) {
-    const a = el('button', 'sm primary', `권장값으로 (${고칠수}개)`)
+  const fixCount = (pc.고칠것 || []).length
+  if (fixCount) {
+    const a = el('button', 'sm primary', `권장값으로 (${fixCount}개)`)
     a.type = 'button'
     a.dataset.pc = 'apply'
     a.title = '전원 연결 상태에서 잠들지 않게 합니다. 배터리는 건드리지 않고, 이전 값은 보관합니다.'
-    바닥.append(a)
-  } else if (!칸수) {
-    바닥.append(el('span', 'note', pc.수준 === 'ok'
+    foot.append(a)
+  } else if (!cellCount) {
+    foot.append(el('span', 'note', pc.수준 === 'ok'
       ? '자동으로 바꿀 것이 없습니다 — 이대로 계속 돌 수 있습니다.'
       : '자동으로 바꿀 수 있는 항목이 없습니다. 위 수동 방법을 보세요.'))
   }
@@ -295,11 +295,11 @@ export function drawSettings({ 강제 = false } = {}) {
     r.type = 'button'
     r.dataset.pc = 'restore'
     r.title = `보관된 값으로 되돌립니다 (${백업.at || '시각 미상'})`
-    바닥.append(r)
+    foot.append(r)
   }
-  바닥.append(el('span', 'spacer'))
+  foot.append(el('span', 'spacer'))
   const c = el('button', 'sm', '닫기')
   c.type = 'button'
   c.dataset.setup = 'close'
-  바닥.append(c)
+  foot.append(c)
 }

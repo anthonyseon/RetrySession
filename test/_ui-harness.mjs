@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 export const ROOT = fileURLToPath(new URL('..', import.meta.url))
 /* ── 최소 DOM ────────────────────────────────────────────────── */
 
-class 노드 {
+class FakeNode {
   constructor(tag) {
     this.tag = tag; this.children = []; this.attrs = {}; this._text = ''
     // 스크롤 관련 값. 실제 브라우저에서는 레이아웃이 정하지만 시험에서는 직접 준다.
@@ -42,20 +42,20 @@ class 노드 {
   getAttribute(k) { return this.attrs[k] ?? null }
   addEventListener(종류, fn) { (this._on ||= {})[종류] = fn }
   /** 시험에서 사건을 흉내낸다 — 사람이 드롭다운을 고른 것과 같은 경로를 탄다 */
-  발생(종류) { this._on?.[종류]?.({ target: this }) }
+  fire(종류) { this._on?.[종류]?.({ target: this }) }
   get classList() { return { toggle() { }, add() { }, remove() { }, contains: () => false } }
   /** `select.pcsel` · `.pcsel` · `select` 만 안다 — 그 이상은 시험에 필요 없다 */
-  querySelectorAll(선택자) {
-    const [t, c] = String(선택자).split('.')
-    const 맞나 = (n) => (!t || n.tag === t) && (!c || String(n.className).split(/\s+/).includes(c))
-    const 모음 = []
-    const 훑기 = (n) => { for (const ch of n.children) { if (맞나(ch)) 모음.push(ch); 훑기(ch) } }
-    훑기(this)
-    return 모음
+  querySelectorAll(selector) {
+    const [t, c] = String(selector).split('.')
+    const matches = (n) => (!t || n.tag === t) && (!c || String(n.className).split(/\s+/).includes(c))
+    const collected = []
+    const walk = (n) => { for (const ch of n.children) { if (matches(ch)) collected.push(ch); walk(ch) } }
+    walk(this)
+    return collected
   }
-  querySelector(선택자) { return this.querySelectorAll(선택자)[0] ?? null }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null }
 }
-class 글 extends 노드 { constructor(t) { super('#text'); this._text = t } }
+class 글 extends FakeNode { constructor(t) { super('#text'); this._text = t } }
 
 /**
  * 최소 DOM 을 전역에 깔아둔다. **import 보다 먼저** 해야 한다 —
@@ -66,16 +66,16 @@ class 글 extends 노드 { constructor(t) { super('#text'); this._text = t } }
  *   예전에는 new Function 으로 app.js 전체를 감싸 setInterval·fetch 를 가짜로
  *   넘겨야 했다.
  */
-const 칸 = new Map()
-globalThis.Node = 노드
+const cell = new Map()
+globalThis.Node = FakeNode
 globalThis.document = {
-  createElement: (t) => new 노드(t),
+  createElement: (t) => new FakeNode(t),
   createTextNode: (t) => new 글(t),
   documentElement: { dataset: {} },
   querySelector: (s) => {
     const id = s.startsWith('#') ? s.slice(1) : s
-    if (!칸.has(id)) 칸.set(id, new 노드('div'))
-    return 칸.get(id)
+    if (!cell.has(id)) cell.set(id, new FakeNode('div'))
+    return cell.get(id)
   },
   querySelectorAll: () => [],
   addEventListener: () => { },
@@ -94,10 +94,10 @@ const { S } = await UI('common.js')
 
 /** 시험마다 화면을 비운다 (모듈은 한 번만 평가되므로 칸만 갈아준다) */
 export function prepareRender() {
-  칸.clear()
+  cell.clear()
   S.상태 = null
   설정.clearChosen()   // 지난 시험에서 고른 값·지문을 물려받지 않는다
-  return { drawTiles, 칸, S, 설정, 복원() { /* 전역 DOM 은 파일 전체에서 공유한다 */ } }
+  return { drawTiles, cell, S, 설정, restored() { /* 전역 DOM 은 파일 전체에서 공유한다 */ } }
 }
 
 /**
@@ -106,16 +106,16 @@ export function prepareRender() {
  * `세부` 는 **화면에 그려진** 것만 읽는다(.gd). title 은 따로 본다 —
  * 그래야 "세부가 보인다"와 "title 에만 있다"를 구별할 수 있다.
  */
-export const 읽기 = (칸) => 칸.get('tiles').children.map((g) => {
+export const readPs = (cell) => cell.get('tiles').children.map((g) => {
   const [h3, ...rows] = g.children
   const findCell = (r, cls) => r.children.find((c) => c.className === cls) || null
   return {
     이름: h3.textContent,
-    줄: rows.map((r) => {
+    line: rows.map((r) => {
       const top = findCell(r, 'gtop')
       return [top.children[0].textContent, top.children[1].textContent.trim()]
     }),
-    세부: rows.map((r) => findCell(r, 'gd')?.textContent ?? null),
+    detailLine: rows.map((r) => findCell(r, 'gd')?.textContent ?? null),
     설명: rows.map((r) => r.title || ''),
   }
 })

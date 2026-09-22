@@ -17,17 +17,17 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const UI디렉터리 = join(ROOT, 'src', 'ui')
+const uiDir = join(ROOT, 'src', 'ui')
 
 /** src/ui 의 화면 스크립트 전부 (이름순) */
-export const uiModules = () => readdirSync(UI디렉터리).filter((f) => f.endsWith('.js')).sort()
+export const uiModules = () => readdirSync(uiDir).filter((f) => f.endsWith('.js')).sort()
 
 /** 그 전부를 이어붙인 소스 — "화면이 X 를 한다"를 볼 때 쓴다 */
 export const uiSource = () => uiModules()
-  .map((f) => readFileSync(join(UI디렉터리, f), 'utf8')).join('\n')
+  .map((f) => readFileSync(join(uiDir, f), 'utf8')).join('\n')
 
 /** 한 파일만 */
-export const readUi = (f) => readFileSync(join(UI디렉터리, f), 'utf8')
+export const readUi = (f) => readFileSync(join(uiDir, f), 'utf8')
 
 /** 뼈대 */
 export const HTML = () => readUi('index.html')
@@ -42,5 +42,5 @@ export const HTML = () => readUi('index.html')
  */
 export const styleSource = () => [
   HTML(),
-  ...readdirSync(UI디렉터리).filter((f) => f.endsWith('.css')).sort().map((f) => readUi(f)),
+  ...readdirSync(uiDir).filter((f) => f.endsWith('.css')).sort().map((f) => readUi(f)),
 ].join('\n')

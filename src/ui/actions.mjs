@@ -31,30 +31,30 @@ export function runNow(kind, sessionId) {
     cwd: RS_HOME, detached: true, stdio: 'ignore', windowsHide: true,
   })
   child.unref()
-  return { 시작됨: true, kind, pid: child.pid, at: localStamp() }
+  return { started: true, kind, pid: child.pid, at: localStamp() }
 }
 
 /* ── 세션 상세 (감시·재시작 상태와 로그를 함께) ──────────────── */
 
-export function 상세(sessionId, { turns = 40 } = {}) {
+export function detail(sessionId, { turns = 40 } = {}) {
   const d = sessionDetail(sessionId, { turns })
-  const 등록 = loadTargets()
-  const 대상 = 등록.targets[sessionId] || null
+  const registry = loadTargets()
+  const 대상 = registry.targets[sessionId] || null
 
   let 감시로그 = [], 재시작로그 = [], 재시작 = null, 하트비트 = null, 추적기 = null
   if (대상) {
     const P = statePaths(sessionId)
-    감시로그 = tail(P.하트비트로그, 60)
-    재시작로그 = tail(P.재개로그, 120)
+    감시로그 = tail(P.hbLogPath, 60)
+    재시작로그 = tail(P.resumeLogPath, 120)
     try { 하트비트 = JSON.parse(readFileSync(P.하트비트, 'utf8')) } catch { 하트비트 = null }
 
-    const 짝 = 대상.주작업cwd || 대상.실행cwd
-    const { project } = 짝 ? resolveRepo(짝) : { project: null }
+    const pairCwd = 대상.주작업cwd || 대상.실행cwd
+    const { project } = pairCwd ? resolveRepo(pairCwd) : { project: null }
     if (project) {
-      const st = loadRunState(P.재개상태)
-      const b = budgetVerdict(st, project.재개)
+      const st = loadRunState(P.resumeState)
+      const b = budgetVerdict(st, project.resume)
       재시작 = {
-        상태: st, 예산: b, 설정: project.재개, 저장소id: project.id,
+        상태: st, 예산: b, 설정: project.resume, 저장소id: project.id,
         추적기경로: project.tracker || null,
       }
       // 상세 화면에서 재개 지점을 그대로 보여준다

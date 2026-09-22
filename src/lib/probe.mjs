@@ -30,7 +30,7 @@ const git = (repo, ...args) => {
 
 /** 대상 저장소의 git 상태 — 재개 지점을 특정하는 데 쓴다 */
 export function gitState(repo) {
-  if (!existsSync(repo)) return { 저장소없음: true, head: '', 커밋수: '', 마지막커밋: '', 미커밋파일수: 0 }
+  if (!existsSync(repo)) return { noRepo: true, head: '', 커밋수: '', 마지막커밋: '', 미커밋파일수: 0 }
   const dirty = git(repo, 'status', '--porcelain').split('\n').filter(Boolean).length
   return {
     head: git(repo, 'rev-parse', '--short', 'HEAD'),
@@ -99,8 +99,8 @@ export function liveWorkflows(slugs, maxAgeMin = 10) {
  */
 export function sessionActivity(slugs) {
   const root = claudeProjectsRoot()
-  if (!root || !existsSync(root)) return { 알수없음: true, 이유: `~/.claude/projects 를 찾을 수 없다` }
-  if (!slugs || !slugs.length) return { 알수없음: true, 이유: 'sessionSlugs 가 설정되지 않았다' }
+  if (!root || !existsSync(root)) return { unknownModel: true, 이유: `~/.claude/projects 를 찾을 수 없다` }
+  if (!slugs || !slugs.length) return { unknownModel: true, 이유: 'sessionSlugs 가 설정되지 않았다' }
 
   let newest = 0, file = null, seen = 0
   for (const slug of slugs) {
@@ -114,7 +114,7 @@ export function sessionActivity(slugs) {
     }
   }
 
-  if (!seen) return { 알수없음: true, 이유: `설정된 슬러그가 하나도 없다: ${slugs.join(', ')}` }
-  if (!newest) return { 알수없음: false, 기록없음: true, ageMin: null, file: null }
-  return { 알수없음: false, ageMin: +((Date.now() - newest) / 60000).toFixed(1), file, atEpoch: newest }
+  if (!seen) return { unknownModel: true, 이유: `설정된 슬러그가 하나도 없다: ${slugs.join(', ')}` }
+  if (!newest) return { unknownModel: false, noRecord: true, ageMin: null, file: null }
+  return { unknownModel: false, ageMin: +((Date.now() - newest) / 60000).toFixed(1), file, atEpoch: newest }
 }

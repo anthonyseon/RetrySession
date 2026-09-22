@@ -17,15 +17,15 @@
  */
 import { readFileSync, existsSync, readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
-import { claudeProjectsRoot, RS_HOME, 경로키 } from './config.mjs'
-import { 빈토큰, totalCost, normalizeModel } from './pricing.mjs'
+import { claudeProjectsRoot, RS_HOME, pathKey } from './config.mjs'
+import { emptyTokens, totalCost, normalizeModel } from './pricing.mjs'
 import { writeAtomic } from './io.mjs'
 
-const 캐시파일 = join(RS_HOME, 'state', 'sessions-cache.json')
+const cacheFile = join(RS_HOME, 'state', 'sessions-cache.json')
 
 /* ── 한 줄씩 접기 (순수) ─────────────────────────────────────── */
 
-export const 빈누적 = (sessionId, slug) => ({
+export const emptyTotals = (sessionId, slug) => ({
   sessionId, slug,
   // 🔴 cwd 는 세션 안에서 바뀐다 — 값 하나로 담으면 틀린다.
   //   실측: 세션 79e0e7e8 은 EasyAI.Platform(1443) · Description(4378) · Description/_plan/_resume(23)
@@ -70,17 +70,17 @@ export function isLimitNotice(message) {
 }
 
 /** 분포 집계용 정규화 — config.mjs 의 공용 함수를 쓴다(제각기 정규화하면 키가 갈라진다) */
-const cwd키 = 경로키
+const cwdKey = pathKey
 
 /** assistant.message.usage → 우리 토큰 형태 */
 function extractTokens(u) {
   const cc = u.cache_creation || {}
   // cache_creation 세부가 없는 구버전은 전체를 5분 쓰기로 본다 — 싼 쪽으로 기울지 않게
-  const has세부 = typeof cc.ephemeral_1h_input_tokens === 'number' || typeof cc.ephemeral_5m_input_tokens === 'number'
+  const hasDetailLine = typeof cc.ephemeral_1h_input_tokens === 'number' || typeof cc.ephemeral_5m_input_tokens === 'number'
   return {
     입력: u.input_tokens || 0,
-    캐시쓰기1h: has세부 ? (cc.ephemeral_1h_input_tokens || 0) : 0,
-    캐시쓰기5m: has세부 ? (cc.ephemeral_5m_input_tokens || 0) : (u.cache_creation_input_tokens || 0),
+    캐시쓰기1h: hasDetailLine ? (cc.ephemeral_1h_input_tokens || 0) : 0,
+    캐시쓰기5m: hasDetailLine ? (cc.ephemeral_5m_input_tokens || 0) : (u.cache_creation_input_tokens || 0),
     캐시읽기: u.cache_read_input_tokens || 0,
     출력: u.output_tokens || 0,
     사고: u.output_tokens_details?.thinking_tokens || 0,
@@ -88,12 +88,12 @@ function extractTokens(u) {
 }
 
 /** quotaLimits 는 엔트리 안쪽에 묻혀 있다 — 찾아서 돌려준다 */
-function findQuota(o, 깊이 = 0) {
-  if (!o || typeof o !== 'object' || 깊이 > 6) return null
+function findQuota(o, depth = 0) {
+  if (!o || typeof o !== 'object' || depth > 6) return null
   if (o.quotaLimits && typeof o.quotaLimits === 'object') return o.quotaLimits
   for (const v of Object.values(o)) {
     if (v && typeof v === 'object') {
-      const r = findQuota(v, 깊이 + 1)
+      const r = findQuota(v, depth + 1)
       if (r) return r
     }
   }
@@ -111,7 +111,7 @@ export function foldEntry(acc, j) {
     if (acc.마지막활동 === null || ts > acc.마지막활동) acc.마지막활동 = ts
   }
   if (j.cwd) {
-    const k = cwd키(j.cwd)
+    const k = cwdKey(j.cwd)
     if (!acc.cwd시작) acc.cwd시작 = k
     acc.cwd최근 = k
     acc.cwd분포[k] = (acc.cwd분포[k] || 0) + 1
@@ -138,7 +138,7 @@ export function foldEntry(acc, j) {
     }
     if (m.usage) {
       const id = m.model || '(모델미상)'
-      const cur = acc.모델별[id] || 빈토큰()
+      const cur = acc.모델별[id] || emptyTokens()
       const t = extractTokens(m.usage)
       for (const k of Object.keys(cur)) cur[k] += t[k] || 0
       acc.모델별[id] = cur
@@ -158,14 +158,14 @@ export function foldEntry(acc, j) {
  * 🔴 건너뛰기 목록(skip-list)으로 판단한다. 포함 목록(include-list)으로 하면
  *   키 순서가 달라진 엔트리를 조용히 놓친다.
  */
-const 건너뛸까 = (line) =>
+const shouldSkip = (line) =>
   line.includes('"type":"attachment"') ||
   line.includes('"type":"file-history-snapshot"') ||
   line.includes('"type":"file-history-delta"')
 
 export function foldLines(acc, text) {
   for (const line of text.split('\n')) {
-    if (!line || 건너뛸까(line)) continue
+    if (!line || shouldSkip(line)) continue
     try { foldEntry(acc, JSON.parse(line)) } catch { /* 쓰는 중인 마지막 줄은 깨질 수 있다 */ }
   }
   return acc
@@ -174,22 +174,22 @@ export function foldLines(acc, text) {
 /* ── 파일 읽기 (증분) ────────────────────────────────────────── */
 
 /** offset 바이트부터 끝까지 읽는다. 마지막 미완성 줄은 소비하지 않는다 */
-function 읽기(path, offset, size) {
+function readPs(path, offset, size) {
   const len = size - offset
-  if (len <= 0) return { text: '', 다음offset: offset }
+  if (len <= 0) return { text: '', nextOffset: offset }
   const fd = openSync(path, 'r')
   try {
     const buf = Buffer.allocUnsafe(len)
     readSync(fd, buf, 0, len, offset)
     const nl = buf.lastIndexOf(0x0a) // '\n'
-    if (nl < 0) return { text: '', 다음offset: offset } // 완성된 줄이 아직 없다
-    return { text: buf.subarray(0, nl + 1).toString('utf8'), 다음offset: offset + nl + 1 }
+    if (nl < 0) return { text: '', nextOffset: offset } // 완성된 줄이 아직 없다
+    return { text: buf.subarray(0, nl + 1).toString('utf8'), nextOffset: offset + nl + 1 }
   } finally { closeSync(fd) }
 }
 
 function 캐시읽기() {
-  if (!existsSync(캐시파일)) return {}
-  try { return JSON.parse(readFileSync(캐시파일, 'utf8')) } catch { return {} }
+  if (!existsSync(cacheFile)) return {}
+  try { return JSON.parse(readFileSync(cacheFile, 'utf8')) } catch { return {} }
 }
 
 /**
@@ -201,9 +201,9 @@ export function scanSessions({ slugs = null, useCache = true } = {}) {
   const 시작 = Date.now()
   const root = claudeProjectsRoot()
   const out = []
-  const 캐시 = useCache ? 캐시읽기() : {}
-  const 새캐시 = {}
-  let 새로읽음 = 0, 파일수 = 0
+  const cacheBox = useCache ? 캐시읽기() : {}
+  const newCache = {}
+  let 새로읽음 = 0, fileCount = 0
 
   if (!root || !existsSync(root)) {
     return { sessions: [], 할당량: null, 스캔: { 파일: 0, 새로읽음: 0, ms: 0 }, 오류: `~/.claude/projects 를 찾을 수 없다` }
@@ -222,26 +222,26 @@ export function scanSessions({ slugs = null, useCache = true } = {}) {
       const sessionId = f.replace(/\.jsonl$/, '')
       let fs_
       try { fs_ = statSync(path) } catch { continue }
-      파일수++
+      fileCount++
 
-      const c = 캐시[path]
+      const c = cacheBox[path]
       let acc, offset
 
       if (c && c.size === fs_.size && c.mtimeMs === fs_.mtimeMs && c.acc) {
         acc = c.acc; offset = c.offset // 변한 게 없다 — 그대로 쓴다
       } else if (c && c.acc && fs_.size > c.size) {
         acc = c.acc; offset = c.offset // 자랐다 — 자란 부분만 읽는다
-        const r = 읽기(path, offset, fs_.size)
-        foldLines(acc, r.text); offset = r.다음offset; 새로읽음++
+        const r = readPs(path, offset, fs_.size)
+        foldLines(acc, r.text); offset = r.nextOffset; 새로읽음++
       } else {
-        acc = 빈누적(sessionId, slug); offset = 0 // 처음이거나 줄었다 — 전체를 읽는다
-        const r = 읽기(path, 0, fs_.size)
-        foldLines(acc, r.text); offset = r.다음offset; 새로읽음++
+        acc = emptyTotals(sessionId, slug); offset = 0 // 처음이거나 줄었다 — 전체를 읽는다
+        const r = readPs(path, 0, fs_.size)
+        foldLines(acc, r.text); offset = r.nextOffset; 새로읽음++
       }
 
-      새캐시[path] = { size: fs_.size, mtimeMs: fs_.mtimeMs, offset, acc }
+      newCache[path] = { size: fs_.size, mtimeMs: fs_.mtimeMs, offset, acc }
 
-      const 비용 = totalCost(acc.모델별)
+      const cost = totalCost(acc.모델별)
       // 가장 많이 머문 곳 — "무엇을 하던 세션인가"를 가장 잘 말해준다
       const 주작업cwd = Object.entries(acc.cwd분포).sort((a, b) => b[1] - a[1])[0]?.[0] || null
       out.push({
@@ -254,14 +254,14 @@ export function scanSessions({ slugs = null, useCache = true } = {}) {
         수정epoch: fs_.mtimeMs,
         활성분: +((Date.now() - fs_.mtimeMs) / 60000).toFixed(1),
         토큰합: Object.values(acc.모델별).reduce((s, t) => s + t.입력 + t.캐시쓰기1h + t.캐시쓰기5m + t.캐시읽기 + t.출력, 0),
-        비용USD: 비용.usd,
-        비용추정포함: 비용.추정포함,
+        비용USD: cost.usd,
+        비용추정포함: cost.추정포함,
       })
     }
   }
 
   // 원자적으로 쓴다 — 찢어진 캐시는 다음 회차에 전량 재스캔을 부른다(실측: 186ms vs 3ms)
-  try { writeAtomic(캐시파일, JSON.stringify(새캐시)) } catch { /* 캐시 실패로 조회를 막지 않는다 */ }
+  try { writeAtomic(cacheFile, JSON.stringify(newCache)) } catch { /* 캐시 실패로 조회를 막지 않는다 */ }
 
   // 가장 최근 활동 순
   out.sort((a, b) => b.수정epoch - a.수정epoch)
@@ -272,5 +272,5 @@ export function scanSessions({ slugs = null, useCache = true } = {}) {
     if (s.할당량 && (!할당량 || s.할당량._at > 할당량._at)) 할당량 = s.할당량
   }
 
-  return { sessions: out, 할당량, 스캔: { 파일: 파일수, 새로읽음, ms: Date.now() - 시작 } }
+  return { sessions: out, 할당량, 스캔: { 파일: fileCount, 새로읽음, ms: Date.now() - 시작 } }
 }

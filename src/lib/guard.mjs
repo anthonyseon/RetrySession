@@ -19,7 +19,7 @@ import { writeJsonAtomic } from './io.mjs'
  * 하트비트 기록이 살아 있는가. 순수 함수 — 객체를 받아 판정만 한다.
  * @param hb 하트비트 JSON 객체. 읽기 실패면 null 을 넘긴다.
  */
-export function heartbeatVerdict(hb, limitMin = 15, now = Date.now(), 켠epoch = null) {
+export function heartbeatVerdict(hb, limitMin = 15, now = Date.now(), onEpoch = null) {
   if (hb === null || typeof hb !== 'object') {
     /**
      * 🔴 "아직 없다" 와 "끊겼다" 는 다르다.
@@ -36,17 +36,17 @@ export function heartbeatVerdict(hb, limitMin = 15, now = Date.now(), 켠epoch =
      *   대기는 **한계 시간까지만** 인정한다. 그 뒤에도 첫 기록이 없으면 하트비트가
      *   정말 안 도는 것이므로 죽음으로 답한다 — 창을 무한정 열어두지 않는다.
      */
-    if (typeof 켠epoch === 'number' && Number.isFinite(켠epoch)) {
-      const 켠뒤 = minutesSince(켠epoch, now)
-      if (켠뒤 <= limitMin) {
+    if (typeof onEpoch === 'number' && Number.isFinite(onEpoch)) {
+      const sinceOn = minutesSince(onEpoch, now)
+      if (sinceOn <= limitMin) {
         return {
           alive: false, 대기: true, ageMin: null,
-          why: `감시를 켠 지 ${Math.max(0, Math.round(켠뒤))}분 — 첫 기록을 기다리는 중 (5분마다 기록한다)`,
+          why: `감시를 켠 지 ${Math.max(0, Math.round(sinceOn))}분 — 첫 기록을 기다리는 중 (5분마다 기록한다)`,
         }
       }
       return {
         alive: false, 대기: false, ageMin: null,
-        why: `감시를 켠 지 ${Math.round(켠뒤)}분이 지났는데 첫 기록이 없다 (한계 ${limitMin}분) — 하트비트가 돌지 않는다`,
+        why: `감시를 켠 지 ${Math.round(sinceOn)}분이 지났는데 첫 기록이 없다 (한계 ${limitMin}분) — 하트비트가 돌지 않는다`,
       }
     }
     return { alive: false, 대기: false, ageMin: null, why: '하트비트 파일을 읽을 수 없다' }
@@ -79,14 +79,14 @@ export function heartbeatVerdict(hb, limitMin = 15, now = Date.now(), 켠epoch =
 export function sessionRunning(목록, sessionId, isAlive = () => true) {
   if (!목록 || 목록.ok !== true) {
     return {
-      실행중: true, 확실한가: false,
+      실행중: true, isCertain: false,
       why: `실행 중 여부를 확인할 수 없다 — ${목록?.오류 || '목록을 받지 못했다'}. 모르는 채로 밀면 사람이 쓰는 대화에 끼어든다`,
     }
   }
   const s = (목록.sessions || []).find((x) => x.sessionId === sessionId)
-  if (!s) return { 실행중: false, 확실한가: true, why: null }
-  if (!isAlive(s.pid)) return { 실행중: false, 확실한가: true, why: null }
-  return { 실행중: true, 확실한가: true, why: `세션이 실행 중이다 (pid ${s.pid}) — 사람이 쓰는 중이므로 건드리지 않는다` }
+  if (!s) return { 실행중: false, isCertain: true, why: null }
+  if (!isAlive(s.pid)) return { 실행중: false, isCertain: true, why: null }
+  return { 실행중: true, isCertain: true, why: `세션이 실행 중이다 (pid ${s.pid}) — 사람이 쓰는 중이므로 건드리지 않는다` }
 }
 
 /* ── 사용량 제한 ─────────────────────────────────────────────── */
@@ -110,23 +110,23 @@ export function sessionRunning(목록, sessionId, isAlive = () => true) {
  * @param 할당량 트랜스크립트에서 읽은 quotaLimits (resetsAt 은 **초** 단위)
  */
 export function limitState(할당량, now = Date.now()) {
-  const 없음 = { 제한중: false, 해제됨: false, 남은분: null, 해제epoch: null, why: null }
-  if (!할당량 || typeof 할당량 !== 'object') return 없음
+  const none = { limited: false, lifted: false, leftMin: null, liftedEpoch: null, why: null }
+  if (!할당량 || typeof 할당량 !== 'object') return none
 
   const resetsAt = 할당량.resetsAt
   if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt)) {
-    return { ...없음, why: null, 모름: true }
+    return { ...none, why: null, unknown: true }
   }
 
-  const 해제epoch = resetsAt * 1000
-  const 남은분 = Math.ceil((해제epoch - now) / 60000)
-  if (남은분 > 0) {
+  const liftedEpoch = resetsAt * 1000
+  const leftMin = Math.ceil((liftedEpoch - now) / 60000)
+  if (leftMin > 0) {
     return {
-      제한중: true, 해제됨: false, 남은분, 해제epoch,
-      why: `사용량 제한 중 (${할당량.rateLimitType || '?'}) — ${남은분}분 후 해제. 제한 중에 띄우면 실패로 기록돼 회로를 태운다`,
+      limited: true, lifted: false, leftMin, liftedEpoch,
+      why: `사용량 제한 중 (${할당량.rateLimitType || '?'}) — ${leftMin}분 후 해제. 제한 중에 띄우면 실패로 기록돼 회로를 태운다`,
     }
   }
-  return { 제한중: false, 해제됨: true, 남은분, 해제epoch, why: null }
+  return { limited: false, lifted: true, leftMin, liftedEpoch, why: null }
 }
 
 /**
@@ -161,7 +161,7 @@ export function quietNow(quiet, now = new Date()) {
 
 /* ── 실행 상태(예산·회로차단기) ───────────────────────────────── */
 
-export const 빈상태 = () => ({ 마지막실행: null, 일별: {}, costByDay: {}, 연속실패: 0, 차단: null })
+export const emptyState = () => ({ 마지막실행: null, 일별: {}, costByDay: {}, 연속실패: 0, 차단: null })
 
 /**
  * 실행 상태를 읽는다.
@@ -169,12 +169,12 @@ export const 빈상태 = () => ({ 마지막실행: null, 일별: {}, costByDay: 
  * 알 수 없으므로 fail-closed — `손상:true` 로 표시해 호출부가 막는다.
  */
 export function loadRunState(path) {
-  if (!existsSync(path)) return 빈상태()
+  if (!existsSync(path)) return emptyState()
   try {
     const s = JSON.parse(readFileSync(path, 'utf8'))
-    return { ...빈상태(), ...s }
+    return { ...emptyState(), ...s }
   } catch (e) {
-    return { ...빈상태(), 손상: `실행 상태 파일이 깨졌다: ${e.message}` }
+    return { ...emptyState(), 손상: `실행 상태 파일이 깨졌다: ${e.message}` }
   }
 }
 
@@ -206,24 +206,24 @@ export function budgetVerdict(state, cfg, now = Date.now()) {
   if (state.손상) return no(state.손상)
   if (state.차단) return no(`회로 차단됨 (${state.차단.at}): ${state.차단.이유} — 고친 뒤 --rearm 으로 푼다`)
 
-  const 한계 = cfg.연속실패한계 ?? 3
-  if ((state.연속실패 || 0) >= 한계) {
-    return no(`연속 ${state.연속실패}회 실패 (한계 ${한계}) — 고친 뒤 --rearm 으로 푼다`)
+  const limit = cfg.연속실패한계 ?? 3
+  if ((state.연속실패 || 0) >= limit) {
+    return no(`연속 ${state.연속실패}회 실패 (한계 ${limit}) — 고친 뒤 --rearm 으로 푼다`)
   }
 
-  const 최대 = cfg.하루최대회 ?? 12
-  if (오늘실행 >= 최대) return no(`오늘 ${오늘실행}회 실행 (하루 상한 ${최대}회)`)
+  const max = cfg.하루최대회 ?? 12
+  if (오늘실행 >= max) return no(`오늘 ${오늘실행}회 실행 (하루 상한 ${max}회)`)
 
-  const 비용상한 = cfg.하루최대비용USD
-  if (typeof 비용상한 === 'number' && 오늘비용 >= 비용상한) {
-    return no(`오늘 $${오늘비용} 사용 (하루 상한 $${비용상한})`)
+  const costCap = cfg.하루최대비용USD
+  if (typeof costCap === 'number' && 오늘비용 >= costCap) {
+    return no(`오늘 $${오늘비용} 사용 (하루 상한 $${costCap})`)
   }
 
-  const 간격 = cfg.최소간격분 ?? 30
+  const interval = cfg.최소간격분 ?? 30
   const last = state.마지막실행
   if (last && typeof last.atEpoch === 'number') {
-    const 경과 = minutesSince(last.atEpoch, now)
-    if (경과 < 간격) return no(`마지막 실행 ${경과}분 전 (최소 간격 ${간격}분)`)
+    const elapsed = minutesSince(last.atEpoch, now)
+    if (elapsed < interval) return no(`마지막 실행 ${elapsed}분 전 (최소 간격 ${interval}분)`)
   }
 
   return { ok: true, why: null, 오늘실행, 오늘비용 }
@@ -231,9 +231,9 @@ export function budgetVerdict(state, cfg, now = Date.now()) {
 
 /** 실행 1회를 상태에 반영한다. 순수 함수 — 새 상태를 돌려준다 */
 export function recordRun(state, detail, cfg = {}, now = Date.now()) {
-  const { 결과, 요약, 소요초, 비용USD = 0 } = detail
+  const { 결과, summary, tookSec, 비용USD = 0 } = detail
   const today = dayKey(new Date(now))
-  const 성공 = 결과 === 'ok'
+  const okCount = 결과 === 'ok'
 
   /**
    * 🔴 제한은 실패가 아니다 — 연속실패를 올리지 않는다.
@@ -243,10 +243,10 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
    *   진짜 실패 두 번 뒤에 제한 한 번이 끼어도 그 두 번은 그대로 남아야 한다.
    *   하루 횟수에는 센다(프로세스를 띄웠으니 시도는 시도다).
    */
-  const 제한 = 결과 === '제한'
-  const 연속실패 = 성공 ? 0 : 제한 ? (state.연속실패 || 0) : (state.연속실패 || 0) + 1
-  const 한계 = cfg.연속실패한계 ?? 3
-  const 이전비용 = (state.costByDay || {})[today] || 0
+  const limitInfo = 결과 === '제한'
+  const 연속실패 = okCount ? 0 : limitInfo ? (state.연속실패 || 0) : (state.연속실패 || 0) + 1
+  const limit = cfg.연속실패한계 ?? 3
+  const prevCost = (state.costByDay || {})[today] || 0
 
   const next = {
     ...state,
@@ -255,13 +255,13 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
       at: localStamp(new Date(now)),
       atEpoch: now,
       결과,
-      요약: String(요약 ?? '').slice(0, 2000),
-      소요초,
+      summary: String(summary ?? '').slice(0, 2000),
+      tookSec,
     },
     일별: { ...(state.일별 || {}), [today]: ((state.일별 || {})[today] || 0) + 1 },
-    costByDay: { ...(state.costByDay || {}), [today]: +(이전비용 + (비용USD || 0)).toFixed(4) },
+    costByDay: { ...(state.costByDay || {}), [today]: +(prevCost + (비용USD || 0)).toFixed(4) },
     연속실패,
-    차단: 연속실패 >= 한계
+    차단: 연속실패 >= limit
       ? { at: localStamp(new Date(now)), 이유: `연속 ${연속실패}회 실패` }
       : state.차단 || null,
   }
@@ -290,7 +290,7 @@ export function acquireLock(path, staleMin = 60) {
    * 🔴 `wx` — "없을 때만 만든다"를 운영체제가 한 동작으로 한다.
    *   보고 나서 쓰면 그 사이에 남이 끼어들어 둘 다 통과한다(lib/single.mjs 와 같은 함정).
    */
-  const 만들기 = () => {
+  const make = () => {
     try {
       writeFileSync(path, JSON.stringify({ pid: process.pid, at: localStamp(), atEpoch: Date.now() }, null, 2) + '\n',
         { flag: 'wx' })
@@ -301,7 +301,7 @@ export function acquireLock(path, staleMin = 60) {
     }
   }
 
-  if (만들기()) return { ok: true, why: null }
+  if (make()) return { ok: true, why: null }
 
   let held = null
   try { held = JSON.parse(readFileSync(path, 'utf8')) } catch { /* 깨진 락은 낡은 것으로 본다 */ }
@@ -318,7 +318,7 @@ export function acquireLock(path, staleMin = 60) {
 
   // 죽은 프로세스이거나 한계를 넘겼다 — 회수하고 딱 한 번 다시 잡는다
   try { rmSync(path, { force: true }) } catch { /* 못 지우면 아래에서 실패로 답한다 */ }
-  if (만들기()) return { ok: true, why: null }
+  if (make()) return { ok: true, why: null }
   return { ok: false, why: '낡은 락을 회수하는 사이에 다른 프로세스가 잡았다' }
 }
 

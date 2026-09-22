@@ -21,33 +21,33 @@ import { join } from 'node:path'
 import { RS_HOME } from './config.mjs'
 
 /** 못 읽은 값. 0 과 구별해야 한다 — 0 은 "안 함"이고 null 은 "모른다"다 */
-export const 모름 = null
+export const unknown = null
 
 /**
  * 사실상 "안 함"인가.
  * Windows 는 보통 0 을 쓰지만, 2147483647 같은 큰 값을 쓰는 OEM 도 있다(실측).
  * 하루를 넘기는 대기는 우리 목적에서는 안 자는 것과 같다.
  */
-export const effectivelyNever = (초) => 초 === 0 || (Number.isFinite(초) && 초 >= 86400)
+export const effectivelyNever = (seconds) => seconds === 0 || (Number.isFinite(seconds) && seconds >= 86400)
 
 /** 초 → 사람이 읽는 말 */
-export function timeText(초) {
-  if (초 === null || 초 === undefined) return '모름'
-  if (effectivelyNever(초)) return '안 함'
-  const 분 = Math.round(초 / 60)
-  return 분 >= 60 ? `${Math.round(분 / 6) / 10}시간 뒤` : `${분}분 뒤`
+export function timeText(seconds) {
+  if (seconds === null || seconds === undefined) return '모름'
+  if (effectivelyNever(seconds)) return '안 함'
+  const minutes = Math.round(seconds / 60)
+  return minutes >= 60 ? `${Math.round(minutes / 6) / 10}시간 뒤` : `${minutes}분 뒤`
 }
 
-const 덮개말 = { 0: '아무 것도 안 함', 1: '절전', 2: '최대 절전', 3: '시스템 종료' }
+const lidText = { 0: '아무 것도 안 함', 1: '절전', 2: '최대 절전', 3: '시스템 종료' }
 
 /**
  * 설정 하나에 대한 판정.
  * @returns {{키,이름,현재,권장,수준,왜,고칠수있나}} 수준: ok | warn | crit | unknown
  */
-function 항목(키, 이름, 현재말, 권장말, 수준, 왜, 고칠수있나 = false, 원값 = null) {
+function 항목(키, 이름, nowText, wantText, 수준, 왜, 고칠수있나 = false, 원값 = null) {
   // 원값 — 화면의 고르는 칸이 "지금 무엇이 골라져 있나"를 표시하려면 숫자가 필요하다.
   // 현재말('10분 뒤')은 사람용이고, 원값(600)은 기계용이다. 둘을 섞으면 안 된다.
-  return { 키, 이름, 현재: 현재말, 권장: 권장말, 수준, 왜, 고칠수있나, 원값 }
+  return { 키, 이름, 현재: nowText, 권장: wantText, 수준, 왜, 고칠수있나, 원값 }
 }
 
 /**
@@ -70,7 +70,7 @@ export function pcVerdict(s) {
     effectivelyNever(s.standbyAc)
       ? 항목('standbyAc', '절전 (전원 연결)', timeText(s.standbyAc), '안 함', 'ok',
         '잠들지 않으므로 감시가 계속 돈다', false, s.standbyAc)
-      : s.standbyAc === 모름
+      : s.standbyAc === unknown
         ? 항목('standbyAc', '절전 (전원 연결)', '모름', '안 함', 'unknown', '값을 읽지 못했다 — 직접 확인해야 한다')
         : 항목('standbyAc', '절전 (전원 연결)', timeText(s.standbyAc), '안 함', 'crit',
           `${timeText(s.standbyAc)} 잠든다. 잠든 PC 는 예약 작업을 돌리지 않는다 — 감시도 재개도 그때 멎는다`,
@@ -82,7 +82,7 @@ export function pcVerdict(s) {
       effectivelyNever(s.hibernateAc)
         ? 항목('hibernateAc', '최대 절전 (전원 연결)', timeText(s.hibernateAc), '안 함', 'ok', '',
           false, s.hibernateAc)
-        : s.hibernateAc === 모름
+        : s.hibernateAc === unknown
           ? 항목('hibernateAc', '최대 절전 (전원 연결)', '모름', '안 함', 'unknown', '값을 읽지 못했다')
           : 항목('hibernateAc', '최대 절전 (전원 연결)', timeText(s.hibernateAc), '안 함', 'crit',
             `${timeText(s.hibernateAc)} 최대 절전에 든다. 절전과 같은 결과다`, true, s.hibernateAc))
@@ -95,7 +95,7 @@ export function pcVerdict(s) {
 
   /* ── 덮개 (노트북만) ── */
   if (s.hasBattery) {
-    if (s.lidAc === 모름) {
+    if (s.lidAc === unknown) {
       /**
        * 🔴 여기에는 고르는 칸을 주지 않는다(원값 없음).
        *   실측: 이 PC 는 전원 구성에 덮개 항목이 없는데도 `powercfg /setacvalueindex
@@ -105,10 +105,10 @@ export function pcVerdict(s) {
       목록.push(항목('lidAc', '덮개 닫기 (전원 연결)', '모름', '아무 것도 안 함', 'unknown',
         '이 PC 의 전원 구성에 덮개 항목이 없다(숨김). 제어판에서 직접 확인해야 한다'))
     } else if (s.lidAc === 0) {
-      목록.push(항목('lidAc', '덮개 닫기 (전원 연결)', 덮개말[0], '아무 것도 안 함', 'ok', '',
+      목록.push(항목('lidAc', '덮개 닫기 (전원 연결)', lidText[0], '아무 것도 안 함', 'ok', '',
         false, s.lidAc))
     } else {
-      목록.push(항목('lidAc', '덮개 닫기 (전원 연결)', 덮개말[s.lidAc] ?? `코드 ${s.lidAc}`, '아무 것도 안 함', 'warn',
+      목록.push(항목('lidAc', '덮개 닫기 (전원 연결)', lidText[s.lidAc] ?? `코드 ${s.lidAc}`, '아무 것도 안 함', 'warn',
         '덮개를 닫으면 잠들어 감시가 멎는다. 덮고 자리를 비우는 일이 없다면 그대로 둬도 된다',
         true, s.lidAc))
     }
@@ -199,9 +199,9 @@ export function validateValue(키, 값) {
 }
 
 /** `{standbyAc:0, lidAc:1}` → `['-StandbyAc','0','-LidAc','1']` */
-export function setArgs(값들) {
+export function setArgs(values) {
   const args = []
-  for (const [키, v] of Object.entries(값들 || {})) {
+  for (const [키, v] of Object.entries(values || {})) {
     const r = validateValue(키, v)
     if (!r.ok) continue
     args.push('-' + 키[0].toUpperCase() + 키.slice(1), String(r.값))
@@ -217,15 +217,15 @@ export function setArgs(값들) {
  *   스크립트가 `wrote:true` 를 돌려주는데 다시 읽으면 여전히 null 이다.
  *   "바꿨다"고 말만 하고 안 바뀌는 것이 가장 나쁘다. 그래서 값마다 대조한다.
  */
-export function verifyApplied(요청, 뒤) {
+export function verifyApplied(req, after) {
   const 안된것 = []
-  for (const [키, v] of Object.entries(요청 || {})) {
+  for (const [키, v] of Object.entries(req || {})) {
     const r = validateValue(키, v)
     if (!r.ok) continue
-    const 실제 = 뒤?.[키]
+    const actual = after?.[키]
     // null 은 "읽을 수 없다" — 바뀌었는지 확인할 방법이 없으므로 안 된 것으로 본다
-    if (실제 === null || 실제 === undefined || Number(실제) !== r.값) {
-      안된것.push({ 키, 요청: r.값, 실제: 실제 ?? null })
+    if (actual === null || actual === undefined || Number(actual) !== r.값) {
+      안된것.push({ 키, req: r.값, actual: actual ?? null })
     }
   }
   return { ok: 안된것.length === 0, 안된것 }
@@ -234,26 +234,26 @@ export function verifyApplied(요청, 뒤) {
 /** 되돌리기용 인자 — 백업해 둔 값으로 되돌린다 */
 export function restoreArgs(백업) {
   const args = []
-  const 넣기 = (키, 값) => { if (Number.isFinite(값)) args.push(키, String(값)) }
-  넣기('-StandbyAc', 백업?.standbyAc)
-  넣기('-HibernateAc', 백업?.hibernateAc)
-  넣기('-LidAc', 백업?.lidAc)
+  const put = (키, 값) => { if (Number.isFinite(값)) args.push(키, String(값)) }
+  put('-StandbyAc', 백업?.standbyAc)
+  put('-HibernateAc', 백업?.hibernateAc)
+  put('-LidAc', 백업?.lidAc)
   return args
 }
 
 /* ── 읽기·쓰기 (IO) ──────────────────────────────────────────── */
 
-const 스크립트 = () => join(RS_HOME, 'scripts', 'pc-settings.ps1')
+const scriptPath = () => join(RS_HOME, 'scripts', 'pc-settings.ps1')
 
 /**
  * pc-settings.ps1 을 부른다.
  * 🔴 창을 띄우지 않고(windowsHide) 셸을 거치지 않는다 — 저장소 규칙.
  * 🔴 못 읽었으면 `ok:false` 다. 괜찮다고 하지 않는다(판정이 unknown 으로 받는다).
  */
-export function 읽기(추가인자 = []) {
+export function readPs(extraArgs = []) {
   try {
     const out = execFileSync('powershell', [
-      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 스크립트(), '-Json', ...추가인자,
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath(), '-Json', ...extraArgs,
     ], { encoding: 'utf8', timeout: 30000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
     return JSON.parse(out.trim().split('\n').pop())
   } catch (e) {
@@ -269,8 +269,8 @@ export function 읽기(추가인자 = []) {
  *   2.5초마다 상태를 묻는다. 캐시 없이 끼워 넣으면 모든 조회가 0.5초씩 느려진다.
  *   전원 설정은 사람이 바꾸기 전에는 그대로이므로 1분은 낡아도 무해하다.
  */
-const _캐시 = { at: 0, v: null }
-export function pcState({ ttlMs = 60000, 강제 = false } = {}) {
+const _cache2 = { at: 0, v: null }
+export function pcState({ ttlMs = 60000, force = false } = {}) {
   // 🔴 백업과 안내는 **두 갈래 모두**에 담는다.
   //   캐시 경로에서 빠뜨려 화면의 "수동 설정 방법" 단추가 빈 채로 떴다(실측).
   //   안내는 고정 문구라 캐시할 것도 없고, 백업은 방금 적용했는지를 바로 알아야 한다.
@@ -278,12 +278,12 @@ export function pcState({ ttlMs = 60000, 강제 = false } = {}) {
   // 서버가 거절하는 일이 없다.
   const extraInfo = () => ({ 백업: backupInfo(), 안내: manualGuide(), 선택지, 쓸수있는키 })
 
-  if (!강제 && _캐시.v && Date.now() - _캐시.at < ttlMs) {
-    return { ..._캐시.v, ...extraInfo(), 캐시됨: true, 나이초: Math.round((Date.now() - _캐시.at) / 1000) }
+  if (!force && _cache2.v && Date.now() - _cache2.at < ttlMs) {
+    return { ..._cache2.v, ...extraInfo(), 캐시됨: true, 나이초: Math.round((Date.now() - _cache2.at) / 1000) }
   }
-  const v = pcVerdict(읽기())
-  _캐시.at = Date.now()
-  _캐시.v = v
+  const v = pcVerdict(readPs())
+  _cache2.at = Date.now()
+  _cache2.v = v
   return { ...v, ...extraInfo(), 캐시됨: false, 나이초: 0 }
 }
 
@@ -306,7 +306,7 @@ export function backupInfo() {
 }
 
 /** 설정을 바꾼 뒤에는 캐시가 거짓말을 한다 — 버린다 */
-export const 캐시비우기 = () => { _캐시.at = 0; _캐시.v = null }
+export const clearCache = () => { _cache2.at = 0; _cache2.v = null }
 
 /** 자동으로 못 고치는 것들의 수동 안내 */
 export const manualGuide = () => ([

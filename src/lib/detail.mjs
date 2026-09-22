@@ -26,7 +26,7 @@ export function findTranscript(sessionId) {
   return null
 }
 
-const 건너뛸까 = (line) =>
+const shouldSkip = (line) =>
   line.includes('"type":"attachment"') ||
   line.includes('"type":"file-history-snapshot"') ||
   line.includes('"type":"file-history-delta"')
@@ -34,14 +34,14 @@ const 건너뛸까 = (line) =>
 /** 도구 입력에서 사람이 알아볼 한 줄을 뽑는다 */
 function toolDigest(name, input) {
   const i = input || {}
-  const 첫 = (...keys) => { for (const k of keys) if (i[k]) return String(i[k]) ; return null }
+  const first = (...keys) => { for (const k of keys) if (i[k]) return String(i[k]) ; return null }
   const v =
-    첫('file_path', 'notebook_path', 'path') ||
-    첫('command') ||
-    첫('pattern') ||
-    첫('url') ||
-    첫('prompt', 'description') ||
-    첫('skill') ||
+    first('file_path', 'notebook_path', 'path') ||
+    first('command') ||
+    first('pattern') ||
+    first('url') ||
+    first('prompt', 'description') ||
+    first('skill') ||
     null
   if (v) return v.length > 160 ? v.slice(0, 160) + '…' : v
   try {
@@ -66,9 +66,9 @@ function assistantText(content) {
 
 /** 사용자 content → 글 (도구 결과는 따로 표시한다) */
 function userText(content) {
-  if (typeof content === 'string') return { 글: content, 도구결과: [] }
+  if (typeof content === 'string') return { 글: content, toolResult: [] }
   let 글 = ''
-  const 도구결과 = []
+  const toolResult = []
   if (Array.isArray(content)) {
     for (const b of content) {
       if (!b || typeof b !== 'object') continue
@@ -78,14 +78,14 @@ function userText(content) {
         let 요지 = ''
         if (typeof c === 'string') 요지 = c
         else if (Array.isArray(c)) 요지 = c.map((x) => (x?.type === 'text' ? x.text : `[${x?.type}]`)).join('\n')
-        도구결과.push({ id: b.tool_use_id, 오류: !!b.is_error, 요지: String(요지).slice(0, 400) })
+        toolResult.push({ id: b.tool_use_id, 오류: !!b.is_error, 요지: String(요지).slice(0, 400) })
       }
     }
   }
-  return { 글, 도구결과 }
+  return { 글, toolResult }
 }
 
-const 자르기 = (s, n) => {
+const cut = (s, n) => {
   const t = String(s || '').replace(/\r/g, '')
   return t.length > n ? t.slice(0, n) + '…' : t
 }
@@ -96,11 +96,11 @@ const 자르기 = (s, n) => {
  * @param {object} opts.turns 최대 항목 수 (기본 40)
  * @param {object} opts.maxBytes 꼬리에서 읽을 바이트 (기본 512KB)
  */
-export function sessionDetail(sessionId, { turns = 40, maxBytes = 512 * 1024, 글길이 = 1200 } = {}) {
-  const 찾음 = findTranscript(sessionId)
-  if (!찾음) return { ok: false, 오류: `트랜스크립트를 찾을 수 없다: ${sessionId}` }
+export function sessionDetail(sessionId, { turns = 40, maxBytes = 512 * 1024, textLen = 1200 } = {}) {
+  const found = findTranscript(sessionId)
+  if (!found) return { ok: false, 오류: `트랜스크립트를 찾을 수 없다: ${sessionId}` }
 
-  const { 경로, slug } = 찾음
+  const { 경로, slug } = found
   const size = statSync(경로).size
   const start = Math.max(0, size - maxBytes)
   const len = size - start
@@ -120,25 +120,25 @@ export function sessionDetail(sessionId, { turns = 40, maxBytes = 512 * 1024, �
   }
 
   const 항목 = []
-  const 결과맵 = new Map() // tool_use_id → 결과 (도구가 끝났는지 판정)
+  const resultMap = new Map() // tool_use_id → 결과 (도구가 끝났는지 판정)
 
   for (const line of text.split('\n')) {
-    if (!line || 건너뛸까(line)) continue
+    if (!line || shouldSkip(line)) continue
     let j
     try { j = JSON.parse(line) } catch { continue }
     const at = j.timestamp ? localStamp(new Date(j.timestamp)) : null
     const atEpoch = j.timestamp ? Date.parse(j.timestamp) : null
 
     if (j.type === 'user') {
-      const { 글, 도구결과 } = userText(j.message?.content)
-      for (const r of 도구결과) 결과맵.set(r.id, r)
+      const { 글, toolResult } = userText(j.message?.content)
+      for (const r of toolResult) resultMap.set(r.id, r)
       // 도구 결과만 있는 사용자 엔트리는 사람의 발화가 아니다 — 타임라인을 어지럽히지 않게 접는다
       if (글.trim()) {
-        항목.push({ 종류: '사용자', at, atEpoch, 글: 자르기(글, 글길이), 사이드체인: !!j.isSidechain })
-      } else if (도구결과.length) {
+        항목.push({ 종류: '사용자', at, atEpoch, 글: cut(글, textLen), 사이드체인: !!j.isSidechain })
+      } else if (toolResult.length) {
         항목.push({
           종류: '도구결과', at, atEpoch, 사이드체인: !!j.isSidechain,
-          결과: 도구결과.map((r) => ({ 오류: r.오류, 요지: 자르기(r.요지, 300) })),
+          결과: toolResult.map((r) => ({ 오류: r.오류, 요지: cut(r.요지, 300) })),
         })
       }
     } else if (j.type === 'assistant') {
@@ -147,7 +147,7 @@ export function sessionDetail(sessionId, { turns = 40, maxBytes = 512 * 1024, �
       항목.push({
         종류: '어시스턴트', at, atEpoch, 사이드체인: !!j.isSidechain,
         모델: normalizeModel(j.message?.model),
-        글: 자르기(글, 글길이),
+        글: cut(글, textLen),
         사고있음,
         도구,
         토큰: {
@@ -163,18 +163,18 @@ export function sessionDetail(sessionId, { turns = 40, maxBytes = 512 * 1024, �
     }
   }
 
-  const 최근 = 항목.slice(-turns)
+  const latest = 항목.slice(-turns)
 
   /* 미완결 도구 = 호출됐는데 결과가 안 온 것. "지금 무엇을 하는 중"의 정답이다 */
-  const 미완결 = []
+  const unfinished = []
   for (const it of 항목) {
     if (it.종류 !== '어시스턴트') continue
-    for (const t of it.도구 || []) if (!결과맵.has(t.id)) 미완결.push({ ...t, at: it.at })
+    for (const t of it.도구 || []) if (!resultMap.has(t.id)) unfinished.push({ ...t, at: it.at })
   }
 
-  const 마지막사용자 = [...항목].reverse().find((i) => i.종류 === '사용자') || null
-  const 마지막어시스턴트 = [...항목].reverse().find((i) => i.종류 === '어시스턴트' && i.글) || null
-  const 마지막 = 항목.at(-1) || null
+  const lastUser = [...항목].reverse().find((i) => i.종류 === '사용자') || null
+  const lastAssistant = [...항목].reverse().find((i) => i.종류 === '어시스턴트' && i.글) || null
+  const last = 항목.at(-1) || null
 
   return {
     ok: true,
@@ -184,16 +184,16 @@ export function sessionDetail(sessionId, { turns = 40, maxBytes = 512 * 1024, �
     전체읽음: start === 0,
     수정epoch: statSync(경로).mtimeMs,
     활성분: +((Date.now() - statSync(경로).mtimeMs) / 60000).toFixed(1),
-    항목: 최근,
+    항목: latest,
     항목수: 항목.length,
     // 🔴 이 세 값이 "처리 상황"이다 — 나머지는 근거다
     진행: {
-      마지막종류: 마지막?.종류 || null,
-      마지막시각: 마지막?.at || null,
-      미완결도구: 미완결.slice(-6),
-      도구실행중: 미완결.length > 0,
+      마지막종류: last?.종류 || null,
+      마지막시각: last?.at || null,
+      미완결도구: unfinished.slice(-6),
+      도구실행중: unfinished.length > 0,
     },
-    마지막사용자요청: 마지막사용자 ? { at: 마지막사용자.at, 글: 마지막사용자.글 } : null,
-    마지막답: 마지막어시스턴트 ? { at: 마지막어시스턴트.at, 글: 마지막어시스턴트.글, 모델: 마지막어시스턴트.모델 } : null,
+    마지막사용자요청: lastUser ? { at: lastUser.at, 글: lastUser.글 } : null,
+    마지막답: lastAssistant ? { at: lastAssistant.at, 글: lastAssistant.글, 모델: lastAssistant.모델 } : null,
   }
 }

@@ -18,8 +18,8 @@ import { readFileSync } from 'node:fs'
  */
 export function interpret(obj) {
   const fail = (error) => ({
-    ok: false, 규약: null, doing: null, 다음todo: null,
-    done: 0, total: 0, 완료표기: '?', 남음: 0, 전부완료: false,
+    ok: false, contract: null, doing: null, 다음todo: null,
+    done: 0, total: 0, 완료표기: '?', remaining: 0, 전부완료: false,
     nextAction: null, error,
   })
 
@@ -37,14 +37,14 @@ export function interpret(obj) {
 
   return {
     ok: true,
-    규약: obj._재개규약 || null,
+    contract: obj._resumeContract || null,
     doing: slim(doings[0]),
     doing위반: doings.length > 1 ? doings.map((s) => s.id) : null,
     다음todo: slim(todos[0]),
     done,
     total: steps.length,
     완료표기: `${done}/${steps.length}`,
-    남음: steps.length - done,
+    remaining: steps.length - done,
     // 🔴 "doing·todo 가 없음" 으로 정의하면 안 된다. status 가 blocked 처럼 제3의 값이면
     //   done 이 아닌데도 완료로 판정되어, 막힌 일이 조용히 사라진다(시험이 잡은 결함).
     //   완료는 오직 전 단계가 done 일 때다.
@@ -81,7 +81,7 @@ export function resumePrompt(t, project) {
     '당신은 중단된 작업을 이어서 재개한다. 이 실행은 OS 작업 스케줄러가 띄운 것이고 사람이 보고 있지 않다.',
     '',
     `진행 상태 정본: ${project.tracker}`,
-    `재개규약: ${t.규약 || "status가 'doing'인 항목이 중단 지점이다. 없으면 첫 'todo'부터. doing은 한 번에 하나만."}`,
+    `재개규약: ${t.contract || "status가 'doing'인 항목이 중단 지점이다. 없으면 첫 'todo'부터. doing은 한 번에 하나만."}`,
     '',
     현재,
     `완료: ${t.완료표기}`,

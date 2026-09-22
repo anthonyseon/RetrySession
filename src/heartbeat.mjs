@@ -28,7 +28,7 @@ import { fullStatus } from './lib/status.mjs'
 import { sessionDetail } from './lib/detail.mjs'
 import { 작업이름 } from './lib/scheduler.mjs'
 import { singleInstance } from './lib/single.mjs'
-import { 변화기록 } from './lib/alerts.mjs'
+import { changeLog } from './lib/alerts.mjs'
 
 const argv = process.argv.slice(2)
 const flag = (n) => argv.includes(n)
@@ -52,24 +52,24 @@ if (flag('--check')) {
     console.log('ℹ 감시 대상이 없다 — 판정할 것이 없다 (이것은 정상이다)')
     process.exit(0)
   }
-  let 죽음 = 0
+  let dead = 0
   for (const [id, v] of 감시) {
     // 형태가 아닌 id 는 판정할 수 없다 = 살아있다고 말할 수 없다 (fail-closed)
     if (!isSessionId(id)) {
-      죽음++
+      dead++
       console.error(`✖ '${String(id).slice(0, 40)}' — 세션 id 형태가 아니다. 등록부를 확인하라`)
       continue
     }
     const P = statePaths(id)
     let hb = null
     try { hb = JSON.parse(readFileSync(P.하트비트, 'utf8')) } catch { hb = null }
-    const 한계 = v.낡음한계분 ?? 15
-    const 켠epoch = typeof v.감시켠epoch === 'number'
+    const limit = v.낡음한계분 ?? 15
+    const onEpoch = typeof v.감시켠epoch === 'number'
       ? v.감시켠epoch
       : (Date.parse(v.갱신시각 || v.추가시각 || '') || null)
-    const r = heartbeatVerdict(hb, 한계, Date.now(), 켠epoch)
+    const r = heartbeatVerdict(hb, limit, Date.now(), onEpoch)
     const 이름 = `${id.slice(0, 8)} ${v.제목 ? `(${v.제목.slice(0, 30)})` : ''}`
-    if (r.alive) console.log(`✅ ${이름} — ${r.ageMin}분 전 기록 (한계 ${한계}분)`)
+    if (r.alive) console.log(`✅ ${이름} — ${r.ageMin}분 전 기록 (한계 ${limit}분)`)
     /**
      * 🔴 대기는 죽음이 아니다 — 아직 쓸 기회가 없었을 뿐이다.
      *   fail-closed 를 어기는 것이 아니다: 대기 창은 한계 시간까지만이고
@@ -77,9 +77,9 @@ if (flag('--check')) {
      *   **아직 때가 아닌 것**을 고장이라 하지 않는 것이다.
      */
     else if (r.대기) console.log(`◔ ${이름} — ${r.why}`)
-    else { 죽음++; console.error(`✖ ${이름} 하트비트 죽음 — ${r.why}`) }
+    else { dead++; console.error(`✖ ${이름} 하트비트 죽음 — ${r.why}`) }
   }
-  if (죽음) {
+  if (dead) {
     console.error('')
     console.error(`  되살리기: powershell -Command "Start-ScheduledTask -TaskName ${작업이름.하트비트}"`)
     console.error('  작업이 아예 없으면 재등록: powershell -ExecutionPolicy Bypass -File scripts/register-heartbeat.ps1')
@@ -97,26 +97,26 @@ if (flag('--check')) {
  *   화면·트레이에서 "지금 실행"을 누른 경우가 겹칠 수 있다.
  *   한 회차는 보통 몇 초다 — 30분을 넘겼다면 죽은 락으로 본다.
  */
-singleInstance('heartbeat', { 낡음분: 30 })
+singleInstance('heartbeat', { staleMin: 30 })
 
-const 등록 = loadTargets()
-const 켜진것 = Object.entries(등록.targets).filter(([, v]) => v.감시).map(([id]) => id)
+const registry = loadTargets()
+const turnedOn = Object.entries(registry.targets).filter(([, v]) => v.감시).map(([id]) => id)
 
 // 세션 id 형태가 아닌 항목은 경로가 될 수 없다. 알린 뒤 건너뛴다 —
 // 한 줄이 이상하다고 나머지 감시까지 멈추면 그게 더 나쁘다.
-const 감시대상 = 켜진것.filter(isSessionId)
-for (const 나쁜 of 켜진것.filter((id) => !isSessionId(id))) {
-  console.warn(`⚠ 등록부의 '${String(나쁜).slice(0, 40)}' 는 세션 id 형태가 아니다 — 건너뛴다`)
+const watchTarget = turnedOn.filter(isSessionId)
+for (const bad of turnedOn.filter((id) => !isSessionId(id))) {
+  console.warn(`⚠ 등록부의 '${String(bad).slice(0, 40)}' 는 세션 id 형태가 아니다 — 건너뛴다`)
 }
 
-if (!감시대상.length) {
+if (!watchTarget.length) {
   console.log(`하트비트 ${localStamp()} — 감시 대상이 없다. 기록할 것이 없다.`)
   process.exit(0)
 }
 
 // 집계는 한 번만 한다 — CLI 호출과 스캔이 들어 있어 세션마다 다시 하면 낭비다
 const S = fullStatus()
-const 세션맵 = new Map(S.세션.map((s) => [s.sessionId, s]))
+const sessionMap = new Map(S.세션.map((s) => [s.sessionId, s]))
 
 /**
  * 경보 이력은 여기서 남긴다 — 5분마다 도는 것이 이것뿐이기 때문이다.
@@ -124,35 +124,35 @@ const 세션맵 = new Map(S.세션.map((s) => [s.sessionId, s]))
  * 화면을 닫아둔 사이에 생긴 일을 놓치면 안 되고, 그렇다고 Windows 풍선으로
  * 띄우지도 않는다(너무 자주 떠서 진짜 경고가 묻혔다). **변화가 있을 때만** 적는다.
  */
-const alertDiff = 변화기록(S.경보 || [])
-if (alertDiff.기록) {
+const alertDiff = changeLog(S.경보 || [])
+if (alertDiff.record) {
   const n = (S.경보 || []).length
   console.log(n ? `⚠ 경보 ${n}건 (변화 기록됨)` : '✅ 경보 해소 (기록됨)')
   for (const a of S.경보 || []) console.log(`   ${a.수준} · ${a.제목} — ${a.설명}`)
 }
 
-for (const id of 감시대상) {
+for (const id of watchTarget) {
   const P = statePaths(id)
-  const s = 세션맵.get(id)
+  const s = sessionMap.get(id)
 
   if (!s) {
     // 등록은 돼 있는데 세션이 사라졌다(정리됨·purge). 감추지 않고 그대로 남긴다.
-    const 없음 = {
+    const none = {
       _주의: '5분마다 덮어쓴다. 추적하지 않는다 — 단계 경계 기록은 대상 저장소의 추적기가 정본이다.',
       at: localStamp(), atEpoch: Date.now(), sessionId: id,
       오류: '이 세션을 찾을 수 없다 — 트랜스크립트가 정리됐거나 claude project purge 된 것으로 보인다',
     }
-    writeJsonAtomic(P.하트비트, 없음)
-    appendLine(P.하트비트로그, `${없음.at} · (세션 없음) · ${없음.오류}`)
+    writeJsonAtomic(P.하트비트, none)
+    appendLine(P.hbLogPath, `${none.at} · (세션 없음) · ${none.오류}`)
     console.warn(`⚠ ${id.slice(0, 8)} — 세션을 찾을 수 없다`)
     continue
   }
 
   // 트랜스크립트 꼬리에서 "무엇을 하던 중인가" — 21MB 여도 512KB 만 읽는다
-  let 진행 = null, 미완결 = []
+  let 진행 = null, unfinished = []
   try {
-    const d = sessionDetail(id, { turns: 3, maxBytes: 256 * 1024, 글길이: 300 })
-    if (d.ok) { 진행 = d.진행; 미완결 = d.진행.미완결도구 }
+    const d = sessionDetail(id, { turns: 3, maxBytes: 256 * 1024, textLen: 300 })
+    if (d.ok) { 진행 = d.진행; unfinished = d.진행.미완결도구 }
   } catch { /* 상세 실패로 기록을 끊지 않는다 */ }
 
   const snap = {
@@ -184,8 +184,8 @@ for (const id of 감시대상) {
    */
   writeJsonAtomic(P.하트비트, snap)
 
-  const 도구 = 미완결.length ? `도구중 ${미완결.map((t) => t.이름).join(',')}` : (진행?.마지막종류 || '-')
-  appendLine(P.하트비트로그, [
+  const 도구 = unfinished.length ? `도구중 ${unfinished.map((t) => t.이름).join(',')}` : (진행?.마지막종류 || '-')
+  appendLine(P.hbLogPath, [
     snap.at,
     // 🔴 조회 실패를 '정지'로 적으면 나중에 이 기록을 읽는 사람이 속는다
     s.실행여부앎 === false ? '실행여부모름' : (s.실행중 ? '실행중' : '정지'),

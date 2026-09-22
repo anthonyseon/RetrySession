@@ -13,12 +13,12 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { RS_HOME } from './config.mjs'
 
-let _표 = null
+let _table = null
 
-export function 단가표() {
-  if (_표) return _표
-  _표 = JSON.parse(readFileSync(join(RS_HOME, 'config', 'pricing.json'), 'utf8'))
-  return _표
+export function priceTable() {
+  if (_table) return _table
+  _table = JSON.parse(readFileSync(join(RS_HOME, 'config', 'pricing.json'), 'utf8'))
+  return _table
 }
 
 /**
@@ -29,7 +29,7 @@ export function normalizeModel(id) {
   return String(id || '').replace(/\[.*?\]$/, '').trim()
 }
 
-export const 빈토큰 = () => ({ 입력: 0, 캐시쓰기1h: 0, 캐시쓰기5m: 0, 캐시읽기: 0, 출력: 0, 사고: 0 })
+export const emptyTokens = () => ({ 입력: 0, 캐시쓰기1h: 0, 캐시쓰기5m: 0, 캐시읽기: 0, 출력: 0, 사고: 0 })
 
 /**
  * 모델이 아닌 것들. 단가표에 없다고 "추정"으로 표시하면 안 된다.
@@ -42,12 +42,12 @@ export const 빈토큰 = () => ({ 입력: 0, 캐시쓰기1h: 0, 캐시쓰기5m: 
  *   모르는 모델을 추정으로 표시하는 것은 옳다(0 으로 감추면 안 된다). 하지만
  *   애초에 모델이 아닌 것은 그 판정에서 빼야 한다.
  */
-const 모델아님 = new Set(['<synthetic>'])
-export const isBillable = (id) => !모델아님.has(normalizeModel(id))
+const notAModel = new Set(['<synthetic>'])
+export const isBillable = (id) => !notAModel.has(normalizeModel(id))
 
 /** 토큰 두 묶음을 합친다 (순수) */
 export function 토큰합(a, b) {
-  const out = { ...빈토큰() }
+  const out = { ...emptyTokens() }
   for (const k of Object.keys(out)) out[k] = (a?.[k] || 0) + (b?.[k] || 0)
   return out
 }
@@ -56,25 +56,25 @@ export function 토큰합(a, b) {
  * 한 모델의 토큰 묶음 → USD. 순수 함수.
  * @returns {{usd:number, 추정:boolean}} 추정=단가표에 없는 모델이라 기본 단가를 썼다
  */
-export function modelCost(modelId, 토큰, 표 = 단가표()) {
+export function modelCost(modelId, 토큰, table = priceTable()) {
   const key = normalizeModel(modelId)
 
   // 모델이 아닌 엔트리(`<synthetic>` 등)는 비용도 0 이고 추정도 아니다.
   // 토큰이 0 이 아니면 우리가 잘못 안 것이므로 추정으로 되돌린다 — 조용히 감추지 않는다.
   if (!isBillable(key)) {
-    const 합 = (토큰.입력 || 0) + (토큰.캐시쓰기1h || 0) + (토큰.캐시쓰기5m || 0) +
+    const sum2 = (토큰.입력 || 0) + (토큰.캐시쓰기1h || 0) + (토큰.캐시쓰기5m || 0) +
       (토큰.캐시읽기 || 0) + (토큰.출력 || 0)
-    if (합 === 0) return { usd: 0, 추정: false }
+    if (sum2 === 0) return { usd: 0, 추정: false }
   }
 
-  const m = 표.모델[key]
-  const r = m || 표.기본
-  const b = 표.배수
+  const m = table.모델[key]
+  const r = m || table.fallback
+  const b = table.factor
 
   const usd =
     (토큰.입력 || 0) * r.입력 +
-    (토큰.캐시쓰기1h || 0) * r.입력 * b.캐시쓰기_1h +
-    (토큰.캐시쓰기5m || 0) * r.입력 * b.캐시쓰기_5m +
+    (토큰.캐시쓰기1h || 0) * r.입력 * b.cacheWrite1h +
+    (토큰.캐시쓰기5m || 0) * r.입력 * b.cacheWrite5m +
     (토큰.캐시읽기 || 0) * r.입력 * b.캐시읽기 +
     (토큰.출력 || 0) * r.출력
 
@@ -92,11 +92,11 @@ export function modelCost(modelId, 토큰, 표 = 단가표()) {
  * `{모델id: 토큰}` 묶음 전체의 비용.
  * @returns {{usd:number, 추정포함:boolean, 모델별:object}}
  */
-export function totalCost(모델별, 표 = 단가표()) {
+export function totalCost(모델별, table = priceTable()) {
   let usd = 0, 추정포함 = false
   const out = {}
   for (const [id, tok] of Object.entries(모델별 || {})) {
-    const c = modelCost(id, tok, 표)
+    const c = modelCost(id, tok, table)
     out[id] = { ...tok, usd: c.usd, 추정: c.추정 }
     usd += c.usd
     if (c.추정) 추정포함 = true

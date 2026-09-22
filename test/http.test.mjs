@@ -126,13 +126,13 @@ test('🔴 server.mjs 가 모든 요청에서 두 판정을 거친다', () => {
 test('🔴 경로가 되는 값을 받는 엔드포인트는 전부 형태를 확인한다', () => {
   const src = readFileSync(join(ROOT, 'src', 'ui', 'server.mjs'), 'utf8')
   // sessionId 를 다루는 네 곳 — 하나라도 빠지면 그 구멍으로 들어온다
-  for (const 조각 of ['/api/session/', '/api/targets', '/api/targets/remove', '/api/rearm', '/api/run']) {
-    const i = src.indexOf(`p === '${조각}'`) >= 0 ? src.indexOf(`p === '${조각}'`) : src.indexOf(조각)
-    assert.ok(i > 0, `${조각} 핸들러를 찾을 수 없다`)
-    const 구간 = src.slice(i, i + 900)
+  for (const piece of ['/api/session/', '/api/targets', '/api/targets/remove', '/api/rearm', '/api/run']) {
+    const i = src.indexOf(`p === '${piece}'`) >= 0 ? src.indexOf(`p === '${piece}'`) : src.indexOf(piece)
+    assert.ok(i > 0, `${piece} 핸들러를 찾을 수 없다`)
+    const section = src.slice(i, i + 900)
     // 직접 부르든 공용 확인(아이디확인)을 거치든, 확인은 반드시 있어야 한다
-    assert.ok(구간.includes('isSessionId') || 구간.includes('checkIds'),
-      `${조각} 가 세션 id 형태를 확인하지 않는다`)
+    assert.ok(section.includes('isSessionId') || section.includes('checkIds'),
+      `${piece} 가 세션 id 형태를 확인하지 않는다`)
   }
 })
 
@@ -145,11 +145,11 @@ test('🔴 경로가 되는 값을 받는 엔드포인트는 전부 형태를 �
 test('🔴 잘못된 sessionId 는 조용히 무시하지 않고 거절한다', () => {
   const src = readFileSync(join(ROOT, 'src', 'ui', 'server.mjs'), 'utf8')
   assert.match(src, /const checkIds = /, '한 곳에서 판단해야 한다')
-  for (const 조각 of ['/api/targets/remove', '/api/rearm']) {
-    const i = src.indexOf(`p === '${조각}'`)
-    const 구간 = src.slice(i, i + 400)
-    assert.ok(구간.includes('나쁜.length) return json(res, 400'),
-      `${조각} 가 400 으로 거절해야 한다`)
+  for (const piece of ['/api/targets/remove', '/api/rearm']) {
+    const i = src.indexOf(`p === '${piece}'`)
+    const section = src.slice(i, i + 400)
+    assert.ok(section.includes('bad.length) return json(res, 400'),
+      `${piece} 가 400 으로 거절해야 한다`)
   }
 })
 
@@ -158,8 +158,8 @@ test('🔴 잘못된 sessionId 는 조용히 무시하지 않고 거절한다', 
 test('🔴 깨진 인코딩의 오류 메시지를 그대로 옮기지 않는다 (실측)', async () => {
   const { failureText } = await import('../src/lib/cli.mjs')
   // 실측으로 나온 모양: cp949 를 UTF-8 로 읽어 대체문자가 박혔다
-  const 깨진것 = "'claude'\uFFFD\uFFFD(\uFFFD\uFFFD) \uFFFD\uFFFD\uFFFD\uFFFD \uFFFD\uFFFDĴ\uFFFD\uFFFD"
-  const r = failureText('claude', { stderr: 깨진것, status: 1 })
+  const broken = "'claude'\uFFFD\uFFFD(\uFFFD\uFFFD) \uFFFD\uFFFD\uFFFD\uFFFD \uFFFD\uFFFDĴ\uFFFD\uFFFD"
+  const r = failureText('claude', { stderr: broken, status: 1 })
   assert.ok(!r.includes('\uFFFD'), '읽을 수 없는 글자를 로그에 남기면 진단이 막힌다')
   assert.match(r, /claude CLI 를 실행할 수 없다/)
   assert.match(r, /exit 1/, '종료 코드는 남겨야 단서가 된다')
@@ -196,7 +196,7 @@ test('🔴 화면·기록·트레이가 조회 실패를 "정지"라고 말하�
 
 test('🔴 status.mjs 가 조회 성공 여부를 세션 판정에 넘긴다', () => {
   const st = readFileSync(join(ROOT, 'src', 'lib', 'status.mjs'), 'utf8')
-  assert.match(st, /sessionView\(s, 등록, 실행중맵, ide\.창, 프로세스맵, run\.ok\)/,
+  assert.match(st, /sessionView\(s, registry, runMap, ide\.창, procMap, run\.ok\)/,
     'run.ok 를 넘기지 않으면 세션은 실패와 정지를 구별할 수 없다')
   assert.match(st, /실행여부앎: run\.ok/, '합계에도 담겨야 화면이 읽는다')
 })
@@ -204,8 +204,8 @@ test('🔴 status.mjs 가 조회 성공 여부를 세션 판정에 넘긴다', (
 test('트레이가 읽는 새 키도 ASCII 다 (tray.ps1 이 코드에 적는다)', () => {
   const st = readFileSync(join(ROOT, 'src', 'lib', 'status.mjs'), 'utf8')
   const i = st.indexOf('export function trayStatus')
-  const 반환 = st.slice(st.indexOf('return {', i), st.indexOf('\n}', i))
-  for (const m of 반환.matchAll(/^\s*([^\s:,{}()]+):/gm)) {
+  const ret = st.slice(st.indexOf('return {', i), st.indexOf('\n}', i))
+  for (const m of ret.matchAll(/^\s*([^\s:,{}()]+):/gm)) {
     // eslint-disable-next-line no-control-regex
     assert.match(m[1], /^[\x20-\x7e]+$/, `trayStatus 의 키 '${m[1]}' 가 ASCII 가 아니다`)
   }

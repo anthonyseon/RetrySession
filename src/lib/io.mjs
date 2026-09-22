@@ -27,23 +27,23 @@ import { writeFileSync, appendFileSync, renameSync, statSync, existsSync, rmSync
  * 이름 바꾸기가 실패할 수 있는 경우(백신이 파일을 잡고 있는 등)를 위해 몇 번 다시 시도한다.
  * 끝내 실패하면 **던진다** — 조용히 직접 쓰기로 물러서면 막으려던 찢어짐이 되돌아온다.
  */
-export function writeAtomic(path, text, { 시도 = 5 } = {}) {
+export function writeAtomic(path, text, { tried = 5 } = {}) {
   const tmp = `${path}.tmp-${process.pid}`
   writeFileSync(tmp, text)
-  let 마지막오류 = null
-  for (let i = 0; i < 시도; i++) {
+  let lastError = null
+  for (let i = 0; i < tried; i++) {
     try {
       renameSync(tmp, path)   // 덮어쓴다 — 읽는 쪽은 옛것 아니면 새것을 본다
       return
     } catch (e) {
-      마지막오류 = e
+      lastError = e
       // 아주 짧게 기다린다. 동기 함수라 타이머를 쓸 수 없다.
-      const 끝 = Date.now() + 20
-      while (Date.now() < 끝) { /* 잠깐 양보 */ }
+      const end = Date.now() + 20
+      while (Date.now() < end) { /* 잠깐 양보 */ }
     }
   }
   try { rmSync(tmp, { force: true }) } catch { /* 지우지 못해도 본 오류가 중요하다 */ }
-  throw 마지막오류
+  throw lastError
 }
 
 /** 객체를 원자적으로 JSON 으로 */
@@ -55,13 +55,13 @@ export const writeJsonAtomic = (path, obj) => writeAtomic(path, JSON.stringify(o
  * 두 세대만 남긴다. 더 남겨봐야 아무도 읽지 않고, 화면은 어차피 꼬리
  * 64KB 만 읽는다(status.mjs 의 tail). 상한이 있다는 사실이 중요하다.
  */
-export function appendLine(path, text, { 최대바이트 = 2 * 1024 * 1024 } = {}) {
-  const 줄 = text.endsWith('\n') ? text : text + '\n'
+export function appendLine(path, text, { maxBytes = 2 * 1024 * 1024 } = {}) {
+  const line = text.endsWith('\n') ? text : text + '\n'
   try {
-    if (existsSync(path) && statSync(path).size + Buffer.byteLength(줄) > 최대바이트) {
+    if (existsSync(path) && statSync(path).size + Buffer.byteLength(line) > maxBytes) {
       try { rmSync(`${path}.1`, { force: true }) } catch { /* 없으면 됐다 */ }
       renameSync(path, `${path}.1`)
     }
   } catch { /* 회전 실패가 기록을 막지 않는다 — 기록이 회전보다 중요하다 */ }
-  appendFileSync(path, 줄)
+  appendFileSync(path, line)
 }

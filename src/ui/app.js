@@ -13,7 +13,7 @@
  * 🔴 상태는 색만으로 나르지 않는다. 배지는 아이콘+라벨+색 세 벌을 함께 쓴다.
  */
 'use strict'
-import { $, S, 동작, keepScroll, drawPiece } from './common.js'
+import { $, S, actions, keepScroll, drawPiece } from './common.js'
 import { drawAlerts, drawTiles } from './summary.js'
 import { drawFolders, 목록, syncSelection } from './list.js'
 import { redrawDetail } from './detail.js'
@@ -43,7 +43,7 @@ async function post(path, body) {
   return j
 }
 
-const 메타 = (s) => ({
+const meta = (s) => ({
   제목: s.제목, 실행cwd: s.실행cwd, 주작업cwd: s.주작업cwd, slug: s.slug,
 })
 
@@ -76,7 +76,7 @@ async function errorReason(r) {
  *   그래서 기동 시각이 바뀌면 한 번만 스스로 다시 읽는다. 폴링마다 확인하지 않고
  *   상태 읽기에 곁붙이지도 않는다 — /api/ping 은 값싸고, 실패해도 그냥 넘긴다.
  */
-let 서버기동 = null
+let serverBoot = null
 async function checkBoot() {
   try {
     const r = await fetch('/api/ping', { cache: 'no-store' })
@@ -84,8 +84,8 @@ async function checkBoot() {
     const j = await r.json()
     // bootEpoch — /api/ping 은 ASCII 키만 쓴다(ANSI 로 읽히는 .ps1 들이 본다)
     if (!j?.bootEpoch) return
-    if (서버기동 === null) { 서버기동 = j.bootEpoch; return }
-    if (서버기동 !== j.bootEpoch) location.reload()
+    if (serverBoot === null) { serverBoot = j.bootEpoch; return }
+    if (serverBoot !== j.bootEpoch) location.reload()
   } catch { /* 못 물어봤으면 다음에 다시 — 이것 때문에 화면이 멈추면 안 된다 */ }
 }
 
@@ -93,20 +93,20 @@ async function loadStatus() {
   try {
     const r = await fetch('/api/status', { cache: 'no-store' })
     if (!r.ok) throw new Error(await errorReason(r))
-    S.상태 = await r.json(); S.마지막성공 = Date.now(); S.오류 = null
+    S.상태 = await r.json(); S.lastOkAt = Date.now(); S.오류 = null
   } catch (e) { S.오류 = e.message }
   draw()
 }
 
 async function loadDetail() {
-  if (!S.열린세션) return
+  if (!S.openSession) return
   try {
-    const r = await fetch(`/api/session/${encodeURIComponent(S.열린세션)}?turns=60`, { cache: 'no-store' })
+    const r = await fetch(`/api/session/${encodeURIComponent(S.openSession)}?turns=60`, { cache: 'no-store' })
     // 🔴 조용히 넘기지 않는다. 상세가 안 열리는데 이유를 안 말하면 사람은 화면이
     //   멈춘 줄 안다(실제로 겪은 부류의 실패다).
-    if (r.ok) { S.상세 = await r.json(); S.상세오류 = null }
-    else S.상세오류 = await errorReason(r)
-  } catch (e) { S.상세오류 = e.message }
+    if (r.ok) { S.detail = await r.json(); S.detailError = null }
+    else S.detailError = await errorReason(r)
+  } catch (e) { S.detailError = e.message }
   redrawDetail()
 }
 
@@ -124,9 +124,9 @@ function draw() {
   const d = S.상태
   // 🔴 상태가 없어도 경보는 그린다 — 첫 요청부터 실패했을 때 빈 화면만 뜨면
   //   사람은 무엇이 잘못됐는지 알 길이 없다.
-  if (!d) { S.그리기오류 = drawPiece('경보', () => drawAlerts(null)); updateFreshness(); return }
+  if (!d) { S.drawError = drawPiece('경보', () => drawAlerts(null)); updateFreshness(); return }
 
-  const 실패 = [
+  const failed = [
     drawPiece('계정', () => {
       $('#acct').textContent = d.계정.email ? `${d.계정.email} · ${d.계정.subscriptionType || ''}` : '계정 확인 실패'
     }),
@@ -137,7 +137,7 @@ function draw() {
     drawPiece('세션 목록', () => keepScroll('#slist', () => { 목록(d); syncSelection() })),
     drawPiece('상세', () => redrawDetail()),
   ].filter(Boolean)
-  S.그리기오류 = 실패.length ? 실패.join(' · ') : null
+  S.drawError = failed.length ? failed.join(' · ') : null
   updateFreshness()
 }
 
@@ -147,26 +147,26 @@ function draw() {
  *   "이 화면이 몇 초 전 것이냐"다 — 그 한 줄만 자주 고치면 멈춘 화면을 바로 알아챈다.
  */
 function updateFreshness() {
-  const 초 = S.마지막성공 ? Math.round((Date.now() - S.마지막성공) / 1000) : null
+  const seconds = S.lastOkAt ? Math.round((Date.now() - S.lastOkAt) / 1000) : null
   const dot = $('#dot')
   // 🔴 그리기가 깨진 것도 '이상'이다. 값은 새것인데 화면이 옛것·빈것일 수 있다.
-  const 나쁨 = Boolean(S.오류 || S.그리기오류)
-  dot.className = 'dot' + (나쁨 ? ' off' : 초 === null ? ' off' : 초 > 12 ? ' stale' : '')
-  if (S.오류) $('#freshness').textContent = `읽기 실패${초 !== null ? ` (${초}초 전 성공)` : ''} — ${S.오류}`
+  const isBad = Boolean(S.오류 || S.drawError)
+  dot.className = 'dot' + (isBad ? ' off' : seconds === null ? ' off' : seconds > 12 ? ' stale' : '')
+  if (S.오류) $('#freshness').textContent = `읽기 실패${seconds !== null ? ` (${seconds}초 전 성공)` : ''} — ${S.오류}`
   else if (!S.상태) $('#freshness').textContent = '연결 중…'
-  else $('#freshness').textContent = `${S.상태.at} · ${초}초 전 갱신 · 스캔 ${S.상태.스캔.ms}ms`
-    + (S.그리기오류 ? ` · ⚠ 화면 그리기 실패 — ${S.그리기오류}` : '')
+  else $('#freshness').textContent = `${S.상태.at} · ${seconds}초 전 갱신 · 스캔 ${S.상태.스캔.ms}ms`
+    + (S.drawError ? ` · ⚠ 화면 그리기 실패 — ${S.drawError}` : '')
 }
 
 /* ── 사건 ────────────────────────────────────────────────────── */
 document.querySelector('.actions').addEventListener('click', async (e) => {
   const act = e.target.dataset?.act
-  if (!act || !S.선택.size) return
-  const ids = [...S.선택]
+  if (!act || !S.picked.size) return
+  const ids = [...S.picked]
   const meta = {}
   for (const id of ids) {
     const s = S.상태?.세션.find((x) => x.sessionId === id)
-    if (s) meta[id] = 메타(s)
+    if (s) meta[id] = meta(s)
   }
   if (act === 'watch-on') await post('/api/targets', { sessionIds: ids, 감시: true, meta })
   else if (act === 'watch-off') await post('/api/targets', { sessionIds: ids, 감시: false, meta })
@@ -179,24 +179,24 @@ document.querySelector('.actions').addEventListener('click', async (e) => {
   else if (act === 'remove') {
     if (!confirm(`${ids.length}개 세션의 등록을 해제합니다. 감시·재시작이 모두 꺼집니다.`)) return
     await post('/api/targets/remove', { sessionIds: ids })
-    S.선택.clear()
+    S.picked.clear()
   }
 })
 
 document.querySelector('#dtabs').addEventListener('click', (e) => {
   if (!e.target.dataset?.tab) return
-  S.탭 = e.target.dataset.tab; redrawDetail()
+  S.tab = e.target.dataset.tab; redrawDetail()
 })
 
 $('#btnRefresh').addEventListener('click', () => { loadStatus(); loadDetail() })
 $('#btnAuto').addEventListener('click', () => {
-  S.자동 = !S.자동
-  $('#btnAuto').textContent = S.자동 ? '자동갱신 켬' : '자동갱신 끔'
+  S.auto = !S.auto
+  $('#btnAuto').textContent = S.auto ? '자동갱신 켬' : '자동갱신 끔'
 })
 $('#btnTheme').addEventListener('click', () => {
-  const 밝게 = document.documentElement.dataset.theme !== 'light'
-  document.documentElement.dataset.theme = 밝게 ? 'light' : 'dark'
-  $('#btnTheme').textContent = 밝게 ? '어둡게' : '밝게'
+  const toLight = document.documentElement.dataset.theme !== 'light'
+  document.documentElement.dataset.theme = toLight ? 'light' : 'dark'
+  $('#btnTheme').textContent = toLight ? '어둡게' : '밝게'
 })
 
 /* ── 요약 접기 ───────────────────────────────────────────────── */
@@ -210,17 +210,17 @@ $('#btnTheme').addEventListener('click', () => {
  * 화살표 모양만으로 말하지 않는다 — 옆에 '요약 접기/펴기'를 글자로 적고
  * aria-expanded 로도 알린다. 상태는 기억해 둔다(다시 열 때마다 접지 않아도 되게).
  */
-const 접힘키 = 'rs.요약접힘'
+const foldKey = 'rs.요약접힘'
 
-function applySummary(접힘, { 저장 = true } = {}) {
-  $('#top').classList.toggle('hide', 접힘)
-  $('#btnTop').setAttribute('aria-expanded', String(!접힘))
-  $('#btnTopIc').textContent = 접힘 ? '▸' : '▾'
-  $('#btnTopTx').textContent = 접힘 ? '요약 펴기' : '요약 접기'
-  $('#btnTop').title = 접힘
+function applySummary(folded, { save = true } = {}) {
+  $('#top').classList.toggle('hide', folded)
+  $('#btnTop').setAttribute('aria-expanded', String(!folded))
+  $('#btnTopIc').textContent = folded ? '▸' : '▾'
+  $('#btnTopTx').textContent = folded ? '요약 펴기' : '요약 접기'
+  $('#btnTop').title = folded
     ? '요약을 펴면 계정·사용량·OS 트리거를 볼 수 있습니다'
     : '요약을 접으면 세션과 상세가 넓어집니다'
-  if (저장) { try { localStorage.setItem(접힘키, 접힘 ? '1' : '0') } catch { /* 저장 못 해도 동작은 한다 */ } }
+  if (save) { try { localStorage.setItem(foldKey, folded ? '1' : '0') } catch { /* 저장 못 해도 동작은 한다 */ } }
 }
 
 $('#btnTop').addEventListener('click', () => {
@@ -228,8 +228,8 @@ $('#btnTop').addEventListener('click', () => {
 })
 
 // 기억해 둔 상태로 시작한다
-try { applySummary(localStorage.getItem(접힘키) === '1', { 저장: false }) }
-catch { applySummary(false, { 저장: false }) }
+try { applySummary(localStorage.getItem(foldKey) === '1', { save: false }) }
+catch { applySummary(false, { save: false }) }
 /* ── PC 설정 바꾸기 ─────────────────────────────────────────── */
 /**
  * 🔴 남의 PC 설정을 바꾸는 일이라 반드시 확인을 받는다. 되돌릴 수 있다는 것도
@@ -241,7 +241,7 @@ async function pcAction(action) {
   if (action === 'manual') { openSettings(); return }
   if (action === 'set') { await pcApplyChosen(); return }
 
-  const 물음 = action === 'apply'
+  const question = action === 'apply'
     ? [
       'PC 전원 설정을 바꿉니다.',
       '',
@@ -252,7 +252,7 @@ async function pcAction(action) {
       '계속할까요?',
     ].join('\n')
     : 'PC 전원 설정을 바꾸기 전 값으로 되돌립니다.\n\n계속할까요?'
-  if (!confirm(물음)) return
+  if (!confirm(question)) return
 
   const r = await post('/api/pc', { action })
   // 결과를 그대로 보여준다 — "바꿨다"만 말하고 실제로 안 바뀌면 그게 최악이다
@@ -268,18 +268,18 @@ async function pcAction(action) {
  *   예약 작업이고, 잠든 PC 는 예약 작업을 돌리지 않는다.
  */
 async function pcApplyChosen() {
-  const { values, 바뀜 } = chosenValues()
-  if (!바뀜.length) {
+  const { values, changed } = chosenValues()
+  if (!changed.length) {
     alert('바꿀 값을 먼저 고르세요.\n\n손대지 않은 항목은 보내지 않습니다.')
     return
   }
-  const 경고 = 바뀜.filter((x) => x.경고)
+  const warnText = changed.filter((x) => x.warnText)
   if (!confirm([
     'PC 전원 설정을 바꿉니다.',
     '',
-    ...바뀜.map((x) => `· ${x.이름}: ${x.전} → ${x.후}`),
-    ...(경고.length ? ['', '⚠ 이 선택은 감시를 멎게 할 수 있습니다'] : []),
-    ...경고.map((x) => `· ${x.이름} — ${x.경고}`),
+    ...changed.map((x) => `· ${x.이름}: ${x.prev} → ${x.후}`),
+    ...(warnText.length ? ['', '⚠ 이 선택은 감시를 멎게 할 수 있습니다'] : []),
+    ...warnText.map((x) => `· ${x.이름} — ${x.warnText}`),
     '',
     '바꾸기 전 값을 저장하므로 되돌릴 수 있습니다.',
     '',
@@ -289,7 +289,7 @@ async function pcApplyChosen() {
   const r = await post('/api/pc', { action: 'set', values })
   // 고르던 값은 비운다 — 적용됐으면 그게 현재 값이고, 실패했으면 화면의 실제 값을 봐야 한다
   clearChosen()
-  drawSettings({ 강제: true })
+  drawSettings({ force: true })
   // 결과를 그대로 보여준다. powercfg 는 없는 항목에도 성공을 돌려주므로(실측)
   // 서버가 바꾼 뒤 다시 읽어 대조한 결과를 사람이 봐야 한다.
   if (r && r.출력) alert(r.출력)
@@ -318,13 +318,13 @@ $('#btnSetupClose').addEventListener('click', closeSettings)
 $('#setupWrap').addEventListener('click', (e) => { if (e.target.id === 'setupWrap') closeSettings() })
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isSettingsOpen()) closeSettings() })
 
-$('#onlyReg').addEventListener('change', (e) => { S.등록만 = e.target.checked; draw() })
+$('#onlyReg').addEventListener('change', (e) => { S.onlyRegistered = e.target.checked; draw() })
 
 /**
  * 🔴 조각들이 쓸 동작을 등록한다. 이것을 빠뜨리면 클릭이 조용히 아무 일도 하지 않는다
  *   (오류도 안 난다 — common.js 의 기본값이 빈 함수라서). 시험이 이 등록을 확인한다.
  */
-Object.assign(동작, { draw, loadStatus, loadDetail, post, 메타 })
+Object.assign(actions, { draw, loadStatus, loadDetail, post, meta })
 
 /* ── 시작 ────────────────────────────────────────────────────── */
 /**
@@ -350,9 +350,9 @@ function pollLoop(fn, ms, shouldRun = () => true) {
 
 loadStatus()
 checkBoot()
-pollLoop(loadStatus, 3000, () => S.자동)
+pollLoop(loadStatus, 3000, () => S.auto)
 // 서버가 다시 떴는지 5초마다 — 고친 코드가 화면에 반영되지 않는 것이 이 저장소의 상습 함정이다
 pollLoop(checkBoot, 5000)
-pollLoop(loadDetail, 2000, () => S.자동 && Boolean(S.열린세션))
+pollLoop(loadDetail, 2000, () => S.auto && Boolean(S.openSession))
 // 신선도만 1초마다 — 화면이 멈췄는지 사람이 바로 안다 (전체를 다시 그리지 않는다)
 setInterval(updateFreshness, 1000)

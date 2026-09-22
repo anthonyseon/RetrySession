@@ -16,7 +16,7 @@
  * 🔴 명령행에는 비밀이 없지만 길다. 필요한 조각만 뽑아 담는다.
  */
 import { execFileSync } from 'node:child_process'
-import { 경로키 } from './config.mjs'
+import { pathKey } from './config.mjs'
 import { localStamp } from './stamp.mjs'
 
 const _cache = new Map()
@@ -58,9 +58,9 @@ export function parseCmdline(cmd) {
   const addDirs = []
   const re = /--add-dir[= ]("([^"]+)"|(\S+))/g
   let m
-  while ((m = re.exec(c))) addDirs.push(경로키(m[2] || m[3]))
+  while ((m = re.exec(c))) addDirs.push(pathKey(m[2] || m[3]))
 
-  const 확장 = /[\\/]\.vscode[\\/]extensions[\\/]/i.test(c)
+  const ext = /[\\/]\.vscode[\\/]extensions[\\/]/i.test(c)
   const 확장버전 = /anthropic\.claude-code-([\d.]+)-/i.exec(c)?.[1] || null
 
   /**
@@ -68,14 +68,14 @@ export function parseCmdline(cmd) {
    * 실측: 보조는 `--claude-in-chrome-mcp` 하나만 붙어 명령행이 짧다(137자).
    * 세션은 `--output-format stream-json` 을 달고 길다(671~713자).
    */
-  const mcp보조 = c.includes('--claude-in-chrome-mcp')
-  const 세션형 = !mcp보조 && (c.includes('stream-json') || !!resume || !!sessionId)
+  const mcpHelper = c.includes('--claude-in-chrome-mcp')
+  const sessionKind = !mcpHelper && (c.includes('stream-json') || !!resume || !!sessionId)
 
   return {
-    종류: mcp보조 ? 'mcp보조' : (세션형 ? '세션' : '기타'),
+    종류: mcpHelper ? 'mcp보조' : (sessionKind ? '세션' : '기타'),
     resume, sessionId: resume || sessionId,
     addDirs,
-    출처: 확장 ? 'VS Code 확장' : 'npm',
+    출처: ext ? 'VS Code 확장' : 'npm',
     확장버전,
     권한모드: /--permission-mode[= ](\S+)/.exec(c)?.[1] || null,
     위험권한: c.includes('--dangerously-skip-permissions') || c.includes('--allow-dangerously-skip-permissions'),
@@ -105,10 +105,10 @@ export function claudeProcesses({ ttlMs = 10000 } = {}) {
     ok: r.ok, 오류: r.오류, 목록,
     세션수: 목록.filter((x) => x.종류 === '세션').length,
     보조수: 목록.filter((x) => x.종류 !== '세션').length,
-    조회시각: localStamp(),
+    queriedAt: localStamp(),
   }
   _cache.set('p', { at: Date.now(), v })
   return { ...v, 캐시됨: false }
 }
 
-export function 캐시비우기() { _cache.clear() }
+export function clearCache() { _cache.clear() }

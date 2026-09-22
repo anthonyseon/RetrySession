@@ -30,7 +30,7 @@ export const 작업이름 = {
 const resultText = (code) => {
   if (code === null || code === undefined) return null
   const n = Number(code)
-  const 표 = {
+  const table = {
     0: '성공',
     1: '오류(1) — 잘못된 함수 호출',
     2: '오류(2) — 파일을 찾을 수 없음. 우리 쪽에서는 UI 포트 충돌일 수 있다',
@@ -50,7 +50,7 @@ const resultText = (code) => {
     //   `-Stop`·`-Restart` 가 남기는 **정상 종료 기록**이다.
     4294967295: '강제 종료됨(-1) — start.ps1 -Stop/-Restart 가 이렇게 끝낸다',
   }
-  if (표[n]) return 표[n]
+  if (table[n]) return table[n]
   return `코드 ${n}` + (n < 0 || n > 1000 ? ` (0x${(n >>> 0).toString(16)})` : '')
 }
 
@@ -94,7 +94,7 @@ function psCommand() {
   return ps
 }
 
-const 해석 = (out) => {
+const parseOut = (out) => {
   const parsed = JSON.parse(out)
   return { ok: true, rows: Array.isArray(parsed) ? parsed : [parsed], 오류: null }
 }
@@ -109,7 +109,7 @@ function query() {
     const out = execSync(`powershell -NoProfile -NonInteractive -Command "${ps.replace(/"/g, '\\"')}"`, {
       encoding: 'utf8', timeout: 30000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     })
-    return 해석(out)
+    return parseOut(out)
   } catch (e) {
     return toQueryError(e)
   }
@@ -119,20 +119,20 @@ function query() {
  * 같은 조회를 **막지 않고** 한다. 결과는 캐시에만 넣는다 — 부르는 쪽은 기다리지 않는다.
  * 한 번에 하나만 돈다(겹쳐 띄우면 PowerShell 이 쌓인다).
  */
-let _갱신중 = false
+let _refreshing = false
 function refreshAsync() {
-  if (_갱신중) return
-  _갱신중 = true
+  if (_refreshing) return
+  _refreshing = true
   const ps = psCommand()
   const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
     windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
   })
   let out = ''
   child.stdout.on('data', (d) => { out += d })
-  child.on('error', () => { _갱신중 = false })
+  child.on('error', () => { _refreshing = false })
   child.on('close', () => {
-    _갱신중 = false
-    try { _cache.set('tasks', { at: Date.now(), v: buildTaskTable(해석(out)) }) } catch { /* 다음 회차에 다시 */ }
+    _refreshing = false
+    try { _cache.set('tasks', { at: Date.now(), v: buildTaskTable(parseOut(out)) }) } catch { /* 다음 회차에 다시 */ }
   })
   // 응답을 붙잡지 않는다 — 서버 종료를 막아서도 안 된다
   child.unref?.()
@@ -180,7 +180,7 @@ function buildTaskTable(r) {
     const x = byName.get(name)
     if (!r.ok) {
       // 🔴 조회 실패를 "미등록"으로 답하지 않는다 — 있는 작업을 없다고 하면 엉뚱하게 재등록한다
-      v[키] = { 이름: name, 조회실패: true, 등록됨: null, 오류: r.오류 }
+      v[키] = { 이름: name, queryFailed: true, 등록됨: null, 오류: r.오류 }
       continue
     }
     if (!x || !x.registered) {
@@ -218,4 +218,4 @@ function buildTaskTable(r) {
   return v
 }
 
-export function 캐시비우기() { _cache.clear() }
+export function clearCache() { _cache.clear() }

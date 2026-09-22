@@ -19,7 +19,7 @@ export function isLocal({ remoteAddress, host }) {
 }
 
 /** 이 서버가 자기 출처라고 인정하는 것들 */
-export const 허용출처 = (host, port) => new Set([
+export const allowedOrigins = (host, port) => new Set([
   `http://${host}:${port}`,
   `http://localhost:${port}`,
 ])
@@ -50,5 +50,5 @@ export const 허용출처 = (host, port) => new Set([
 export function originOk(origin, host, port) {
   if (origin === undefined || origin === null || origin === '') return true  // 브라우저가 아니다
   if (origin === 'null') return false  // 샌드박스 iframe·data: — 출처를 숨긴 것이므로 거절한다
-  return 허용출처(host, port).has(origin)
+  return allowedOrigins(host, port).has(origin)
 }

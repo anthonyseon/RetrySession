@@ -21,20 +21,20 @@ import { keepScroll, resetFirstRender } from '../src/ui/common.js'
  * 스크롤 가능한 상자를 하나 준비한다.
  * 그리기준비() 가 화면(칸)을 비우므로, 그 뒤에 querySelector 로 새 상자를 얻는다.
  */
-function 상자(sel, { 내용높이 = 0, 보이는높이 = 300, 위치 = 0 } = {}) {
+function box(sel, { contentH = 0, viewH = 300, pos = 0 } = {}) {
   prepareRender()          // 칸을 비운다
   resetFirstRender()        // "첫 렌더" 기록도 비운다 — 새 창을 연 상황이다
   const b = globalThis.document.querySelector(sel)
-  b.scrollHeight = 내용높이
-  b.clientHeight = 보이는높이
-  b.scrollTop = 위치
+  b.scrollHeight = contentH
+  b.clientHeight = viewH
+  b.scrollTop = pos
   return b
 }
 
 /* ── 첫 렌더 ─────────────────────────────────────────────────── */
 
 test('🔴 첫 렌더는 맨 위에서 시작한다 (비어 있던 것을 "바닥"으로 보면 안 된다)', () => {
-  const b = 상자('#slist', { 내용높이: 0, 보이는높이: 300, 위치: 0 })
+  const b = box('#slist', { contentH: 0, viewH: 300, pos: 0 })
   keepScroll('#slist', () => { b.scrollHeight = 5000 })   // 세션 목록이 채워졌다
   assert.equal(b.scrollTop, 0,
     `새로 열었을 때 목록이 ${b.scrollTop}px 로 내려가 있다 — 맨 위여야 한다`)
@@ -42,7 +42,7 @@ test('🔴 첫 렌더는 맨 위에서 시작한다 (비어 있던 것을 "바�
 
 test('🔴 첫 렌더는 보이는 높이를 아직 모를 때도 맨 위다', () => {
   // 창이 뜨는 중이면 clientHeight 가 0 일 수 있다. 그때도 바닥으로 가면 안 된다.
-  const b = 상자('#slist', { 내용높이: 0, 보이는높이: 0, 위치: 0 })
+  const b = box('#slist', { contentH: 0, viewH: 0, pos: 0 })
   keepScroll('#slist', () => { b.scrollHeight = 5000; b.clientHeight = 300 })
   assert.equal(b.scrollTop, 0)
 })
@@ -50,7 +50,7 @@ test('🔴 첫 렌더는 보이는 높이를 아직 모를 때도 맨 위다', (
 /* ── 두 번째 이후 — 보존이 살아 있어야 한다 ─────────────────── */
 
 test('둘째 렌더부터는 읽던 위치를 지킨다 (3초마다 튕기면 읽을 수 없다)', () => {
-  const b = 상자('#slist', { 내용높이: 5000, 보이는높이: 300, 위치: 0 })
+  const b = box('#slist', { contentH: 5000, viewH: 300, pos: 0 })
   keepScroll('#slist', () => { })          // 첫 렌더 (맨 위)
   b.scrollTop = 1200                       // 사람이 내려서 읽는 중
   keepScroll('#slist', () => { })          // 3초 뒤 다시 그림
@@ -58,7 +58,7 @@ test('둘째 렌더부터는 읽던 위치를 지킨다 (3초마다 튕기면 �
 })
 
 test('🔴 바닥에 붙어 있었으면 바닥을 지킨다 (로그는 아래로 자란다)', () => {
-  const b = 상자('#dscroll', { 내용높이: 1000, 보이는높이: 300, 위치: 700 })
+  const b = box('#dscroll', { contentH: 1000, viewH: 300, pos: 700 })
   keepScroll('#dscroll', () => { })        // 첫 렌더
   b.scrollTop = 700                        // 바닥 (1000-300)
   keepScroll('#dscroll', () => { b.scrollHeight = 1400 })  // 로그가 자랐다
@@ -66,7 +66,7 @@ test('🔴 바닥에 붙어 있었으면 바닥을 지킨다 (로그는 아래�
 })
 
 test('내용이 줄어도 범위를 넘지 않는다', () => {
-  const b = 상자('#slist', { 내용높이: 5000, 보이는높이: 300, 위치: 0 })
+  const b = box('#slist', { contentH: 5000, viewH: 300, pos: 0 })
   keepScroll('#slist', () => { })
   b.scrollTop = 4000
   keepScroll('#slist', () => { b.scrollHeight = 600 })   // 세션이 줄었다
@@ -74,17 +74,17 @@ test('내용이 줄어도 범위를 넘지 않는다', () => {
 })
 
 test('맨위로 를 주면 그대로 맨 위다', () => {
-  const b = 상자('#dscroll', { 내용높이: 5000, 보이는높이: 300, 위치: 0 })
+  const b = box('#dscroll', { contentH: 5000, viewH: 300, pos: 0 })
   keepScroll('#dscroll', () => { })
   b.scrollTop = 2000
-  keepScroll('#dscroll', () => { }, { 맨위로: true })
+  keepScroll('#dscroll', () => { }, { toTop: true })
   assert.equal(b.scrollTop, 0)
 })
 
 /* ── 상자마다 따로 센다 ─────────────────────────────────────── */
 
 test('🔴 목록의 첫 렌더가 상세의 첫 렌더를 대신하지 않는다', () => {
-  const a = 상자('#slist', { 내용높이: 0 })
+  const a = box('#slist', { contentH: 0 })
   const b = globalThis.document.querySelector('#dscroll')
   b.scrollHeight = 0; b.clientHeight = 300; b.scrollTop = 0
 
@@ -96,11 +96,11 @@ test('🔴 목록의 첫 렌더가 상세의 첫 렌더를 대신하지 않는�
 
 test('없는 상자를 주면 그리기만 하고 넘어간다', () => {
   resetFirstRender()
-  let 그렸나 = false
-  const 원래 = globalThis.document.querySelector
+  let wasDrawn = false
+  const original = globalThis.document.querySelector
   globalThis.document.querySelector = () => null
   try {
-    keepScroll('#없음', () => { 그렸나 = true })
-    assert.equal(그렸나, true, '상자가 없어도 내용은 그려야 한다')
-  } finally { globalThis.document.querySelector = 원래 }
+    keepScroll('#없음', () => { wasDrawn = true })
+    assert.equal(wasDrawn, true, '상자가 없어도 내용은 그려야 한다')
+  } finally { globalThis.document.querySelector = original }
 })

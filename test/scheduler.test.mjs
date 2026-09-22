@@ -29,9 +29,9 @@ const src = readFileSync(join(ROOT, 'src', 'lib', 'scheduler.mjs'), 'utf8')
 test('🔴 4294967295 를 숫자로 내버려 두지 않는다 (사용자가 본 그 값)', () => {
   assert.ok(src.includes('4294967295'), '해석표에 이 코드가 있어야 한다')
   const i = src.indexOf('4294967295:')
-  const 뜻 = src.slice(i, i + 160)
-  assert.match(뜻, /강제 종료/, '무슨 일이 있었는지 말해야 한다')
-  assert.match(뜻, /-Stop|-Restart/, '누가 그렇게 만드는지 짚어야 조치할 수 있다')
+  const meaning = src.slice(i, i + 160)
+  assert.match(meaning, /강제 종료/, '무슨 일이 있었는지 말해야 한다')
+  assert.match(meaning, /-Stop|-Restart/, '누가 그렇게 만드는지 짚어야 조치할 수 있다')
 })
 
 test('🔴 사람이 멈춘 코드와 고장 코드를 나눈다', () => {
@@ -101,7 +101,7 @@ test('미등록은 그대로 미등록이다', () => {
 
 test('🔴 경보가 말하는 작업은 화면에도 있어야 한다 (트레이 타일)', () => {
   const app = uiSource()
-  const m = /for \(const \[키, 라벨\] of \[([\s\S]*?)\]\) \{/.exec(app)
+  const m = /for \(const \[키, label\] of \[([\s\S]*?)\]\) \{/.exec(app)
   assert.ok(m, 'OS 트리거 타일 목록을 찾을 수 없다')
   for (const k of ['하트비트', '재시작', 'UI', '트레이']) {
     assert.ok(m[1].includes(`'${k}'`), `${k} 타일이 없다 — 경보를 받고도 볼 곳이 없다`)
@@ -127,19 +127,19 @@ test('🔴 캐시가 낡아도 요청을 막지 않는다 (동기 7초를 요청
   assert.match(src, /function refreshAsync/, '뒤에서 새로 읽는 길이 있어야 한다')
   assert.match(src, /spawn\(/, '비동기여야 한다 — execSync 면 그대로 막힌다')
   const i = src.indexOf('export function taskState')
-  const 구간 = src.slice(i, i + 700)
-  assert.match(구간, /if \(hit\) \{\s*\n\s*refreshAsync\(\)/,
+  const section = src.slice(i, i + 700)
+  assert.match(section, /if \(hit\) \{\s*\n\s*refreshAsync\(\)/,
     '캐시가 있으면 낡았어도 즉시 돌려주고 갱신은 뒤로 미뤄야 한다')
-  assert.match(구간, /낡음: true/, '낡은 값을 줬으면 낡았다고 말해야 한다')
-  assert.match(구간, /나이ms/, '얼마나 낡았는지 알려야 한다')
+  assert.match(section, /낡음: true/, '낡은 값을 줬으면 낡았다고 말해야 한다')
+  assert.match(section, /나이ms/, '얼마나 낡았는지 알려야 한다')
   // 값이 아예 없을 때(서버 기동 직후)만 동기로 기다린다
   assert.match(src.slice(i, i + 900), /const v = buildTaskTable\(query\(\)\)/)
 })
 
 test('🔴 갱신을 겹쳐 띄우지 않는다 (PowerShell 이 쌓인다)', () => {
   const src = readFileSync(join(ROOT, 'src', 'lib', 'scheduler.mjs'), 'utf8')
-  assert.match(src, /let _갱신중 = false/)
-  assert.match(src, /if \(_갱신중\) return/)
+  assert.match(src, /let _refreshing = false/)
+  assert.match(src, /if \(_refreshing\) return/)
 })
 
 /**

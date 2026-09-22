@@ -2,7 +2,7 @@
  * list.js — 열린 폴더와 세션 목록. 왼쪽 패널을 그린다.
  */
 'use strict'
-import { $, el, n, compact, shortPath, S, badge, 동작 } from './common.js'
+import { $, el, n, compact, shortPath, S, badge, actions } from './common.js'
 
 /* ── 세션 배지 (목록 전용) ──────────────────────────────────── */
 const watchBadge = (s) => {
@@ -68,7 +68,7 @@ function drawFolders(d) {
 function 목록(d) {
   const box = $('#slist'); box.textContent = ''
   let list = d.세션
-  if (S.등록만) list = list.filter((s) => s.등록됨)
+  if (S.onlyRegistered) list = list.filter((s) => s.등록됨)
 
   $('#scount').textContent = ''
   $('#scount').append(el('i', 'ic', '●'), el('span', null, `${list.length}개`))
@@ -84,22 +84,22 @@ function 목록(d) {
    *   그건 이 함수가 돌지 않았다는 뜻이고, 그 사실 자체가 단서가 된다.
    */
   if (!list.length) {
-    const 총 = d.세션.length
-    const 왜 = 총 === 0
+    const sum = d.세션.length
+    const 왜 = sum === 0
       ? '세션을 하나도 찾지 못했습니다 — ~/.claude/projects 에 기록이 없습니다.'
-      : S.등록만
-        ? `세션 ${총}개를 받았지만 등록된 것이 없습니다 — '등록된 것만'을 끄면 전부 보입니다.`
-        : `세션 ${총}개를 받았는데 화면에 남은 것이 없습니다 — 걸러내는 조건을 확인하세요.`
+      : S.onlyRegistered
+        ? `세션 ${sum}개를 받았지만 등록된 것이 없습니다 — '등록된 것만'을 끄면 전부 보입니다.`
+        : `세션 ${sum}개를 받았는데 화면에 남은 것이 없습니다 — 걸러내는 조건을 확인하세요.`
     box.append(el('div', 'empty', 왜))
     return
   }
 
   for (const s of list) {
-    const row = el('div', 'srow' + (S.열린세션 === s.sessionId ? ' sel' : ''))
-    const cb = el('input'); cb.type = 'checkbox'; cb.checked = S.선택.has(s.sessionId)
+    const row = el('div', 'srow' + (S.openSession === s.sessionId ? ' sel' : ''))
+    const cb = el('input'); cb.type = 'checkbox'; cb.checked = S.picked.has(s.sessionId)
     cb.addEventListener('click', (e) => {
       e.stopPropagation()
-      if (cb.checked) S.선택.add(s.sessionId); else S.선택.delete(s.sessionId)
+      if (cb.checked) S.picked.add(s.sessionId); else S.picked.delete(s.sessionId)
       syncSelection()
     })
     row.append(cb)
@@ -129,7 +129,7 @@ function 목록(d) {
 
     const bb = el('div', 'sbadges')
     bb.append(watchBadge(s), resumeBadge(s))
-    const 제한 = limitBadge(s); if (제한) bb.append(제한)
+    const limitInfo = limitBadge(s); if (limitInfo) bb.append(limitInfo)
     if (s.추적기.있음) {
       bb.append(badge(s.추적기.전부완료 ? 'good' : 'off', '▤',
         `추적기 ${s.추적기.완료표기}${s.추적기.doing ? ` · doing ${s.추적기.doing.id}` : ''}`))
@@ -143,7 +143,7 @@ function 목록(d) {
     body.append(bb)
 
     row.append(body)
-    row.addEventListener('click', () => { S.열린세션 = s.sessionId; S.상세 = null; 동작.draw(); 동작.loadDetail() })
+    row.addEventListener('click', () => { S.openSession = s.sessionId; S.detail = null; actions.draw(); actions.loadDetail() })
     box.append(row)
   }
 
@@ -185,8 +185,8 @@ function 목록(d) {
 }
 
 function syncSelection() {
-  $('#selN').textContent = `${S.선택.size}개 선택`
-  document.querySelectorAll('.actions button').forEach((b) => { b.disabled = S.선택.size === 0 })
+  $('#selN').textContent = `${S.picked.size}개 선택`
+  document.querySelectorAll('.actions button').forEach((b) => { b.disabled = S.picked.size === 0 })
 }
 
 

@@ -5,13 +5,13 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { 빈누적, foldEntry, foldLines } from '../src/lib/sessions.mjs'
+import { emptyTotals, foldEntry, foldLines } from '../src/lib/sessions.mjs'
 import { quotaView } from '../src/lib/status.mjs'
 
 const A = (o) => ({ type: 'assistant', timestamp: '2026-09-18T01:00:00.000Z', ...o })
 
 test('assistant.usage 의 토큰을 모델별로 모은다', () => {
-  const acc = 빈누적('s1', 'slug')
+  const acc = emptyTotals('s1', 'slug')
   foldEntry(acc, A({
     message: {
       model: 'claude-opus-5',
@@ -34,7 +34,7 @@ test('assistant.usage 의 토큰을 모델별로 모은다', () => {
 })
 
 test('🔴 cache_creation 세부가 없으면 전체를 5분 쓰기로 본다 — 싼 쪽으로 기울지 않게', () => {
-  const acc = 빈누적('s1', 'slug')
+  const acc = emptyTotals('s1', 'slug')
   foldEntry(acc, A({ message: { model: 'm', usage: { cache_creation_input_tokens: 1000 } } }))
   const t = acc.모델별.m
   assert.equal(t.캐시쓰기5m, 1000)
@@ -42,7 +42,7 @@ test('🔴 cache_creation 세부가 없으면 전체를 5분 쓰기로 본다 �
 })
 
 test('tool_use 블록을 센다', () => {
-  const acc = 빈누적('s1', 'slug')
+  const acc = emptyTotals('s1', 'slug')
   foldEntry(acc, A({
     message: {
       model: 'm', usage: {},
@@ -57,14 +57,14 @@ test('tool_use 블록을 센다', () => {
 })
 
 test('ai-title 이 제목이 된다 (마지막 것이 이긴다)', () => {
-  const acc = 빈누적('s1', 'slug')
+  const acc = emptyTotals('s1', 'slug')
   foldEntry(acc, { type: 'ai-title', aiTitle: '첫 제목' })
   foldEntry(acc, { type: 'ai-title', aiTitle: '나중 제목' })
   assert.equal(acc.title, '나중 제목')
 })
 
 test('🔴 cwd 는 시작·최근·분포로 나눠 담는다 (실측: 한 세션이 여러 곳을 오갔다)', () => {
-  const acc = 빈누적('s1', 'slug')
+  const acc = emptyTotals('s1', 'slug')
   foldEntry(acc, { type: 'user', cwd: 'C:\\a\\Platform', timestamp: '2026-09-18T01:00:00Z', message: { content: 'x' } })
   foldEntry(acc, { type: 'user', cwd: 'C:\\a\\Description', timestamp: '2026-09-18T01:01:00Z', message: { content: 'x' } })
   foldEntry(acc, { type: 'user', cwd: 'C:\\a\\Description', timestamp: '2026-09-18T01:02:00Z', message: { content: 'x' } })
@@ -74,7 +74,7 @@ test('🔴 cwd 는 시작·최근·분포로 나눠 담는다 (실측: 한 세�
 })
 
 test('cwd 드라이브 문자 대소문자를 합친다 (실측: c:\\ 와 C:\\ 가 섞여 들어온다)', () => {
-  const acc = 빈누적('s1', 'slug')
+  const acc = emptyTotals('s1', 'slug')
   foldEntry(acc, { type: 'user', cwd: 'c:\\a\\b', message: { content: 'x' } })
   foldEntry(acc, { type: 'user', cwd: 'C:\\a\\b', message: { content: 'x' } })
   assert.deepEqual(Object.keys(acc.cwd분포), ['C:/a/b'], '같은 경로가 둘로 갈라지면 분포가 거짓이 된다')
@@ -82,7 +82,7 @@ test('cwd 드라이브 문자 대소문자를 합친다 (실측: c:\\ 와 C:\\ �
 })
 
 test('첫·마지막 활동 시각을 잡는다 (순서가 뒤섞여 들어와도)', () => {
-  const acc = 빈누적('s1', 'slug')
+  const acc = emptyTotals('s1', 'slug')
   foldEntry(acc, A({ timestamp: '2026-09-18T05:00:00.000Z', message: { model: 'm', usage: {} } }))
   foldEntry(acc, A({ timestamp: '2026-09-18T01:00:00.000Z', message: { model: 'm', usage: {} } }))
   assert.equal(acc.첫활동, Date.parse('2026-09-18T01:00:00.000Z'))
@@ -90,14 +90,14 @@ test('첫·마지막 활동 시각을 잡는다 (순서가 뒤섞여 들어와�
 })
 
 test('quotaLimits 를 안쪽에서 찾아 가장 최근 것만 남긴다', () => {
-  const acc = 빈누적('s1', 'slug')
+  const acc = emptyTotals('s1', 'slug')
   foldEntry(acc, { type: 'user', timestamp: '2026-09-17T00:00:00Z', message: { content: 'x' }, deep: { quotaLimits: { status: 'old' } } })
   foldEntry(acc, { type: 'user', timestamp: '2026-09-18T00:00:00Z', message: { content: 'x' }, a: { b: { quotaLimits: { status: 'new' } } } })
   assert.equal(acc.할당량.status, 'new')
 })
 
 test('🔴 attachment·file-history 줄은 건너뛴다 (수 MB 인데 필요한 것이 없다)', () => {
-  const acc = 빈누적('s1', 'slug')
+  const acc = emptyTotals('s1', 'slug')
   const lines = [
     JSON.stringify({ type: 'attachment', huge: 'x'.repeat(100) }),
     JSON.stringify({ type: 'file-history-delta', huge: 'y'.repeat(100) }),
@@ -109,7 +109,7 @@ test('🔴 attachment·file-history 줄은 건너뛴다 (수 MB 인데 필요한
 })
 
 test('깨진 줄은 건너뛰고 나머지를 접는다 (쓰는 중인 마지막 줄)', () => {
-  const acc = 빈누적('s1', 'slug')
+  const acc = emptyTotals('s1', 'slug')
   foldLines(acc, [
     JSON.stringify(A({ message: { model: 'm', usage: { output_tokens: 1 } } })),
     '{"type":"assistant", 깨진',
@@ -126,15 +126,15 @@ test('할당량 — 기록이 없으면 없다고 말한다', () => {
 })
 
 test('🔴 할당량 — resetsAt 이 과거면 "이미 해제됨"이라고 말한다', () => {
-  const 과거 = Math.floor((Date.now() - 3600_000) / 1000)
-  const v = quotaView({ status: 'rejected', resetsAt: 과거, rateLimitType: 'five_hour', _at: Date.now() - 7200_000 })
+  const past = Math.floor((Date.now() - 3600_000) / 1000)
+  const v = quotaView({ status: 'rejected', resetsAt: past, rateLimitType: 'five_hour', _at: Date.now() - 7200_000 })
   assert.equal(v.이미해제됨, true)
   assert.match(v.설명, /이미 해제/)
 })
 
 test('할당량 — 미래면 남은 시간을 말한다', () => {
-  const 미래 = Math.floor((Date.now() + 30 * 60_000) / 1000)
-  const v = quotaView({ status: 'rejected', resetsAt: 미래, rateLimitType: 'five_hour', _at: Date.now() })
+  const future = Math.floor((Date.now() + 30 * 60_000) / 1000)
+  const v = quotaView({ status: 'rejected', resetsAt: future, rateLimitType: 'five_hour', _at: Date.now() })
   assert.equal(v.이미해제됨, false)
   assert.ok(v.해제_남은분 >= 29 && v.해제_남은분 <= 30)
 })

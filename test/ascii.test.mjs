@@ -16,19 +16,19 @@ import { fileURLToPath } from 'node:url'
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 /** 파일에서 ASCII 밖의 바이트가 있는 줄 번호들 */
-function 비ascii줄(path) {
+function nonAsciiLines(path) {
   const buf = readFileSync(path)
   const bad = []
-  let 줄 = 1
+  let line = 1
   for (const b of buf) {
-    if (b === 0x0a) { 줄++; continue }
-    if (b > 0x7f && !bad.includes(줄)) bad.push(줄)
+    if (b === 0x0a) { line++; continue }
+    if (b > 0x7f && !bad.includes(line)) bad.push(line)
   }
   return bad
 }
 
 /** 저장소 안의 모든 .ps1 (루트 + scripts/) — 위치로 예외를 두지 않는다 */
-function 모든ps1() {
+function allPs1() {
   const out = []
   for (const dir of ['', 'scripts']) {
     const full = dir ? join(ROOT, dir) : ROOT
@@ -40,11 +40,11 @@ function 모든ps1() {
 }
 
 test('🔴 모든 .ps1 은 순수 ASCII 다 (PowerShell 5.1 이 ANSI 로 읽는다)', () => {
-  const files = 모든ps1()
+  const files = allPs1()
   assert.ok(files.length >= 6, `.ps1 이 있어야 한다 — 찾은 것: ${files.length}`)
 
   for (const { rel, path } of files) {
-    const bad = 비ascii줄(path)
+    const bad = nonAsciiLines(path)
     assert.deepEqual(bad, [], `${rel} 의 ${bad.join(', ')}번 줄에 비ASCII 문자가 있다 — PowerShell 5.1 파서가 죽는다`)
   }
 })
@@ -64,17 +64,17 @@ test('🔴 트레이가 읽는 라벨 파일의 키는 ASCII 다 (tray.ps1 이 �
   assert.ok(existsSync(p), 'config/ui-labels.json 이 있어야 한다')
   const j = JSON.parse(readFileSync(p, 'utf8'))
 
-  const 검사 = (o, 경로 = '') => {
+  const check = (o, 경로 = '') => {
     for (const k of Object.keys(o)) {
       // `_주의` 같은 메모 키는 코드가 읽지 않으므로 면제한다
       if (!k.startsWith('_')) {
         // eslint-disable-next-line no-control-regex
         assert.match(k, /^[\x20-\x7e]+$/, `키 '${경로}${k}' 가 ASCII 가 아니다 — tray.ps1 이 참조할 수 없다`)
       }
-      if (o[k] && typeof o[k] === 'object') 검사(o[k], `${경로}${k}.`)
+      if (o[k] && typeof o[k] === 'object') check(o[k], `${경로}${k}.`)
     }
   }
-  검사(j)
+  check(j)
 })
 
 test('🔴 ASCII 스크립트가 읽는 엔드포인트의 응답 키는 ASCII 다', () => {
@@ -112,26 +112,26 @@ test('🔴 스케줄러가 부르는 진입점 경로는 ASCII 다', () => {
 })
 
 test('진입점은 본체로 넘기기만 한다 — 로직을 여기 두면 ASCII 제약에 갇힌다', () => {
-  for (const [rel, 본체] of [['src/hb.mjs', 'heartbeat.mjs'], ['src/rs.mjs', 'resume.mjs']]) {
+  for (const [rel, bodyText] of [['src/hb.mjs', 'heartbeat.mjs'], ['src/rs.mjs', 'resume.mjs']]) {
     const src = readFileSync(join(ROOT, rel), 'utf8')
-    assert.ok(src.includes(본체), `${rel} 는 ${본체} 를 가져와야 한다`)
-    const 코드줄 = src.split('\n').filter((l) => {
+    assert.ok(src.includes(bodyText), `${rel} 는 ${bodyText} 를 가져와야 한다`)
+    const codeLines = src.split('\n').filter((l) => {
       const t = l.trim()
       return t && !t.startsWith('*') && !t.startsWith('/*') && !t.startsWith('//') && !t.startsWith('*/')
     })
-    assert.equal(코드줄.length, 1, `${rel} 의 코드는 import 한 줄이어야 한다 — 실제: ${코드줄.length}줄`)
+    assert.equal(codeLines.length, 1, `${rel} 의 코드는 import 한 줄이어야 한다 — 실제: ${codeLines.length}줄`)
   }
 })
 
 test('.ps1 이 가리키는 작업 이름은 scheduler.mjs 와 일치한다', async () => {
   const { 작업이름 } = await import('../src/lib/scheduler.mjs')
-  const 짝 = [
+  const pairCwd = [
     ['register-heartbeat.ps1', 작업이름.하트비트],
     ['register-resume.ps1', 작업이름.재시작],
     ['register-ui.ps1', 작업이름.UI],
     ['register-tray.ps1', 작업이름.트레이],
   ]
-  for (const [f, name] of 짝) {
+  for (const [f, name] of pairCwd) {
     const src = readFileSync(join(ROOT, 'scripts', f), 'utf8')
     assert.ok(src.includes(name), `scripts/${f} 에 작업 이름 '${name}' 이 없다 — 화면이 엉뚱한 작업을 조회하게 된다`)
   }
@@ -190,6 +190,6 @@ test('🔴 콘솔 프로그램을 띄우는 곳은 -WindowStyle Hidden 만 믿�
       `scripts/${f} 가 -WindowStyle Hidden 에만 기대고 있다 — runhidden.exe 경로를 함께 둬라`)
   }
   const start = readFileSync(join(ROOT, 'start.ps1'), 'utf8')
-  const 시작코드 = start.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
-  assert.ok(/runhidden\.exe/.test(시작코드), 'start.ps1 도 runhidden.exe 를 알아야 한다')
+  const startSrc = start.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+  assert.ok(/runhidden\.exe/.test(startSrc), 'start.ps1 도 runhidden.exe 를 알아야 한다')
 })

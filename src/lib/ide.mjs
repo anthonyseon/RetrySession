@@ -22,7 +22,7 @@
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { claudeHome, 경로키, isInside } from './config.mjs'
+import { claudeHome, pathKey, isInside } from './config.mjs'
 import { localStamp, minutesSince } from './stamp.mjs'
 
 /** pid 가 살아있나. 신호 0 은 아무것도 보내지 않고 존재만 확인한다 */
@@ -61,7 +61,7 @@ export function ideWindows() {
         pid: j.pid ?? null,
         ideName: j.ideName || null,
         transport: j.transport || null,
-        workspaceFolders: (j.workspaceFolders || []).map(경로키),
+        workspaceFolders: (j.workspaceFolders || []).map(pathKey),
         살아있음: alive,
         낡음: !alive, // 프로세스가 없으면 닫힌 창의 흔적이다
         기록시각: localStamp(st.mtime),
@@ -82,10 +82,10 @@ export function ideWindows() {
  * 이 경로가 어느 IDE 창에 열려 있나. 살아있는 창만 본다.
  * 여러 창에 걸쳐 있으면 **가장 구체적인**(가장 긴) 폴더로 짝지은 창을 돌려준다.
  */
-export function findWindow(cwd, 창목록) {
+export function findWindow(cwd, windowList) {
   if (!cwd) return null
   let best = null, bestLen = -1
-  for (const w of 창목록) {
+  for (const w of windowList) {
     if (!w.살아있음) continue
     for (const f of w.workspaceFolders) {
       if (isInside(cwd, f) && f.length > bestLen) { best = w; bestLen = f.length }
@@ -100,36 +100,36 @@ export function findWindow(cwd, 창목록) {
  * 이것이 "Description 이 목록에 없다"의 답을 만든다 — 폴더는 열려 있는데 세션이 0개면
  * 그 폴더에서 Claude Code 를 시작한 적이 없다는 뜻이고, 그건 빠뜨린 것이 아니다.
  */
-export function sessionsByFolder(창목록, 세션들) {
+export function sessionsByFolder(windowList, sessionList) {
   const out = []
-  for (const w of 창목록) {
+  for (const w of windowList) {
     if (!w.살아있음) continue
     for (const f of w.workspaceFolders) {
-      const 해당 = 세션들.filter((s) =>
+      const hit2 = sessionList.filter((s) =>
         isInside(s.실행cwd || '', f) || isInside(s.주작업cwd || '', f))
       out.push({
         폴더: f,
         포트: w.포트,
         ideName: w.ideName,
-        세션수: 해당.length,
-        실행중: 해당.filter((s) => s.실행중).length,
-        감시: 해당.filter((s) => s.감시?.켜짐).length,
+        세션수: hit2.length,
+        실행중: hit2.filter((s) => s.실행중).length,
+        감시: hit2.filter((s) => s.감시?.켜짐).length,
         // 이 폴더를 **시작 위치**로 쓴 세션이 있나 (주작업으로만 쓴 것과 구별한다)
-        여기서시작: 해당.filter((s) => isInside(s.실행cwd || '', f)).length,
-        sessionIds: 해당.map((s) => s.sessionId),
+        여기서시작: hit2.filter((s) => isInside(s.실행cwd || '', f)).length,
+        sessionIds: hit2.map((s) => s.sessionId),
       })
     }
   }
   // 같은 폴더가 여러 창에 열려 있으면 하나로 합친다
-  const 병합 = new Map()
+  const merged = new Map()
   for (const r of out) {
     const k = r.폴더.toLowerCase()
-    const p = 병합.get(k)
-    if (!p) 병합.set(k, r)
+    const p = merged.get(k)
+    if (!p) merged.set(k, r)
     else {
       p.세션수 = Math.max(p.세션수, r.세션수)
       p.포트 = `${p.포트}, ${r.포트}`
     }
   }
-  return [...병합.values()].sort((a, b) => b.세션수 - a.세션수 || a.폴더.localeCompare(b.폴더))
+  return [...merged.values()].sort((a, b) => b.세션수 - a.세션수 || a.폴더.localeCompare(b.폴더))
 }

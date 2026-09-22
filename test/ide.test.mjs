@@ -10,19 +10,19 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { findWindow, sessionsByFolder } from '../src/lib/ide.mjs'
-import { 경로키, isInside } from '../src/lib/config.mjs'
+import { pathKey, isInside } from '../src/lib/config.mjs'
 
-const 창 = (포트, 폴더들, 살아있음 = true) => ({
+const 창 = (포트, folders, 살아있음 = true) => ({
   포트, pid: 1000 + 포트, ideName: 'Visual Studio Code',
-  workspaceFolders: 폴더들.map(경로키), 살아있음, 낡음: !살아있음,
+  workspaceFolders: folders.map(pathKey), 살아있음, 낡음: !살아있음,
 })
 
 /* ── 경로 정규화 ─────────────────────────────────────────────── */
 
 test('🔴 경로키 — 드라이브 문자 대소문자를 합친다 (실측: c:\\ 와 C:\\ 가 섞인다)', () => {
-  assert.equal(경로키('c:\\a\\b'), 'C:/a/b')
-  assert.equal(경로키('C:\\a\\b\\'), 'C:/a/b')
-  assert.equal(경로키('C:/a/b'), 'C:/a/b')
+  assert.equal(pathKey('c:\\a\\b'), 'C:/a/b')
+  assert.equal(pathKey('C:\\a\\b\\'), 'C:/a/b')
+  assert.equal(pathKey('C:/a/b'), 'C:/a/b')
 })
 
 test('isInside — 같은 경로와 하위 경로', () => {
@@ -57,14 +57,14 @@ test('열린 폴더 밖이면 null', () => {
 /* ── 열린 폴더별 세션 (Description 물음의 핵심) ──────────────── */
 
 const 세션 = (id, 실행cwd, 주작업cwd, opts = {}) => ({
-  sessionId: id, 실행cwd: 경로키(실행cwd), 주작업cwd: 경로키(주작업cwd),
+  sessionId: id, 실행cwd: pathKey(실행cwd), 주작업cwd: pathKey(주작업cwd),
   실행중: !!opts.실행중, 감시: { 켜짐: !!opts.감시 },
 })
 
 test('🔴 폴더에서 일하지만 거기서 시작하지 않은 경우를 구별한다 (Description 의 경우)', () => {
   const 목록 = [창(63788, ['C:/dev/Platform', 'C:/dev/Description'])]
-  const 세션들 = [세션('s1', 'C:/dev/Platform', 'C:/dev/Description', { 실행중: true, 감시: true })]
-  const r = sessionsByFolder(목록, 세션들)
+  const sessionList = [세션('s1', 'C:/dev/Platform', 'C:/dev/Description', { 실행중: true, 감시: true })]
+  const r = sessionsByFolder(목록, sessionList)
 
   const platform = r.find((x) => x.폴더 === 'C:/dev/Platform')
   const desc = r.find((x) => x.폴더 === 'C:/dev/Description')
@@ -98,9 +98,9 @@ test('같은 폴더가 두 창에 열려 있으면 한 줄로 합친다', () => 
 
 test('세션이 많은 폴더가 위로 온다', () => {
   const 목록 = [창(1, ['C:/dev/A', 'C:/dev/B'])]
-  const 세션들 = [
+  const sessionList = [
     세션('s1', 'C:/dev/B', 'C:/dev/B'),
     세션('s2', 'C:/dev/B', 'C:/dev/B'),
   ]
-  assert.equal(sessionsByFolder(목록, 세션들)[0].폴더, 'C:/dev/B')
+  assert.equal(sessionsByFolder(목록, sessionList)[0].폴더, 'C:/dev/B')
 })

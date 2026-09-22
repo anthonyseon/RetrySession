@@ -15,22 +15,22 @@ import { RS_HOME, loadConfig, paths as repoPaths } from './config.mjs'
 import { localStamp } from './stamp.mjs'
 import { writeJsonAtomic } from './io.mjs'
 
-const 등록부 = join(RS_HOME, 'state', 'targets.json')
+const registryFile = join(RS_HOME, 'state', 'targets.json')
 
-export const 빈등록부 = () => ({
+export const emptyRegistry = () => ({
   _주의: 'UI 가 쓰고 하트비트·재개가 읽는다. 추적하지 않는다 — 세션 id 는 이 PC 에서만 의미가 있다.',
   updatedAt: null,
   targets: {},
 })
 
 export function loadTargets() {
-  if (!existsSync(등록부)) return 빈등록부()
+  if (!existsSync(registryFile)) return emptyRegistry()
   try {
-    const t = JSON.parse(readFileSync(등록부, 'utf8'))
-    return { ...빈등록부(), ...t, targets: t.targets || {} }
+    const t = JSON.parse(readFileSync(registryFile, 'utf8'))
+    return { ...emptyRegistry(), ...t, targets: t.targets || {} }
   } catch (e) {
     // 🔴 깨진 등록부를 빈 것으로 바꿔치면 켜둔 감시가 조용히 꺼진다. 오류를 들고 올라간다.
-    throw new Error(`등록부가 깨졌다 (${등록부}): ${e.message}`)
+    throw new Error(`등록부가 깨졌다 (${registryFile}): ${e.message}`)
   }
 }
 
@@ -42,10 +42,10 @@ export function loadTargets() {
  */
 export function saveTargets(t) {
   mkdirSync(join(RS_HOME, 'state'), { recursive: true })
-  writeJsonAtomic(등록부, { ...t, updatedAt: localStamp() })
+  writeJsonAtomic(registryFile, { ...t, updatedAt: localStamp() })
 }
 
-const 빈대상 = () => ({ 감시: false, 재시작: false, 재개지시: null, 추가시각: localStamp() })
+const emptyTarget = () => ({ 감시: false, 재시작: false, 재개지시: null, 추가시각: localStamp() })
 
 /**
  * 감시를 **방금 켰다면** 그 시각을 epoch 으로 남긴다.
@@ -68,17 +68,17 @@ function touchWatchTime(이전, patch) {
 }
 
 function updateTarget(이전, patch, meta) {
-  const 켠epoch = touchWatchTime(이전, patch)
+  const onEpoch = touchWatchTime(이전, patch)
   const next = { ...이전, ...meta, ...patch, 갱신시각: localStamp() }
-  if (켠epoch === undefined) delete next.감시켠epoch
-  else next.감시켠epoch = 켠epoch
+  if (onEpoch === undefined) delete next.감시켠epoch
+  else next.감시켠epoch = onEpoch
   return next
 }
 
 /** 대상 하나를 켜고 끈다. 없으면 만든다 */
 export function setTarget(sessionId, patch, meta = {}) {
   const t = loadTargets()
-  t.targets[sessionId] = updateTarget(t.targets[sessionId] || 빈대상(), patch, meta)
+  t.targets[sessionId] = updateTarget(t.targets[sessionId] || emptyTarget(), patch, meta)
   saveTargets(t)
   return t.targets[sessionId]
 }
@@ -88,7 +88,7 @@ export function setMany(sessionIds, patch, metaBySession = {}) {
   const t = loadTargets()
   const 결과 = {}
   for (const id of sessionIds) {
-    t.targets[id] = updateTarget(t.targets[id] || 빈대상(), patch, metaBySession[id] || {})
+    t.targets[id] = updateTarget(t.targets[id] || emptyTarget(), patch, metaBySession[id] || {})
     결과[id] = t.targets[id]
   }
   saveTargets(t)
@@ -102,11 +102,11 @@ export function removeTarget(sessionId) {
 }
 
 /** 감시가 켜진 대상 목록 */
-export const 감시대상 = (t = loadTargets()) =>
+export const watchTarget = (t = loadTargets()) =>
   Object.entries(t.targets).filter(([, v]) => v.감시).map(([id, v]) => ({ sessionId: id, ...v }))
 
 /** 재시작이 켜진 대상 목록 */
-export const 재시작대상 = (t = loadTargets()) =>
+export const resumeTarget = (t = loadTargets()) =>
   Object.entries(t.targets).filter(([, v]) => v.재시작).map(([id, v]) => ({ sessionId: id, ...v }))
 
 /* ── 세션별 상태 파일 경로 ───────────────────────────────────── */
@@ -132,16 +132,16 @@ export function statePaths(sessionId) {
   return {
     stateDir: dir,
     하트비트: join(dir, 'heartbeat.json'),
-    하트비트로그: join(dir, 'heartbeat.log'),
-    재개상태: join(dir, 'resume.json'),
-    재개로그: join(dir, 'resume.log'),
-    재개락: join(dir, 'resume.lock'),
+    hbLogPath: join(dir, 'heartbeat.log'),
+    resumeState: join(dir, 'resume.json'),
+    resumeLogPath: join(dir, 'resume.log'),
+    resumeLock: join(dir, 'resume.lock'),
   }
 }
 
 /* ── cwd → 저장소 설정 짝짓기 ────────────────────────────────── */
 
-const 정규 = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+const re = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 
 /**
  * 세션의 cwd 로 config/projects.json 의 프로젝트를 찾는다.
@@ -152,24 +152,24 @@ const 정규 = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').to
  */
 export function resolveRepo(cwd) {
   const { projects } = loadConfig()
-  const c = 정규(cwd)
-  const 후보 = projects
-    .filter((p) => c === 정규(p.repo) || c.startsWith(정규(p.repo) + '/'))
-    .sort((a, b) => 정규(b.repo).length - 정규(a.repo).length)
+  const c = re(cwd)
+  const candidates = projects
+    .filter((p) => c === re(p.repo) || c.startsWith(re(p.repo) + '/'))
+    .sort((a, b) => re(b.repo).length - re(a.repo).length)
 
-  if (후보.length) return { project: 후보[0], 설정있음: true }
+  if (candidates.length) return { project: candidates[0], hasConfig: true }
 
-  const 기본 = projects[0] // defaults 가 병합돼 있으므로 설정값을 빌려 쓴다
+  const fallback = projects[0] // defaults 가 병합돼 있으므로 설정값을 빌려 쓴다
   return {
     project: {
       id: `(미등록) ${cwd}`,
       repo: cwd,
       tracker: null,
       sessionSlugs: [],
-      하트비트: 기본.하트비트,
-      재개: { ...기본.재개, enabled: true, addDirs: [] },
+      하트비트: fallback.하트비트,
+      resume: { ...fallback.resume, enabled: true, addDirs: [] },
     },
-    설정있음: false,
+    hasConfig: false,
   }
 }
 

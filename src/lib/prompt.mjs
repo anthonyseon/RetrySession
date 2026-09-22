@@ -16,10 +16,10 @@ import { trackerPath } from './targets.mjs'
  * 재개 지시문. 세션을 이어받으므로 문맥 설명은 필요 없다 — **무엇을 계속할지와
  * 무인 실행의 한계**만 말한다.
  */
-function buildPrompt(대상, project, { 제한중단 = false } = {}) {
+function buildPrompt(대상, project, { limitStopped = false } = {}) {
   // 제한에 잘렸다면 그 사실을 먼저 알린다 — 대화 마지막 줄이 "limit" 알림이라
   // 그것을 설명 없이 두면 무엇을 이어야 할지 헷갈린다.
-  const 머리 = 제한중단
+  const head = limitStopped
     ? ['이 대화는 **사용량 제한에 걸려 중간에 끊겼다.** 제한은 이제 풀렸다.',
        '대화의 마지막 줄에 보이는 limit 알림은 네 답이 아니라 시스템 알림이다.', '']
     : []
@@ -28,17 +28,17 @@ function buildPrompt(대상, project, { 제한중단 = false } = {}) {
     return [
       '이 실행은 OS 작업 스케줄러가 띄운 것이고 사람이 보고 있지 않다. 아래 지시를 이어서 수행하라.',
       '',
-      ...머리,
+      ...head,
       대상.재개지시,
       '',
-      ...안전규칙(),
+      ...safetyRules(),
     ].join('\n')
   }
 
   const tp = trackerPath(project)
   if (tp) {
-    const 본문 = resumePrompt(readTracker(tp), project)
-    return 제한중단 ? [...머리, 본문].join('\n') : 본문
+    const body = resumePrompt(readTracker(tp), project)
+    return limitStopped ? [...head, body].join('\n') : body
   }
 
   /**
@@ -51,17 +51,17 @@ function buildPrompt(대상, project, { 제한중단 = false } = {}) {
    */
   return [
     '이 실행은 OS 작업 스케줄러가 띄운 것이고 사람이 보고 있지 않다.',
-    ...머리,
+    ...head,
     '끊기기 직전에 하던 일 하나를 이어서 끝내라.',
     '',
     '1. 이 대화에서 마지막으로 **끝내지 못한** 일이 무엇인지 먼저 확인한다.',
     '2. 그 하나만 끝낸다. 새 작업을 시작하지 않는다.',
     '3. 끊기기 전에 이미 끝난 일이었다면 아무것도 하지 말고 그렇게 답하고 끝낸다.',
-    ...안전규칙(),
+    ...safetyRules(),
   ].join('\n')
 }
 
-const 안전규칙 = () => ([
+const safetyRules = () => ([
   '',
   '🔴 무인 실행 규칙',
   '- 판단이 갈리는 지점에서는 멈춘다. 무엇이 막혔는지 적고 끝낸다 — 추측으로 진행하지 않는다.',
@@ -70,4 +70,4 @@ const 안전규칙 = () => ([
 ])
 
 
-export { buildPrompt, 안전규칙 }
+export { buildPrompt, safetyRules }

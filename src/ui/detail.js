@@ -4,38 +4,38 @@
 'use strict'
 // 🔴 n(숫자 서식)을 빠뜨려 상세 탭이 전부 ReferenceError 로 죽었다 (2026-09-22 실측).
 //   app.js 를 조각으로 나눌 때 한 파일 안에 있던 이름이 import 목록에서 누락됐다.
-import { $, el, n, compact, shortPath, S, badge, keepScroll, 동작 } from './common.js'
+import { $, el, n, compact, shortPath, S, badge, keepScroll, actions } from './common.js'
 
 /** 상세를 다시 그린다. 보고 있던 세션·탭이 바뀌었으면 맨 위에서 시작한다 */
 function redrawDetail() {
-  const 키 = `${S.열린세션 || ''}|${S.탭}`
-  const 바뀜 = 키 !== S.마지막상세키
-  S.마지막상세키 = 키
-  keepScroll('#dscroll', drawDetail, { 맨위로: 바뀜 })
+  const 키 = `${S.openSession || ''}|${S.tab}`
+  const changed = 키 !== S.lastDetailKey
+  S.lastDetailKey = 키
+  keepScroll('#dscroll', drawDetail, { toTop: changed })
 }
 
 
 /* ── 상세 ────────────────────────────────────────────────────── */
 function drawDetail() {
-  const d = S.상세
-  const s = S.상태?.세션.find((x) => x.sessionId === S.열린세션)
+  const d = S.detail
+  const s = S.상태?.세션.find((x) => x.sessionId === S.openSession)
 
   // 알림 이력은 세션 선택과 무관하다 — 창을 열자마자 볼 수 있어야 한다
-  const 이력 = S.상태?.경보이력 || []
-  $('#tab-al').textContent = 이력.length
-    ? 이력.join('\n')
+  const history = S.상태?.경보이력 || []
+  $('#tab-al').textContent = history.length
+    ? history.join('\n')
     : '(기록된 경보 변화가 없습니다. 하트비트가 5분마다 확인하고, 상태가 바뀔 때만 여기에 남깁니다.)'
 
-  if (!S.열린세션 || !d || !s) {
+  if (!S.openSession || !d || !s) {
     $('#dbody').classList.add('hide')
     // 알림 탭은 세션 없이도 보여준다
-    $('#dempty').classList.toggle('hide', S.탭 === 'al')
+    $('#dempty').classList.toggle('hide', S.tab === 'al')
     // 🔴 세션을 골랐는데 못 읽은 것이면 그 이유를 적는다. 안내문만 두면 사람은
     //   화면이 멈춘 줄 안다.
-    $('#dempty').textContent = S.열린세션 && S.상세오류
-      ? `이 세션의 상세를 읽을 수 없습니다 — ${S.상세오류}`
+    $('#dempty').textContent = S.openSession && S.detailError
+      ? `이 세션의 상세를 읽을 수 없습니다 — ${S.detailError}`
       : '세션 행을 누르면 처리 상황과 내용이 실시간으로 표시됩니다.'
-    $('#dtitle').textContent = S.탭 === 'al' ? '알림 이력' : '상세 — 왼쪽에서 세션을 고르세요'
+    $('#dtitle').textContent = S.tab === 'al' ? '알림 이력' : '상세 — 왼쪽에서 세션을 고르세요'
     drawTab()
     return
   }
@@ -119,8 +119,8 @@ function drawDetail() {
     if (!b.ok) box.append(el('div', 'note', `지금 재시작하지 않는 이유: ${b.why}`))
     if (r.상태.마지막실행) {
       const L = r.상태.마지막실행
-      box.append(el('div', 'note', `마지막 실행 ${L.at} · ${L.결과} · ${L.소요초}초 · $${L.비용USD ?? 0} · 턴 ${L.턴수 ?? '?'}`))
-      if (L.요약) box.append(el('div', 'warnbox', L.요약))
+      box.append(el('div', 'note', `마지막 실행 ${L.at} · ${L.결과} · ${L.tookSec}초 · $${L.비용USD ?? 0} · 턴 ${L.turns ?? '?'}`))
+      if (L.summary) box.append(el('div', 'warnbox', L.summary))
     }
     now.append(el('div', null, ' '), box)
   }
@@ -170,17 +170,17 @@ function drawDetail() {
   const save = el('button', 'sm primary', '재개지시 저장')
   save.addEventListener('click', async () => {
     save.disabled = true
-    await 동작.post('/api/targets', { sessionIds: [S.열린세션], 재개지시: ta.value, meta: 동작.메타(s) })
-    save.disabled = false; 동작.loadDetail()
+    await actions.post('/api/targets', { sessionIds: [S.openSession], 재개지시: ta.value, meta: actions.meta(s) })
+    save.disabled = false; actions.loadDetail()
   })
   const row = el('div'); row.style.marginTop = '8px'; row.style.display = 'flex'; row.style.gap = '7px'
   row.append(save)
   const b1 = el('button', 'sm', '지금 감시 실행')
-  b1.addEventListener('click', () => 동작.post('/api/run', { kind: 'heartbeat' }).then(() => setTimeout(동작.loadDetail, 2500)))
+  b1.addEventListener('click', () => actions.post('/api/run', { kind: 'heartbeat' }).then(() => setTimeout(actions.loadDetail, 2500)))
   const b2 = el('button', 'sm', '지금 재시작 실행')
   b2.addEventListener('click', () => {
     if (!confirm('이 세션을 지금 재시작합니다. 사람이 보지 않는 상태로 토큰을 쓰고 파일을 고칠 수 있습니다. 계속할까요?')) return
-    동작.post('/api/run', { kind: 'resume', sessionId: S.열린세션 }).then(() => setTimeout(동작.loadDetail, 3000))
+    actions.post('/api/run', { kind: 'resume', sessionId: S.openSession }).then(() => setTimeout(actions.loadDetail, 3000))
   })
   row.append(b1, b2)
   cfg.append(row)
@@ -190,10 +190,10 @@ function drawDetail() {
 }
 
 function drawTab() {
-  for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === S.탭)
-  for (const k of ['now', 'tl', 'hb', 'rs', 'cfg', 'al']) $('#tab-' + k).classList.toggle('hide', k !== S.탭)
+  for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === S.tab)
+  for (const k of ['now', 'tl', 'hb', 'rs', 'cfg', 'al']) $('#tab-' + k).classList.toggle('hide', k !== S.tab)
   // 알림 탭에서는 세션 상세 묶음을 숨긴다 (알림은 그 바깥에 있다)
-  if (S.열린세션 && S.상세) $('#dbody').classList.toggle('hide', S.탭 === 'al')
+  if (S.openSession && S.detail) $('#dbody').classList.toggle('hide', S.tab === 'al')
 }
 
 

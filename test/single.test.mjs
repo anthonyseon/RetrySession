@@ -12,87 +12,87 @@ import assert from 'node:assert/strict'
 import { writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { 락경로, 락상태, 잡기 } from '../src/lib/single.mjs'
+import { lockPath, lockState, grab } from '../src/lib/single.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 /** 시험 전용 이름 — 진짜 구성요소 락을 건드리지 않는다 */
 const 이름 = () => `__test__${process.pid}_${Math.random().toString(36).slice(2, 8)}`
-const 심기 = (n, v) => writeFileSync(락경로(n), JSON.stringify(v))
-const 치우기 = (n) => { try { rmSync(락경로(n), { force: true }) } catch { /* 없으면 됐다 */ } }
+const plant = (n, v) => writeFileSync(lockPath(n), JSON.stringify(v))
+const cleanup = (n) => { try { rmSync(lockPath(n), { force: true }) } catch { /* 없으면 됐다 */ } }
 
 test('락이 없으면 잡힌다', () => {
   const n = 이름()
   try {
-    const r = 잡기(n)
+    const r = grab(n)
     assert.equal(r.ok, true)
-    assert.ok(existsSync(락경로(n)))
-  } finally { 치우기(n) }
+    assert.ok(existsSync(lockPath(n)))
+  } finally { cleanup(n) }
 })
 
 test('🔴 살아 있는 프로세스가 잡고 있으면 막는다', () => {
   const n = 이름()
   try {
     // 이 프로세스는 분명히 살아 있다
-    심기(n, { pid: process.pid, at: '2026-09-21 00:00:00', atEpoch: Date.now() })
-    const r = 잡기(n)
+    plant(n, { pid: process.pid, at: '2026-09-21 00:00:00', atEpoch: Date.now() })
+    const r = grab(n)
     assert.equal(r.ok, false)
     assert.match(r.why, /이미 돌고 있다/)
     assert.match(r.why, new RegExp(String(process.pid)))
-  } finally { 치우기(n) }
+  } finally { cleanup(n) }
 })
 
 test('죽은 프로세스의 락은 회수한다', () => {
   const n = 이름()
   try {
-    심기(n, { pid: 999_999_999, at: 'x', atEpoch: Date.now() })
-    assert.equal(잡기(n).ok, true)
-  } finally { 치우기(n) }
+    plant(n, { pid: 999_999_999, at: 'x', atEpoch: Date.now() })
+    assert.equal(grab(n).ok, true)
+  } finally { cleanup(n) }
 })
 
 test('🔴 낡음 한계를 넘기면 살아 있어도 회수한다 (죽은 락에 영원히 막히지 않게)', () => {
   const n = 이름()
   try {
-    심기(n, { pid: process.pid, at: 'x', atEpoch: Date.now() - 200 * 60_000 })
-    assert.equal(잡기(n, { 낡음분: 30 }).ok, true)
-  } finally { 치우기(n) }
+    plant(n, { pid: process.pid, at: 'x', atEpoch: Date.now() - 200 * 60_000 })
+    assert.equal(grab(n, { staleMin: 30 }).ok, true)
+  } finally { cleanup(n) }
 })
 
 test('한계 안이면 막는다 (경계 확인)', () => {
   const n = 이름()
   try {
-    심기(n, { pid: process.pid, at: 'x', atEpoch: Date.now() - 5 * 60_000 })
-    assert.equal(잡기(n, { 낡음분: 30 }).ok, false)
-  } finally { 치우기(n) }
+    plant(n, { pid: process.pid, at: 'x', atEpoch: Date.now() - 5 * 60_000 })
+    assert.equal(grab(n, { staleMin: 30 }).ok, false)
+  } finally { cleanup(n) }
 })
 
 test('깨진 락 파일은 낡은 것으로 보고 회수한다', () => {
   const n = 이름()
   try {
-    writeFileSync(락경로(n), '깨짐{{{')
-    assert.equal(잡기(n).ok, true)
-  } finally { 치우기(n) }
+    writeFileSync(lockPath(n), '깨짐{{{')
+    assert.equal(grab(n).ok, true)
+  } finally { cleanup(n) }
 })
 
 test('락상태 — 점유/낡음/나이를 구별해 알려준다', () => {
   const n = 이름()
   try {
-    심기(n, { pid: process.pid, at: 'x', atEpoch: Date.now() - 3 * 60_000 })
-    const s = 락상태(n, 30)
+    plant(n, { pid: process.pid, at: 'x', atEpoch: Date.now() - 3 * 60_000 })
+    const s = lockState(n, 30)
     assert.equal(s.점유, true)
     assert.equal(s.낡음, false)
     assert.equal(s.pid, process.pid)
     assert.ok(s.나이분 >= 2 && s.나이분 <= 4)
 
-    심기(n, { pid: 999_999_999, at: 'x', atEpoch: Date.now() })
-    const d = 락상태(n, 30)
+    plant(n, { pid: 999_999_999, at: 'x', atEpoch: Date.now() })
+    const d = lockState(n, 30)
     assert.equal(d.점유, false, '죽은 pid 는 점유가 아니다')
     assert.equal(d.낡음, true)
-  } finally { 치우기(n) }
+  } finally { cleanup(n) }
 })
 
 test('락이 없으면 점유도 낡음도 아니다', () => {
-  const s = 락상태(이름(), 30)
+  const s = lockState(이름(), 30)
   assert.equal(s.점유, false)
   assert.equal(s.낡음, false)
   assert.equal(s.pid, null)
@@ -116,10 +116,10 @@ const openApp = () => readFileSync(join(ROOT, 'scripts', 'open-app.ps1'), 'utf8'
 test('🔴 상태창은 띄우기 전에 이미 있는 창을 먼저 찾는다', () => {
   const s = openApp()
   assert.match(s, /Get-AppWindows/, '기존 창을 찾는 단계가 있어야 한다')
-  const 찾기위치 = s.indexOf('$existing = Get-AppWindows')
-  const 띄우기위치 = s.indexOf('--app=$Url')
-  assert.ok(찾기위치 > 0, '기존 창 조회가 있어야 한다')
-  assert.ok(찾기위치 < 띄우기위치, '조회가 실행보다 먼저여야 한다')
+  const foundAt = s.indexOf('$existing = Get-AppWindows')
+  const spawnAt = s.indexOf('--app=$Url')
+  assert.ok(foundAt > 0, '기존 창 조회가 있어야 한다')
+  assert.ok(foundAt < spawnAt, '조회가 실행보다 먼저여야 한다')
 })
 
 test('🔴 이미 있으면 앞으로 가져오고 거기서 끝낸다 (새 창을 만들지 않는다)', () => {
@@ -174,10 +174,10 @@ test('🔴 -Restart 는 창도 다시 띄운다 (페이지는 열 때의 코드�
   assert.match(s, /\[switch\]\$Reload/, '창을 새로 띄우는 길이 있어야 한다')
   const i = s.indexOf('$existing.Count -ge 1 -and $Reload')
   assert.ok(i > 0, '기존 창이 있을 때의 분기여야 한다')
-  const 구간 = s.slice(i, i + 1200)
-  assert.match(구간, /WM_CLOSE/, '옛 창을 닫아야 한다')
-  assert.match(구간, /Get-AppWindows \(Get-AppPids\)\)\.Count -eq 0/, '닫힌 것을 확인해야 한다')
-  assert.match(구간, /did not close/, '못 닫았으면 그렇게 말해야 한다 — 창을 겹쳐 띄우면 안 된다')
+  const section = s.slice(i, i + 1200)
+  assert.match(section, /WM_CLOSE/, '옛 창을 닫아야 한다')
+  assert.match(section, /Get-AppWindows \(Get-AppPids\)\)\.Count -eq 0/, '닫힌 것을 확인해야 한다')
+  assert.match(section, /did not close/, '못 닫았으면 그렇게 말해야 한다 — 창을 겹쳐 띄우면 안 된다')
 
   const start = readFileSync(join(ROOT, 'start.ps1'), 'utf8')
   assert.match(start, /open-app\.ps1'\) -Port \$Port -NoWait -Reload/,

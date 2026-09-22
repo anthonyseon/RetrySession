@@ -88,8 +88,8 @@ function callJson(args, { timeout = 20000, bin = null } = {}) {
  */
 export function failureText(exe, e) {
   const raw = (e.stderr || e.message || String(e)).toString()
-  const 깨짐 = raw.includes('�')   // 디코딩이 어긋났다는 확실한 표시
-  if (깨짐 || e.code === 'ENOENT') {
+  const broken2 = raw.includes('�')   // 디코딩이 어긋났다는 확실한 표시
+  if (broken2 || e.code === 'ENOENT') {
     return `claude CLI 를 실행할 수 없다 (${exe}) — 설치와 경로를 확인하라` +
       (e.status != null ? ` [exit ${e.status}]` : '')
   }
@@ -181,4 +181,4 @@ export function cliVersion({ ttlMs = 600000 } = {}) {
 }
 
 /** 시험·강제 갱신용 */
-export function 캐시비우기() { _cache.clear() }
+export function clearCache() { _cache.clear() }

@@ -27,10 +27,10 @@ const compact = (v) => {
 const shortPath = (p) => String(p || '').replace(/^.*[\\/]Cnthoth-Dev[\\/]/i, '…/').replace(/\\/g, '/')
 
 const S = {
-  상태: null, 상세: null, 선택: new Set(), 열린세션: null,
-  탭: 'now', 자동: true, 마지막성공: 0, 오류: null, 등록만: false, 마지막상세키: null,
+  상태: null, detail: null, picked: new Set(), openSession: null,
+  tab: 'now', auto: true, lastOkAt: 0, 오류: null, onlyRegistered: false, lastDetailKey: null,
   // 값을 못 읽은 것(오류)과 그리다 죽은 것(그리기오류)은 다른 고장이다
-  그리기오류: null,
+  drawError: null,
 }
 
 
@@ -50,7 +50,7 @@ function badge(kind, icon, label) {
  * 바닥에 붙어 있었으면 **바닥에 붙인 채로** 둔다 — 로그·타임라인은 새 줄이
  * 아래에 쌓이므로, 위치를 그대로 복원하면 새 내용이 화면 밖으로 밀려난다.
  */
-const 바닥여유 = 24 // px. 스크롤바를 끝까지 내리지 않아도 "바닥"으로 본다
+const bottomSlack = 24 // px. 스크롤바를 끝까지 내리지 않아도 "바닥"으로 본다
 
 /**
  * 🔴 첫 렌더는 보존할 위치가 없다 — 맨 위에서 시작한다.
@@ -63,29 +63,29 @@ const 바닥여유 = 24 // px. 스크롤바를 끝까지 내리지 않아도 "�
  *
  *   상자마다 따로 센다 — 목록의 첫 렌더가 상세의 첫 렌더를 대신하면 안 된다.
  */
-const 그린적있나 = new Set()
+const drawnOnce = new Set()
 
 /** 시험용 — 첫 렌더 기록을 지운다 */
-export const resetFirstRender = () => 그린적있나.clear()
+export const resetFirstRender = () => drawnOnce.clear()
 
-function keepScroll(sel, 다시그리기, { 맨위로 = false } = {}) {
+function keepScroll(sel, redraw, { toTop = false } = {}) {
   const box = $(sel)
-  if (!box) { 다시그리기(); return }
+  if (!box) { redraw(); return }
 
-  const 첫렌더 = !그린적있나.has(sel)
-  그린적있나.add(sel)
-  if (첫렌더) { 다시그리기(); box.scrollTop = 0; return }
+  const firstDraw = !drawnOnce.has(sel)
+  drawnOnce.add(sel)
+  if (firstDraw) { redraw(); box.scrollTop = 0; return }
 
   const 이전 = box.scrollTop
-  const 바닥이었나 = box.scrollHeight - box.clientHeight - 이전 <= 바닥여유
+  const wasAtBottom = box.scrollHeight - box.clientHeight - 이전 <= bottomSlack
 
-  다시그리기()
+  redraw()
 
   // 다른 세션·다른 탭으로 옮겼으면 이전 위치를 되돌리는 게 오히려 이상하다
-  if (맨위로) { box.scrollTop = 0; return }
+  if (toTop) { box.scrollTop = 0; return }
 
   // 레이아웃이 확정된 뒤에 되돌린다
-  if (바닥이었나) box.scrollTop = box.scrollHeight
+  if (wasAtBottom) box.scrollTop = box.scrollHeight
   else box.scrollTop = Math.min(이전, Math.max(0, box.scrollHeight - box.clientHeight))
 }
 
@@ -94,12 +94,12 @@ function keepScroll(sel, 다시그리기, { 맨위로 = false } = {}) {
  * 동작 등록소. app.js 가 기동할 때 채운다.
  * 조각들은 `동작.상세읽기()` 처럼 꺼내 쓴다 — 직접 import 하면 순환이 된다.
  */
-export const 동작 = {
+export const actions = {
   draw: () => { },
   loadStatus: async () => { },
   loadDetail: async () => { },
   post: async () => { },
-  메타: () => ({}),
+  meta: () => ({}),
 }
 
 /**

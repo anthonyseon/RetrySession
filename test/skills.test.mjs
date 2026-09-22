@@ -15,13 +15,13 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const 스킬폴더 = join(ROOT, '.claude', 'skills')
+const skillDir = join(ROOT, '.claude', 'skills')
 
-function 스킬들() {
-  if (!existsSync(스킬폴더)) return []
-  return readdirSync(스킬폴더)
-    .filter((d) => statSync(join(스킬폴더, d)).isDirectory())
-    .map((d) => ({ 이름: d, 경로: join(스킬폴더, d, 'SKILL.md') }))
+function skills() {
+  if (!existsSync(skillDir)) return []
+  return readdirSync(skillDir)
+    .filter((d) => statSync(join(skillDir, d)).isDirectory())
+    .map((d) => ({ 이름: d, 경로: join(skillDir, d, 'SKILL.md') }))
 }
 
 /** `---` 로 둘러싼 YAML 머리말에서 key: value 를 뽑는다 (의존성 없이) */
@@ -38,11 +38,11 @@ function frontmatter(src) {
 }
 
 test('스킬이 최소 하나는 있다', () => {
-  assert.ok(스킬들().length >= 1, '.claude/skills/ 에 스킬이 있어야 한다')
+  assert.ok(skills().length >= 1, '.claude/skills/ 에 스킬이 있어야 한다')
 })
 
 test('모든 스킬에 SKILL.md 와 머리말이 있다', () => {
-  for (const s of 스킬들()) {
+  for (const s of skills()) {
     assert.ok(existsSync(s.경로), `${s.이름}: SKILL.md 가 없다`)
     const fm = frontmatter(readFileSync(s.경로, 'utf8'))
     assert.ok(fm, `${s.이름}: --- 로 둘러싼 머리말이 없다`)
@@ -52,14 +52,14 @@ test('모든 스킬에 SKILL.md 와 머리말이 있다', () => {
 })
 
 test('🔴 name 이 폴더 이름과 같다 — 다르면 호출되지 않는다', () => {
-  for (const s of 스킬들()) {
+  for (const s of skills()) {
     const fm = frontmatter(readFileSync(s.경로, 'utf8'))
     assert.equal(fm.name, s.이름, `${s.이름}: 폴더 이름과 name 이 다르다`)
   }
 })
 
 test('description 이 "언제 쓰는지"를 말한다 — 이것으로 호출 여부가 갈린다', () => {
-  for (const s of 스킬들()) {
+  for (const s of skills()) {
     const fm = frontmatter(readFileSync(s.경로, 'utf8'))
     assert.ok(fm.description.length >= 40,
       `${s.이름}: description 이 너무 짧다(${fm.description.length}자). 어떤 상황에서 쓰는지 적어야 한다`)
@@ -69,15 +69,15 @@ test('description 이 "언제 쓰는지"를 말한다 — 이것으로 호출 �
 })
 
 test('🔴 스킬이 가리키는 .ps1 이 실재한다', () => {
-  for (const s of 스킬들()) {
+  for (const s of skills()) {
     const src = readFileSync(s.경로, 'utf8')
-    const 참조 = new Set()
+    const ref = new Set()
     for (const m of src.matchAll(/(?:\.\\|\\)?((?:scripts\\)?[A-Za-z0-9._-]+\.ps1)/g)) {
-      참조.add(m[1].replace(/\\/g, '/'))
+      ref.add(m[1].replace(/\\/g, '/'))
     }
-    for (const rel of 참조) {
-      const 후보 = [join(ROOT, rel), join(ROOT, 'scripts', rel.split('/').pop())]
-      assert.ok(후보.some((p) => existsSync(p)),
+    for (const rel of ref) {
+      const candidates = [join(ROOT, rel), join(ROOT, 'scripts', rel.split('/').pop())]
+      assert.ok(candidates.some((p) => existsSync(p)),
         `${s.이름}: '${rel}' 를 안내하는데 그런 파일이 없다`)
     }
   }
@@ -85,7 +85,7 @@ test('🔴 스킬이 가리키는 .ps1 이 실재한다', () => {
 
 test('🔴 스킬이 가리키는 npm 명령이 실재한다', () => {
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
-  for (const s of 스킬들()) {
+  for (const s of skills()) {
     const src = readFileSync(s.경로, 'utf8')
     for (const m of src.matchAll(/npm run ([a-z0-9:_-]+)/g)) {
       assert.ok(pkg.scripts?.[m[1]],
@@ -97,7 +97,7 @@ test('🔴 스킬이 가리키는 npm 명령이 실재한다', () => {
 
 test('🔴 스킬이 가리키는 start.exe 스위치가 실재한다', () => {
   const start = readFileSync(join(ROOT, 'start.ps1'), 'utf8')
-  for (const s of 스킬들()) {
+  for (const s of skills()) {
     const src = readFileSync(s.경로, 'utf8')
     for (const m of src.matchAll(/start\.(?:exe|ps1)\s+(-[A-Za-z]+)/g)) {
       assert.ok(start.includes(m[1]),
@@ -107,7 +107,7 @@ test('🔴 스킬이 가리키는 start.exe 스위치가 실재한다', () => {
 })
 
 test('스킬이 CLAUDE.md 를 대체하지 않는다 — 불변 규칙은 거기가 정본이다', () => {
-  const change = 스킬들().find((s) => s.이름 === 'retrysession-change')
+  const change = skills().find((s) => s.이름 === 'retrysession-change')
   if (!change) return
   assert.match(readFileSync(change.경로, 'utf8'), /CLAUDE\.md/,
     '변경 절차 스킬은 불변 규칙의 정본(CLAUDE.md)을 가리켜야 한다')

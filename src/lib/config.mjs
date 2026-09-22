@@ -45,22 +45,22 @@ export function loadConfig() {
     return {
       ...p,
       하트비트: merge(d.하트비트, p.하트비트),
-      재개: merge(d.재개, p.재개),
+      resume: merge(d.resume, p.resume),
       sessionSlugs: p.sessionSlugs || [],
     }
   })
 
   if (!projects.length) throw new Error(`설정에 프로젝트가 없다 (${path})`)
-  return { 설정파일: path, projects }
+  return { configFile: path, projects }
 }
 
 /** id 로 하나 고른다. 없으면 던진다 — 조용히 첫 프로젝트를 쓰면 엉뚱한 곳에 기록한다 */
 export function getProject(id) {
-  const { projects, 설정파일 } = loadConfig()
+  const { projects, configFile } = loadConfig()
   if (!id) return projects[0]
   const found = projects.find((p) => p.id === id)
   if (!found) {
-    throw new Error(`프로젝트 '${id}' 가 설정에 없다 (${설정파일}). 있는 것: ${projects.map((p) => p.id).join(', ')}`)
+    throw new Error(`프로젝트 '${id}' 가 설정에 없다 (${configFile}). 있는 것: ${projects.map((p) => p.id).join(', ')}`)
   }
   return found
 }
@@ -76,10 +76,10 @@ export function paths(project) {
     stateDir: dir,
     추적기: join(project.repo, project.tracker || '_plan/_resume/07-실행추적.json'),
     하트비트: join(dir, 'heartbeat.json'),
-    하트비트로그: join(dir, 'heartbeat.log'),
-    재개상태: join(dir, 'resume.json'),
-    재개로그: join(dir, 'resume.log'),
-    재개락: join(dir, 'resume.lock'),
+    hbLogPath: join(dir, 'heartbeat.log'),
+    resumeState: join(dir, 'resume.json'),
+    resumeLogPath: join(dir, 'resume.log'),
+    resumeLock: join(dir, 'resume.lock'),
   }
 }
 
@@ -101,11 +101,11 @@ export function claudeHome() {
  *
  * 실측: 같은 폴더가 `c:\...`(트랜스크립트·IDE lock)와 `C:\...`(CLI) 로 섞여 들어온다.
  */
-export const 경로키 = (p) =>
+export const pathKey = (p) =>
   String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').replace(/^([a-z]):/, (_, d) => d.toUpperCase() + ':')
 
 /** a 가 b 이거나 b 의 하위 경로인가 */
 export const isInside = (a, b) => {
-  const x = 경로키(a).toLowerCase(), y = 경로키(b).toLowerCase()
+  const x = pathKey(a).toLowerCase(), y = pathKey(b).toLowerCase()
   return x === y || x.startsWith(y + '/')
 }

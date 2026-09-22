@@ -1,7 +1,6 @@
 {
   "_주의": "RetrySession 설정 정본. 이 파일은 추적해도 되지만 경로는 PC마다 다르다 — 다른 PC에서는 projects.local.json 을 만들어 덮어쓴다(그쪽이 우선하고 추적하지 않는다).",
   "_읽는곳": "src/lib/config.mjs",
-
   "defaults": {
     "하트비트": {
       "주기분": 5,
@@ -13,7 +12,7 @@
       "하루최대비용USD": "claude -p 1회는 아무 일 없어도 최소 ~$0.21 든다(캐시 생성 21k 토큰, 실측). 횟수 상한만으로는 지출을 못 막으므로 비용 상한을 함께 둔다.",
       "조용한시간": "null 이면 끈다. {\"from\":\"23:30\",\"to\":\"07:00\"} 처럼 자정을 넘길 수 있다."
     },
-    "재개": {
+    "resume": {
       "enabled": false,
       "주기분": 15,
       "권한모드": "acceptEdits",
@@ -28,21 +27,18 @@
       "addDirs": []
     }
   },
-
   "projects": [
     {
       "id": "Description",
       "설명": "인계계획 실행 추적 — 원본 하트비트(08-하트비트.mjs)가 돌던 곳",
       "repo": "C:/AnthoySeon/Projects/EasyAI.Platform/Source/260713/Cnthoth-Dev/Description",
       "tracker": "_plan/_resume/07-실행추적.json",
-
       "_sessionSlugs": "~/.claude/projects/ 아래 폴더 이름. 세션 활성 감지와 워크플로 진행 스캔에 쓴다. Description 작업은 모노레포 루트 세션에서도 돌았으므로 둘 다 본다(실측).",
       "sessionSlugs": [
         "C--AnthoySeon-Projects-EasyAI-Platform-Source-260713-Cnthoth-Dev-Description",
         "c--AnthoySeon-Projects-EasyAI-Platform-Source-260713-Cnthoth-Dev-EasyAI-Platform"
       ],
-
-      "재개": {
+      "resume": {
         "enabled": true,
         "addDirs": [
           "C:/AnthoySeon/Projects/EasyAI.Platform/Source/260713/Cnthoth-Dev/EasyAI.Platform"

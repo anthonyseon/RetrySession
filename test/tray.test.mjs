@@ -25,9 +25,9 @@ const 코드 = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n
 test('🔴 상태 조회가 UI 스레드를 붙잡지 않는다 (동기 호출 금지)', () => {
   // 상태 두 곳(/api/tray, /api/ping)은 반드시 비동기로 가져온다
   for (const 경로 of ['/api/tray', '/api/ping']) {
-    const 줄들 = 코드.split('\n').filter((l) => l.includes(경로))
-    assert.ok(줄들.length, `${경로} 를 부르는 곳이 있어야 한다`)
-    for (const l of 줄들) {
+    const lines = 코드.split('\n').filter((l) => l.includes(경로))
+    assert.ok(lines.length, `${경로} 를 부르는 곳이 있어야 한다`)
+    for (const l of lines) {
       assert.ok(!/Invoke-RestMethod|Invoke-WebRequest/.test(l),
         `${경로} 를 동기로 부르면 메뉴가 그 시간만큼 멈춘다: ${l.trim()}`)
     }
@@ -52,19 +52,19 @@ test('🔴 서버가 오류로 "답한 것"과 "답하지 않은 것"을 구별�
 
   // 오류 응답은 crit 이어야 한다 — "느림"으로 흘리면 직전 색이 그대로 남는다
   const i = 코드.indexOf('function Resolve-HttpError')
-  const 구간 = 코드.slice(i, i + 300)
-  assert.match(구간, /Render 'crit'/, '오류 응답은 치명으로 그려야 한다')
-  assert.ok(!/status\.slow/.test(구간), '오류를 "느림"으로 부르면 안 된다')
+  const section = 코드.slice(i, i + 300)
+  assert.match(section, /Render 'crit'/, '오류 응답은 치명으로 그려야 한다')
+  assert.ok(!/status\.slow/.test(section), '오류를 "느림"으로 부르면 안 된다')
 })
 
 test('오류 응답 처리가 두 엔드포인트 모두에 걸린다', () => {
   // ping 이 500 이면 그것도 깨진 것이다. tray 응답에만 검사를 걸면 새는 길이 남는다
   const i = 코드.indexOf('function Poll')
-  const 구간 = 코드.slice(i, i + 1200)
-  const 성공검사 = 구간.indexOf('IsSuccessStatusCode')
-  const ping분기 = 구간.indexOf("-eq 'ping'")
-  assert.ok(성공검사 > 0 && ping분기 > 0, '두 판정을 모두 찾아야 한다')
-  assert.ok(성공검사 < ping분기,
+  const section = 코드.slice(i, i + 1200)
+  const okCheck = section.indexOf('IsSuccessStatusCode')
+  const pingBranch = section.indexOf("-eq 'ping'")
+  assert.ok(okCheck > 0 && pingBranch > 0, '두 판정을 모두 찾아야 한다')
+  assert.ok(okCheck < pingBranch,
     '상태 코드 검사가 ping/tray 분기보다 먼저여야 두 엔드포인트에 모두 걸린다')
 })
 
@@ -79,8 +79,8 @@ test('🔴 타이머는 기다리지 않고 완료 여부만 본다', () => {
 test('느린 것을 죽었다고 하지 않는다 — 실패하면 ping 으로 되묻는다', () => {
   assert.match(코드, /Resolve-Failure/, '실패 처리를 따로 둬야 한다')
   const i = 코드.indexOf('function Resolve-Failure')
-  const 구간 = 코드.slice(i, i + 400)
-  assert.ok(구간.includes('/api/ping'), 'tray 가 실패하면 ping 으로 살아있는지 먼저 물어야 한다')
+  const section = 코드.slice(i, i + 400)
+  assert.ok(section.includes('/api/ping'), 'tray 가 실패하면 ping 으로 살아있는지 먼저 물어야 한다')
 })
 
 test('🔴 메뉴는 가만히 두면 스스로 닫힌다', () => {
@@ -113,8 +113,8 @@ test('🔴 풍선 알림은 여전히 없다 (되살리지 마라 — 알림은 
 
 test('타이머 틱에서 새는 오류가 트레이를 죽이지 않는다', () => {
   const i = 코드.indexOf('function Poll')
-  const 구간 = 코드.slice(i, i + 900)
-  assert.ok(/try\s*\{/.test(구간), 'Poll 은 통째로 감싸야 한다 — 조용히 사라지는 감시가 최악이다')
+  const section = 코드.slice(i, i + 900)
+  assert.ok(/try\s*\{/.test(section), 'Poll 은 통째로 감싸야 한다 — 조용히 사라지는 감시가 최악이다')
 })
 
 /* ── 살아있음 판정은 절대 무거운 집계에 얹지 않는다 ─────────── */
@@ -150,9 +150,9 @@ test('🔴 거짓 "응답 없음" 하나가 트레이까지 죽이지 않게 한
   const start = readFileSync(join(ROOT, 'start.ps1'), 'utf8')
   // Test-Server 는 값싼 엔드포인트를 써야 한다
   const i = start.indexOf('function Test-Server')
-  const 구간 = start.slice(i, i + 700)
-  assert.match(구간, /api\/ping/, 'Test-Server 는 /api/ping 을 써야 한다')
-  assert.ok(!/api\/tray/.test(구간), 'Test-Server 에 /api/tray 가 남아 있으면 안 된다')
+  const section = start.slice(i, i + 700)
+  assert.match(section, /api\/ping/, 'Test-Server 는 /api/ping 을 써야 한다')
+  assert.ok(!/api\/tray/.test(section), 'Test-Server 에 /api/tray 가 남아 있으면 안 된다')
 })
 
 /**
