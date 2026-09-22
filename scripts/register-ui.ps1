@@ -94,7 +94,11 @@ $ok = $false
 foreach ($i in 1..20) {
   Start-Sleep -Milliseconds 700
   try {
-    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/tray" -TimeoutSec 3 -UseBasicParsing
+    # /api/ping computes nothing. /api/tray builds the whole status (11.7s cold,
+    # measured) and would time out here on a server that is perfectly fine -
+    # the same false reading that once reported a healthy server as down and,
+    # in start.ps1, took the tray with it.
+    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/ping" -TimeoutSec 5 -UseBasicParsing
     if ($r.StatusCode -eq 200) { $ok = $true; break }
   } catch { }
 }

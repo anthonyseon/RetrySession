@@ -135,7 +135,10 @@ test('🔴 제한 뒤에 작업이 이어졌으면 "멈춤"이 아니다 (실측
 
 /* ── 재개가 실제로 이 규칙들을 쓰는가 ──────────────────────── */
 
-const 재개소스 = readFileSync(join(ROOT, 'src', 'resume.mjs'), 'utf8')
+// 지시문은 lib/prompt.mjs 로 옮겼다(resume.mjs 가 400줄을 넘어서). 둘을 함께 본다 —
+// '화면이 무엇을 한다'를 확인하려는 것이지 '어느 파일에 있다'를 보려는 게 아니다.
+const 재개소스 = ['src/resume.mjs', 'src/lib/prompt.mjs']
+  .map((f) => readFileSync(join(ROOT, ...f.split('/')), 'utf8')).join(String.fromCharCode(10))
 const 재개코드 = 재개소스.split('\n')
   .filter((l) => { const t = l.trim(); return t && !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*') })
   .join('\n')

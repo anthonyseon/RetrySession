@@ -116,3 +116,41 @@ test('타이머 틱에서 새는 오류가 트레이를 죽이지 않는다', ()
   const 구간 = 코드.slice(i, i + 900)
   assert.ok(/try\s*\{/.test(구간), 'Poll 은 통째로 감싸야 한다 — 조용히 사라지는 감시가 최악이다')
 })
+
+/* ── 살아있음 판정은 절대 무거운 집계에 얹지 않는다 ─────────── */
+
+/**
+ * 🔴 실측 사고 (2026-09-22) — 이 실수를 **세 번째** 했다.
+ *   start.ps1 의 Test-Server 가 /api/tray 를 3초 타임아웃으로 물었다. 그 엔드포인트는
+ *   상태 전체를 만들어 콜드 캐시에서 11.7초 걸린다. 그래서 멀쩡한 서버가
+ *   "not answering on port 7345" 로 보고됐고, 그 경로가 `exit 1` 이라
+ *   **트레이는 시작조차 못 했다.** 거짓 판정 하나가 멀쩡한 부품을 끌어내렸다.
+ *
+ *   status.ps1 은 이미 /api/ping 으로 고쳤는데 start.ps1 사본을 놓쳤다.
+ *   사람이 사본을 놓치므로 기계가 전부 센다.
+ */
+test('🔴 살아있음을 묻는 모든 .ps1 이 /api/ping 을 쓴다 (사본을 놓치지 않게)', () => {
+  const 파일 = ['start.ps1', 'scripts/status.ps1', 'scripts/register-ui.ps1', 'scripts/open-app.ps1']
+  for (const f of 파일) {
+    const p = join(ROOT, ...f.split('/'))
+    let src
+    try { src = readFileSync(p, 'utf8') } catch { continue }
+    const 코드 = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+
+    // 살아있음을 묻는 줄(짧은 타임아웃으로 HTTP 를 치는 줄)이 /api/tray 를 쓰면 안 된다
+    for (const l of 코드.split('\n')) {
+      if (!/Invoke-WebRequest|Invoke-RestMethod/.test(l)) continue
+      if (!/api\/tray/.test(l)) continue
+      assert.fail(`${f} 가 살아있음 확인에 /api/tray 를 쓴다 — 콜드 11.7초다: ${l.trim().slice(0, 90)}`)
+    }
+  }
+})
+
+test('🔴 거짓 "응답 없음" 하나가 트레이까지 죽이지 않게 한다', () => {
+  const start = readFileSync(join(ROOT, 'start.ps1'), 'utf8')
+  // Test-Server 는 값싼 엔드포인트를 써야 한다
+  const i = start.indexOf('function Test-Server')
+  const 구간 = start.slice(i, i + 700)
+  assert.match(구간, /api\/ping/, 'Test-Server 는 /api/ping 을 써야 한다')
+  assert.ok(!/api\/tray/.test(구간), 'Test-Server 에 /api/tray 가 남아 있으면 안 된다')
+})

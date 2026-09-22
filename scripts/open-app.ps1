@@ -125,11 +125,13 @@ if ($existing.Count -ge 1) {
 }
 
 # ---- make sure the server is up (the UI task may still be starting) ----
+# Liveness asks /api/ping, which computes nothing. /api/tray builds the whole
+# status (11.7s cold, measured) and would time out on a healthy server.
 if (-not $NoWait) {
   $ok = $false
   foreach ($i in 1..20) {
     try {
-      $r = Invoke-WebRequest -Uri "$Url/api/tray" -TimeoutSec 3 -UseBasicParsing
+      $r = Invoke-WebRequest -Uri "$Url/api/ping" -TimeoutSec 5 -UseBasicParsing
       if ($r.StatusCode -eq 200) { $ok = $true; break }
     } catch { Start-Sleep -Milliseconds 500 }
   }
@@ -138,7 +140,7 @@ if (-not $NoWait) {
     Start-ScheduledTask -TaskName 'EasyAI-RetrySession-UI' -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 3
     try {
-      $null = Invoke-WebRequest -Uri "$Url/api/tray" -TimeoutSec 5 -UseBasicParsing
+      $null = Invoke-WebRequest -Uri "$Url/api/ping" -TimeoutSec 5 -UseBasicParsing
     } catch {
       Write-Host 'still not answering. Start it by hand:' -ForegroundColor Red
       Write-Host "  node `"$Root\src\ui\server.mjs`""

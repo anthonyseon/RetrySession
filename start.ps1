@@ -64,9 +64,19 @@ function Get-Node {
   return $n
 }
 
+# Liveness goes to /api/ping, which computes nothing.
+#
+# MEASURED BUG (2026-09-22): this asked /api/tray with a 3 second timeout.
+# That endpoint builds the whole status - measured 11.7s on a cold cache - so a
+# perfectly healthy server was reported as "not answering on port 7345", and
+# because that path calls `exit 1`, the TRAY WAS NEVER STARTED either. One false
+# reading took down a part that was fine.
+#
+# status.ps1 already learned this and uses /api/ping. This copy was missed.
+# Liveness must never ride on the heavy aggregation - that is the whole lesson.
 function Test-Server {
   try {
-    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/tray" -TimeoutSec 3 -UseBasicParsing
+    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/ping" -TimeoutSec 5 -UseBasicParsing
     return ($r.StatusCode -eq 200)
   } catch { return $false }
 }
