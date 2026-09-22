@@ -83,3 +83,30 @@ test('🔴 설명서가 말하는 재시작 결과가 코드가 내는 것과 �
     assert.ok(manual.includes(`\`${r}\``), `설명서에 결과 '${r}' 설명이 없다`)
   }
 })
+
+/**
+ * 🔴 배지 문구는 **화면과 설명서 양쪽에 같은 말**로 있어야 한다.
+ *
+ *   실측 (2026-09-22): 배지 문구를 두 번 고쳤고 두 번 다 설명서가 뒤처졌다.
+ *   설명서에 `⊘ 재개 안 함` 이라 적혀 있는데 화면은 `재시작 켬 · 지금은 대기` 를
+ *   보여주면, 사람은 자기가 보는 것이 무엇인지 설명서에서 찾을 수 없다.
+ *   숫자가 아니라 **말**이라 눌러 보면 바로 드러나는데, 그래서 더 잘 잊는다.
+ */
+test('🔴 설명서의 배지 문구가 화면이 실제로 그리는 말과 같다', () => {
+  const list = read('src/ui/list.js')
+  const manual = read('Manual.md')
+  // 스위치 상태는 어느 경우에도 배지 맨 앞에 온다 — 양쪽에 다 있어야 한다
+  for (const stem of ['재시작 꺼짐', '재시작 켬', '감시 꺼짐', '감시 켬', '지금은 대기', '재개 가능']) {
+    assert.ok(list.includes(stem), `list.js 가 '${stem}' 를 더는 그리지 않는다`)
+    assert.ok(manual.includes(stem), `설명서에 '${stem}' 가 없다 — 화면과 설명이 갈라졌다`)
+  }
+})
+
+test('🔴 설명서가 말하는 동작줄 결과 문구가 실제 문구와 같다', () => {
+  const app = read('src/ui/app.js')
+  const manual = read('Manual.md')
+  for (const stem of ['재시작을 켰습니다', '감시를 켰습니다']) {
+    assert.ok(app.includes(stem), `app.js 가 '${stem}' 를 더는 말하지 않는다`)
+  }
+  assert.ok(manual.includes('재시작을 켰습니다'), '설명서에 결과 문구 예시가 있어야 한다')
+})
