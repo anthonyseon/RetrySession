@@ -14,6 +14,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { UI소스 } from './_ui-files.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const html = readFileSync(join(ROOT, 'src', 'ui', 'index.html'), 'utf8')
@@ -24,9 +25,11 @@ const html = readFileSync(join(ROOT, 'src', 'ui', 'index.html'), 'utf8')
  *   (common·summary·list·detail) 이 시험들이 통째로 깨졌다 — '화면이 X 를 한다'를
  *   확인하려던 것인데 '어느 파일에 X 가 있다'를 확인하고 있었기 때문이다.
  *   앞으로 조각을 더 나눠도 이 시험은 그대로 통한다.
+ *
+ *   🔴 목록을 손으로 적지도 않는다 — setup.js 를 새로 만들었을 때 시험 다섯 곳 중
+ *   한 곳의 목록에서 빠져, 그 파일이 검사에서 통째로 빠졌다. 폴더에서 읽는다.
  */
-export const UI = ['app.js', 'common.js', 'summary.js', 'list.js', 'detail.js']
-const appjs = UI.map((f) => readFileSync(join(ROOT, 'src', 'ui', f), 'utf8')).join('\n')
+const appjs = UI소스()
 
 test('🔴 스크롤 영역이 둘 있다 — 목록(#slist)과 상세(#dscroll)', () => {
   assert.match(html, /id="slist"/, '#slist 가 있어야 한다')

@@ -18,6 +18,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { UI소스 } from './_ui-files.mjs'
 import { 현재경보 } from '../src/lib/alerts.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -99,7 +100,7 @@ test('미등록은 그대로 미등록이다', () => {
 /* ── 화면이 트레이를 보여주는가 ──────────────────────────────── */
 
 test('🔴 경보가 말하는 작업은 화면에도 있어야 한다 (트레이 타일)', () => {
-  const app = ['app.js','common.js','summary.js','list.js','detail.js'].map((x) => readFileSync(join(ROOT, 'src', 'ui', x), 'utf8')).join(String.fromCharCode(10))
+  const app = UI소스()
   const m = /for \(const \[키, 라벨\] of \[([\s\S]*?)\]\) \{/.exec(app)
   assert.ok(m, 'OS 트리거 타일 목록을 찾을 수 없다')
   for (const k of ['하트비트', '재시작', 'UI', '트레이']) {
@@ -108,6 +109,6 @@ test('🔴 경보가 말하는 작업은 화면에도 있어야 한다 (트레�
 })
 
 test('화면이 멈춤과 실패를 다른 배지로 그린다', () => {
-  const app = ['app.js','common.js','summary.js','list.js','detail.js'].map((x) => readFileSync(join(ROOT, 'src', 'ui', x), 'utf8')).join(String.fromCharCode(10))
+  const app = UI소스()
   assert.match(app, /w\.중지됨.*멈춰 있음/s, '멈춤 배지가 있어야 한다')
 })

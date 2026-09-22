@@ -17,6 +17,7 @@ import { $, S, 동작, 스크롤유지 } from './common.js'
 import { 경보그리기, 타일들 } from './summary.js'
 import { 폴더그리기, 목록, 선택갱신 } from './list.js'
 import { 상세다시그리기 } from './detail.js'
+import { 설정열기, 설정닫기, 설정그리기, 열렸나 } from './setup.js'
 
 /* ── 통신 ────────────────────────────────────────────────────── */
 async function 보내기(path, body) {
@@ -76,7 +77,7 @@ function 그리기() {
   //   사람은 무엇이 잘못됐는지 알 길이 없다.
   if (!d) { 경보그리기(null); return }
   $('#acct').textContent = d.계정.email ? `${d.계정.email} · ${d.계정.subscriptionType || ''}` : '계정 확인 실패'
-  경보그리기(d); 타일들(d); 폴더그리기(d)
+  경보그리기(d); 타일들(d); 폴더그리기(d); 설정그리기()
   스크롤유지('#slist', () => { 목록(d); 선택갱신() })
   상세다시그리기()
 }
@@ -174,12 +175,8 @@ catch { 요약적용(false, { 저장: false }) }
  *   규칙(백업 먼저·배터리 제외·바꾼 뒤 재확인)은 서버가 src/pc.mjs 를 불러 지킨다.
  */
 async function pc동작(action) {
-  // 수동 안내는 서버를 부를 일이 없다 — 이미 받아 둔 문구를 보여주기만 한다
-  if (action === 'manual') {
-    const 안내 = S.상태?.pc?.안내
-    alert(Array.isArray(안내) ? 안내.join('\n') : '안내를 아직 받지 못했습니다. 잠시 뒤 다시 누르세요.')
-    return
-  }
+  // 수동 안내는 모달에 접힌 채로 들어 있다 — 단추 하나로 열어준다
+  if (action === 'manual') { 설정열기(); return }
 
   const 물음 = action === 'apply'
     ? [
@@ -199,10 +196,28 @@ async function pc동작(action) {
   if (r && r.출력) alert(r.출력)
 }
 
+/**
+ * PC 관련 단추는 요약과 모달 두 곳에 있다 — 한 곳에서 받는다.
+ * 규칙을 두 벌로 만들지 않는 것과 같은 이유다.
+ */
 document.addEventListener('click', (e) => {
   const act = e.target?.dataset?.pc
-  if (act) pc동작(act)
+  if (act) { pc동작(act); return }
+  if (e.target?.dataset?.setup === 'close') 설정닫기()
 })
+
+/* ── 설정 모달 ───────────────────────────────────────────────── */
+
+$('#btnSetup').addEventListener('click', () => (열렸나() ? 설정닫기() : 설정열기()))
+$('#btnSetupClose').addEventListener('click', 설정닫기)
+
+/**
+ * 🔴 모달은 사라져야 한다 — 바깥을 눌러도, Esc 를 눌러도 닫힌다.
+ *   트레이 메뉴에서 배운 것과 같다: 닫히지 않는 것은 없는 것보다 나쁘다.
+ *   sheet 안쪽 클릭은 닫지 않는다(내용을 고르다 닫히면 안 된다).
+ */
+$('#setupWrap').addEventListener('click', (e) => { if (e.target.id === 'setupWrap') 설정닫기() })
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && 열렸나()) 설정닫기() })
 
 $('#onlyReg').addEventListener('change', (e) => { S.등록만 = e.target.checked; 그리기() })
 

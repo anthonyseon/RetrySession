@@ -16,10 +16,22 @@ import assert from 'node:assert/strict'
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { UI모듈 } from './_ui-files.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const UI = join(ROOT, 'src', 'ui')
-const 모듈들 = ['app.js', 'common.js', 'summary.js', 'list.js', 'detail.js']
+/**
+ * 🔴 목록을 손으로 적지 않는다.
+ *   setup.js 를 새로 만들었을 때 이 파일의 목록에서 **빠뜨렸다** — 그래서 새 모듈이
+ *   import 정합성·400줄 검사에서 통째로 빠졌다. 폴더에서 읽으면 그럴 수 없다.
+ *   (같은 부류로 이미 여러 번 다쳤다: /api/ping 을 써야 하는 .ps1 네 개 중 세 개,
+ *    runhidden.exe 를 거쳐야 하는 작업 네 개 중 하나.)
+ */
+const 모듈들 = UI모듈()
+/** app.js(진입점)를 뺀 조각들 */
+const 조각들 = 모듈들.filter((f) => f !== 'app.js')
+/** 그리는 조각들 — common.js 는 공용 도구라 그리지 않는다 */
+const 그리는조각 = 조각들.filter((f) => f !== 'common.js')
 
 const 읽기 = (f) => readFileSync(join(UI, f), 'utf8')
 
@@ -86,7 +98,7 @@ test('🔴 export 한 것 중 아무도 안 쓰는 것이 없다 (죽은 코드)
 test('🔴 조각이 정의되지 않은 이름을 부르지 않는다 (나눌 때 실제로 남아 있었다)', () => {
   // app.js 에만 있는 함수들을 조각이 직접 부르면 브라우저에서 ReferenceError 다.
   const app만 = ['보내기', '상태읽기', '상세읽기', '그리기', '신선도갱신', '오류이유', '요약적용', '메타']
-  for (const f of ['common.js', 'summary.js', 'list.js', 'detail.js']) {
+  for (const f of 조각들) {
     const src = 읽기(f)
     const 코드 = src.split('\n')
       .filter((l) => { const t = l.trim(); return t && !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*') })
@@ -107,7 +119,7 @@ test('의존 방향이 한 쪽이다 — app -> 조각 -> common', () => {
     'common.js 가 다른 조각을 import 하면 순환의 시작이다')
 
   // 조각들은 common 만 import 한다
-  for (const f of ['summary.js', 'list.js', 'detail.js']) {
+  for (const f of 그리는조각) {
     for (const { 경로 } of import들(읽기(f))) {
       if (!경로.startsWith('.')) continue
       assert.equal(경로, './common.js',
@@ -149,7 +161,7 @@ test('🔴 서버가 조각을 전부 내보낸다 (한 개만 열어주면 화�
  *   **조용히 아무 일도 하지 않는다**(기본값이 빈 함수라 오류조차 안 난다).
  */
 test('🔴 조각이 app.js 를 import 하지 않는다 (순환 금지)', () => {
-  for (const f of ['common.js', 'summary.js', 'list.js', 'detail.js']) {
+  for (const f of 조각들) {
     const src = readFileSync(join(ROOT, 'src', 'ui', f), 'utf8')
     assert.ok(!/from '\.\/app\.js'/.test(src), `${f} 가 app.js 를 import 한다 — 순환이다`)
   }
@@ -169,7 +181,7 @@ test('🔴 app.js 가 동작 등록소를 채운다 (빠뜨리면 클릭이 조�
 
 test('조각이 쓰는 동작은 등록소에 다 있다', () => {
   const 등록 = new Set(['그리기', '상태읽기', '상세읽기', '보내기', '메타'])
-  for (const f of ['summary.js', 'list.js', 'detail.js']) {
+  for (const f of 그리는조각) {
     const src = readFileSync(join(ROOT, 'src', 'ui', f), 'utf8')
     for (const m of src.matchAll(/동작\.([^\s(.,)]+)/g)) {
       assert.ok(등록.has(m[1]), `${f} 가 등록되지 않은 동작.${m[1]} 을 쓴다`)

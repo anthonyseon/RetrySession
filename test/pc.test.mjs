@@ -191,7 +191,13 @@ test('수동 안내가 실제 경로를 짚는다', () => {
 
 /* ── 화면에서 바꿀 수 있는가 ────────────────────────────────── */
 
-const 화면 = ['app.js', 'summary.js'].map((f) => readFileSync(join(ROOT, 'src', 'ui', f), 'utf8')).join('\n')
+/**
+ * 바꾸는 단추는 '설정' 모달(setup.js)에 있고, 요약(summary.js)에는 **여는 단추**만
+ * 있다 — 같은 동작을 두 곳에 두면 어느 쪽이 최신인지 알 수 없다.
+ * 이 시험들은 "화면이 무엇을 한다"를 보므로 화면 스크립트를 함께 읽는다.
+ */
+const 화면 = ['app.js', 'summary.js', 'setup.js']
+  .map((f) => readFileSync(join(ROOT, 'src', 'ui', f), 'utf8')).join('\n')
 const 서버 = readFileSync(join(ROOT, 'src', 'ui', 'server.mjs'), 'utf8')
 
 /**
@@ -204,14 +210,58 @@ test('🔴 화면에 PC 설정 묶음이 있다', () => {
   assert.match(화면, /pc\.목록/, '판정 목록을 줄로 그려야 한다')
 })
 
-test('🔴 자동 설정·되돌리기·수동 안내 단추가 있다', () => {
-  assert.match(화면, /dataset\.pc = act/, '단추가 동작을 달아야 한다')
+test('🔴 자동 설정·되돌리기·수동 방법이 모달 안에 다 있다', () => {
+  assert.match(화면, /dataset\.pc = /, '단추가 동작을 달아야 한다')
   for (const act of ['apply', 'restore', 'manual']) {
-    assert.ok(화면.includes(`'${act}'`), `${act} 단추가 없다`)
+    assert.ok(화면.includes(`'${act}'`), `${act} 동작이 없다`)
   }
   assert.match(화면, /자동 설정/)
   assert.match(화면, /되돌리기/)
   assert.match(화면, /수동 설정 방법/)
+})
+
+/**
+ * 🔴 자동과 수동을 **한 화면에** 둔다.
+ *   자동으로 고칠 수 있는 것과 손으로 해야 하는 것이 섞여 있다(이 PC 는 덮개
+ *   항목이 전원 구성에 아예 없어 영원히 '모름'이다). 자동만 보여주면 남은 것을
+ *   놓치고, 수동만 보여주면 할 수 있는 걸 안 한다.
+ */
+test("🔴 '설정' 단추가 머리말에 있고 모달을 연다", () => {
+  const html = readFileSync(join(ROOT, 'src', 'ui', 'index.html'), 'utf8')
+  assert.match(html, /id="btnSetup"/, "머리말에 '설정' 단추가 있어야 한다")
+  // '밝게' 오른쪽 — 사용자가 지정한 자리다
+  assert.ok(html.indexOf('id="btnTheme"') < html.indexOf('id="btnSetup"'),
+    "'설정' 은 '밝게' 오른쪽이어야 한다")
+  assert.match(html, /id="setupWrap"[^>]*role="dialog"[^>]*aria-modal="true"/,
+    '모달은 dialog 로 알려야 한다')
+  assert.match(화면, /\$\('#btnSetup'\)\.addEventListener/, '단추가 모달을 열어야 한다')
+})
+
+test('🔴 모달은 사라져야 한다 — 바깥 클릭과 Esc', () => {
+  assert.match(화면, /e\.target\.id === 'setupWrap'/, '배경을 누르면 닫혀야 한다')
+  assert.match(화면, /e\.key === 'Escape'/, 'Esc 로 닫혀야 한다')
+  const html = readFileSync(join(ROOT, 'src', 'ui', 'index.html'), 'utf8')
+  assert.match(html, /id="btnSetupClose"/, '닫기 단추도 있어야 한다')
+  assert.match(화면, /\$\('#btnSetupClose'\)\.addEventListener/, '닫기 단추가 실제로 닫아야 한다')
+})
+
+test('모달 본문은 자기 스크롤을 갖는다 (화면이 낮아도 잘리지 않게)', () => {
+  const html = readFileSync(join(ROOT, 'src', 'ui', 'index.html'), 'utf8')
+  assert.match(html, /\.sheet-bd\{[^}]*overflow-y:\s*auto/)
+  assert.match(html, /\.sheet-bd\{[^}]*min-height:\s*0/,
+    'min-height:0 이 없으면 flex 안에서 스크롤이 조용히 사라진다')
+})
+
+test('🔴 요약에는 여는 단추만 둔다 (같은 동작을 두 곳에 두지 않는다)', () => {
+  const sum = readFileSync(join(ROOT, 'src', 'ui', 'summary.js'), 'utf8')
+  assert.match(sum, /PC 설정 열기/, '요약에는 여는 단추가 있어야 한다')
+  assert.ok(!/dataset\.pc = 'apply'/.test(sum), '요약에서 바로 적용하면 안 된다 — 모달에서 설명과 함께')
+  assert.ok(!/dataset\.pc = 'restore'/.test(sum), '되돌리기도 모달에 둔다')
+})
+
+test('상태를 새로 받으면 열려 있는 모달도 다시 그린다 (적용 결과가 바로 보이게)', () => {
+  assert.match(화면, /설정그리기\(\)/, '그리기 경로에 모달 갱신이 있어야 한다')
+  assert.match(화면, /if \(!열렸나\(\)\) return/, '닫혀 있으면 그리지 않아야 한다')
 })
 
 test('🔴 보관된 이전 값을 화면이 보여준다 (되돌릴 길을 모르면 누르지 못한다)', () => {
@@ -221,9 +271,9 @@ test('🔴 보관된 이전 값을 화면이 보여준다 (되돌릴 길을 모�
 })
 
 test('🔴 되돌리기 단추는 보관된 값이 있을 때만 나온다', () => {
-  const i = 화면.indexOf("만들기('되돌리기'")
+  const i = 화면.indexOf("'되돌리기'")
   assert.ok(i > 0)
-  const 앞 = 화면.slice(Math.max(0, i - 200), i)
+  const 앞 = 화면.slice(Math.max(0, i - 400), i)
   assert.match(앞, /백업\.있음/, '보관이 없으면 되돌리기를 보여주면 안 된다')
 })
 
@@ -235,11 +285,18 @@ test('🔴 바꾸기 전에 확인을 받고, 되돌릴 수 있다고 말한다'
   assert.match(구간, /배터리 설정은 건드리지 않습니다/, '무엇을 건드리지 않는지도 말해야 한다')
 })
 
-test('수동 안내는 서버를 부르지 않는다 (이미 받아 둔 문구다)', () => {
+test('수동 안내는 서버를 부르지 않는다 (모달이 이미 받아 둔 문구를 보여준다)', () => {
   const i = 화면.indexOf('async function pc동작')
-  const 구간 = 화면.slice(i, i + 500)
+  const 구간 = 화면.slice(i, i + 400)
   assert.match(구간, /action === 'manual'/)
-  assert.match(구간, /S\.상태\?\.pc\?\.안내/, '상태에 실려 온 안내를 쓰면 된다')
+  assert.match(구간, /설정열기\(\)/, '모달을 열면 접힌 안내가 거기 있다')
+  assert.match(화면, /pc\.안내/, '상태에 실려 온 안내를 써야 한다')
+})
+
+test('🔴 자동으로 못 바꾸는 것이 있으면 수동 안내를 펼쳐 보여준다', () => {
+  const setup = readFileSync(join(ROOT, 'src', 'ui', 'setup.js'), 'utf8')
+  assert.match(setup, /수동필요/, '손으로 할 일이 남았는지 판단해야 한다')
+  assert.match(setup, /d\.open = true/, '할 일이 있으면 접힌 채로 두면 안 된다')
 })
 
 /* ── 서버 쪽 ─────────────────────────────────────────────────── */
@@ -309,4 +366,12 @@ test('🔴 캐시 경로에서도 백업·안내가 실려온다 (빠뜨려 단�
     assert.ok(둘째[k], `캐시 경로에 ${k} 가 없다 — 화면 단추가 빈 채로 뜬다`)
   }
   assert.ok(둘째.안내.length > 0, '안내가 비어 있으면 수동 설명 단추가 아무것도 못 보여준다')
+})
+
+test('🔴 정상인 줄에 "자동으로는 못 바꿉니다"를 붙이지 않는다 (능력 문제로 읽힌다)', () => {
+  const setup = readFileSync(join(ROOT, 'src', 'ui', 'setup.js'), 'utf8')
+  // 문제가 있을 때만 고칠 수 있는지를 말한다
+  assert.match(setup, /const 문제 = x\.수준 !== 'ok' && x\.수준 !== 'info'/,
+    '정상·정보 줄은 고침 가능 여부를 말할 필요가 없다')
+  assert.match(setup, /!문제 \? ''/, '정상이면 꼬리를 붙이지 않아야 한다')
 })
