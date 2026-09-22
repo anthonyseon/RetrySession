@@ -77,3 +77,29 @@ test('🔴 setInterval·--loop 이 없다 (9시간 중단의 원인이었다)', 
   assert.ok(!/setInterval/.test(code), 'resume.mjs 에 장수 타이머를 넣지 마라')
   assert.ok(!/--loop/.test(code), 'resume.mjs 에 --loop 을 넣지 마라')
 })
+
+/* ── --rearm 이 엉뚱한 것을 풀지 않는다 ──────────────────────── */
+
+/**
+ * 🔴 실측 결함 (2026-09-22): `--session <없는id>` 를 주면 고른 대상이 0개가 되고,
+ *   그러면 **전부를 푸는 쪽으로 물러섰다.** 오타 하나로 다른 세션의 회로 차단까지
+ *   풀린다. 차단은 "고칠 때까지 멈춰라"는 표시인데 그걸 조용히 지우는 셈이다.
+ *   같은 부류를 HTTP 쪽에서 이미 고쳤다(없는 sessionId → 400).
+ */
+test('🔴 --session 으로 고른 것이 없으면 아무것도 풀지 않는다', async () => {
+  const { doRearm } = await import('../src/lib/resume-report.mjs')
+  const said = []
+  const realErr = console.error
+  console.error = (m) => said.push(String(m))
+  try {
+    const did = doRearm([], { picked: true })
+    assert.equal(did, false, '아무것도 하지 않아야 한다')
+    assert.ok(said.some((m) => /고른 대상이 없다/.test(m)), '왜 안 했는지 말해야 한다')
+  } finally { console.error = realErr }
+})
+
+test('🔴 부르는 쪽이 --session 여부를 넘긴다 (안 넘기면 옛 동작으로 돌아간다)', () => {
+  const src = readFileSync(join(ROOT, 'src', 'resume.mjs'), 'utf8')
+  assert.match(src, /doRearm\(pickTargets\(\), \{ picked: !!opt\('--session'\) \}\)/,
+    '--session 을 줬는지 알려주지 않으면 "못 골랐다"와 "전부"를 구별할 수 없다')
+})

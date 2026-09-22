@@ -20,9 +20,52 @@
  *   작업 스케줄러 이력이 빨갛게 물들어 진짜 실패를 가린다.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { RS_HOME } from './config.mjs'
 import { localStamp, minutesSince } from './stamp.mjs'
+
+/** 이 프로세스가 시작된 시각. 공짜다 — 바깥에 물어보지 않는다. */
+const myStartEpoch = () => Math.round(Date.now() - process.uptime() * 1000)
+
+/**
+ * 저 pid 가 **언제 시작됐나.** 모르면 null.
+ *
+ * 🔴 비싼 호출이다(PowerShell 기동). **락을 거절하는 길에서만** 부른다 —
+ *   그 길은 어차피 바로 끝내는 길이다. 화면이 3초마다 부르는 lockState 에는
+ *   절대 넣지 마라. 같은 부류로 이미 다쳤다(taskState 가 /api/ping 을 7.9초로 만들었다).
+ */
+function processStartEpoch(pid) {
+  if (!pid) return null
+  try {
+    const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+      `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").CreationDate.ToFileTimeUtc()`],
+    { encoding: 'utf8', timeout: 8000, windowsHide: true })
+    const ft = Number(String(r.stdout || '').trim())
+    if (!Number.isFinite(ft) || ft <= 0) return null
+    // FILETIME(100ns, 1601 기준) → epoch ms
+    return Math.round(ft / 10000 - 11644473600000)
+  } catch { return null }
+}
+
+/**
+ * 락에 적힌 주인이 **정말 그 프로세스인가.**
+ *
+ * 🔴 pid 는 재사용된다. 죽은 하트비트가 남긴 락의 pid 를 무관한 프로그램이 물려받으면
+ *   `process.kill(pid, 0)` 은 "살아 있다"고 답하고, 우리는 낡음분(60분)이 지날 때까지
+ *   **감시를 조용히 멈춘다.** 이 도구가 막으려는 바로 그 상태다.
+ *
+ * 🔴 모르면 **그대로 둔다**(fail-closed). 확인에 실패했다고 남의 락을 깨면
+ *   중복 실행을 허용하게 된다 — 그쪽이 더 나쁘다.
+ *   확실히 "다른 프로세스다"일 때만 false 를 돌려준다.
+ */
+function holderStillSame(h) {
+  if (!h || typeof h.procStartEpoch !== 'number') return true   // 옛 락은 판단하지 않는다
+  const live = processStartEpoch(h.pid)
+  if (live === null) return true                                 // 못 물어봤다 — 그대로 둔다
+  // 시계·반올림 오차를 감안해 2초까지는 같은 것으로 본다
+  return Math.abs(live - h.procStartEpoch) <= 2000
+}
 
 const lockDir = () => {
   const d = join(RS_HOME, 'state', 'locks')
@@ -40,7 +83,7 @@ const isAlive = (pid) => {
 
 /**
  * 락을 들여다본다(잡지 않는다). 상태 화면이 중복을 보고할 때 쓴다.
- * @returns {{점유:boolean, pid:number|null, at:string|null, 나이분:number|null, 낡음:boolean}}
+ * @returns {{held:boolean, pid:number|null, at:string|null, ageMin:number|null, stale:boolean}}
  */
 export function lockState(name, staleMin = 60) {
   const p = lockPath(name)
@@ -75,6 +118,8 @@ export function grab(name, { staleMin = 60 } = {}) {
     try {
       writeFileSync(p, JSON.stringify({
         name, pid: process.pid, at: localStamp(), atEpoch: Date.now(),
+        // 🔴 pid 만으로는 주인을 못 가린다 — pid 는 재사용된다. 시작 시각이 신원이다.
+        procStartEpoch: myStartEpoch(),
         argv: process.argv.slice(2).join(' '),
       }, null, 2) + '\n', { flag: 'wx' })
       return true
@@ -86,6 +131,18 @@ export function grab(name, { staleMin = 60 } = {}) {
 
   if (!make()) {
     const s = lockState(name, staleMin)
+    /**
+     * 🔴 거절하기 **직전에만** 주인을 한 번 더 확인한다.
+     *   여기는 어차피 끝내는 길이라 PowerShell 한 번을 감당할 수 있다. 반대로
+     *   화면이 부르는 lockState 에 넣으면 3초마다 프로세스를 띄우게 된다.
+     */
+    let holder = null
+    try { holder = JSON.parse(readFileSync(p, 'utf8')) } catch { /* 깨졌으면 낡은 것으로 본다 */ }
+    if (s.held && !holderStillSame(holder)) {
+      // pid 가 재사용됐다 — 주인은 이미 죽었다. 낡은 락과 같게 다룬다.
+      s.held = false
+      s.stale = true
+    }
     if (s.held) {
       return {
         ok: false,

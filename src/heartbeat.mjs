@@ -29,6 +29,8 @@ import { sessionDetail } from './lib/detail.mjs'
 import { taskNames } from './lib/scheduler.mjs'
 import { singleInstance } from './lib/single.mjs'
 import { changeLog } from './lib/alerts.mjs'
+import { loadConfig } from './lib/config.mjs'
+import { autoWatchNew } from './lib/autowatch.mjs'
 
 const argv = process.argv.slice(2)
 const flag = (n) => argv.includes(n)
@@ -99,6 +101,23 @@ if (flag('--check')) {
  */
 singleInstance('heartbeat', { staleMin: 30 })
 
+/**
+ * 설정된 저장소에서 **새로 뜬 세션에 감시를 붙인다** (autoWatch 를 켠 저장소만, 기본 꺼짐).
+ *
+ * 🔴 집계(fullStatus)가 필요하므로 **켜져 있을 때만** 당겨 온다. 아무도 안 켰으면
+ *   한 푼도 쓰지 않는다 — 5분마다 도는 자리에 공짜가 아닌 것을 무조건 넣지 않는다.
+ */
+const autoWatchOn = (loadConfig().projects || []).some((p) => p?.heartbeat?.autoWatch === true)
+let status0 = null
+if (autoWatchOn) {
+  status0 = fullStatus()
+  const { added } = autoWatchNew(status0.sessions)
+  if (added.length) {
+    console.log(`자동 감시 등록 ${added.length}개 — ${added.map((x) => x.slice(0, 8)).join(', ')}`)
+    status0 = null   // 등록부가 바뀌었다. 아래에서 다시 모은다.
+  }
+}
+
 const registry = loadTargets()
 const turnedOn = Object.entries(registry.targets).filter(([, v]) => v.watch).map(([id]) => id)
 
@@ -115,7 +134,7 @@ if (!watchTarget.length) {
 }
 
 // 집계는 한 번만 한다 — CLI 호출과 스캔이 들어 있어 세션마다 다시 하면 낭비다
-const S = fullStatus()
+const S = status0 ?? fullStatus()
 const sessionMap = new Map(S.sessions.map((s) => [s.sessionId, s]))
 
 /**

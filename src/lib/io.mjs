@@ -16,7 +16,7 @@
  *   세션 하나당 연 11MB 다. 이 도구는 "계속 도는 것"이 목적이라 끝이 없다 —
  *   끝이 없는 것에 상한이 없으면 언젠가 디스크를 먹는다.
  */
-import { writeFileSync, appendFileSync, renameSync, statSync, existsSync, rmSync } from 'node:fs'
+import { writeFileSync, appendFileSync, renameSync, statSync, existsSync, rmSync, readFileSync } from 'node:fs'
 
 /**
  * 원자적으로 쓴다. 같은 폴더의 임시 파일에 쓰고 이름을 바꾼다.
@@ -64,4 +64,44 @@ export function appendLine(path, text, { maxBytes = 2 * 1024 * 1024 } = {}) {
     }
   } catch { /* 회전 실패가 기록을 막지 않는다 — 기록이 회전보다 중요하다 */ }
   appendFileSync(path, line)
+}
+
+/**
+ * 같은 이유가 이어질 때 **마지막 줄을 접는다** (덧붙이지 않고 고쳐 쓴다).
+ *
+ * 🔴 왜 (실측, 2026-09-22)
+ *   재개 로그가 15분마다 똑같은 줄을 쌓았다 — 21회차가 전부
+ *   `SKIP · 세션이 실행 중이다 (pid 4084)` 였다. 사람이 열어 보면 스무 줄을 넘겨야
+ *   **달라진 한 줄**에 닿는다. 그러면 로그를 안 읽게 되고, 안 읽는 기록은 없는 것과 같다.
+ *
+ * 🔴 그렇다고 **줄이면 안 된다.** "기록이 없다"와 "같은 이유로 계속 건너뛰는 중"은
+ *   전혀 다른 상태다. 그래서 지우는 게 아니라 접는다 — 횟수와 처음 시각을 남긴다.
+ *
+ * 🔴 `sameKey` 는 줄의 **끝**과 맞춰 본다. 접은 줄은 머리가 바뀌므로(`SKIP` → `SKIP ×2`)
+ *   머리로 맞추면 세 번째부터 접히지 않는다 — 실제로 그렇게 짜서 ×2 에서 멈췄다.
+ *
+ * @param sameKey 같은 이유인지 가리는 열쇠. 줄 **끝**이 이것이면 접는다.
+ * @returns {boolean} 접었으면 true, 새로 덧붙였으면 false
+ */
+export function appendOrFold(path, { sameKey, line, folded }) {
+  try {
+    if (!existsSync(path) || statSync(path).size > 4 * 1024 * 1024) { appendLine(path, line); return false }
+    const body = readFileSync(path, 'utf8')
+    const lines = body.split('\n')
+    while (lines.length && lines[lines.length - 1] === '') lines.pop()
+    const last = lines[lines.length - 1]
+    if (!last || !last.endsWith(sameKey)) { appendLine(path, line); return false }
+
+    // 이미 접힌 줄이면 횟수를 이어 센다. 처음 시각은 **처음 것을 지킨다.**
+    const m = last.match(/×(\d+) \(처음 ([^)]+)\)/)
+    const count = m ? Number(m[1]) + 1 : 2
+    const firstAt = m ? m[2] : (last.split(' · ')[0] || '?')
+    lines[lines.length - 1] = folded({ count, firstAt })
+    writeFileSync(path, lines.join('\n') + '\n')
+    return true
+  } catch {
+    // 접기에 실패하면 그냥 덧붙인다 — 기록이 접기보다 중요하다
+    try { appendLine(path, line) } catch { /* 기록 실패가 판정을 막지는 않는다 */ }
+    return false
+  }
 }

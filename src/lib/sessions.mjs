@@ -53,6 +53,8 @@ export const emptyTotals = (sessionId, slug) => ({
    */
   stoppedByLimit: false,
   limitNoticeAt: null,
+  stoppedByInterrupt: false,
+  interruptNoticeAt: null,
 })
 
 /**
@@ -61,12 +63,45 @@ export const emptyTotals = (sessionId, slug) => ({
  * 문구가 바뀔 수 있으므로 한 문장에 기대지 않고 몇 가지 신호를 함께 본다.
  * 🔴 모르면 false 다 — 제한이라고 잘못 보면 놀던 세션을 깨운다.
  */
-export function isLimitNotice(message) {
-  if (!message || normalizeModel(message.model) !== '<synthetic>') return false
+/**
+ * 시스템이 끼워 넣은 알림의 글만 꺼낸다. `<synthetic>` 이 아니면 **아예 후보가 아니다.**
+ *
+ * 🔴 이 한 줄이 오탐을 통째로 막는다. 실측(2026-09-22, 800파일): `API Error:` 라는
+ *   글자는 사람·어시스턴트가 **그 오류를 설명하는 산문**에도 나오고(`claude-opus-5`
+ *   모델로 기록된다), 툴 출력에 인용되기도 한다. 화면을 긁는 도구들은 이걸 가르려고
+ *   장식 걸러내기·툴출력 마스킹·산문 판별까지 만드는데, 우리는 모델 필드 하나로 끝난다.
+ *   **이 관문을 지나서 판정하지 마라.**
+ */
+function noticeText(message) {
+  if (!message || normalizeModel(message.model) !== '<synthetic>') return ''
   const c = message.content
-  const label = typeof c === 'string' ? c
+  return typeof c === 'string' ? c
     : Array.isArray(c) ? c.map((b) => (b && b.type === 'text' ? b.text : '')).join(' ') : ''
+}
+
+export function isLimitNotice(message) {
+  const label = noticeText(message)
+  if (!label) return false
   return /limit/i.test(label) && /(reset|usage|session|weekly)/i.test(label)
+}
+
+/**
+ * 응답이 **끝까지 오지 못하고 끊긴** 자리인가.
+ *
+ * 🔴 이 도구는 PC 절전을 **막는 데** 가장 공을 들였다(pc.mjs · 설정 모달 · powercfg
+ *   백업까지). 그런데 막지 못해 실제로 잘린 세션은 재개 지점으로 쳐주지 않았다 —
+ *   추적기도 재개지시도 없으면 "무엇을 이어서 할지 정해지지 않았다"로 영원히 거절했다.
+ *   **막으려던 사고가 났을 때 정작 복구를 안 하는 셈이다.**
+ *
+ * 🔴 문구는 지어내지 않고 실측했다 (트랜스크립트 800파일·106,329줄, 2026-09-22):
+ *     `API Error: The response stopped arriving. The response above may be incomplete.`
+ *   절전만이 아니라 네트워크가 멎어도 같은 글이 남는다. 그래서 이름을 '절전'이 아니라
+ *   '끊김'으로 둔다 — 원인이 아니라 **상태**를 말해야 판정이 흔들리지 않는다.
+ */
+export function isInterruptedNotice(message) {
+  const label = noticeText(message)
+  if (!label) return false
+  return /response stopped arriving|went to sleep mid-response|response above may be incomplete/i.test(label)
 }
 
 /** 분포 집계용 정규화 — config.mjs 의 공용 함수를 쓴다(제각기 정규화하면 키가 갈라진다) */
@@ -121,7 +156,8 @@ export function foldEntry(acc, j) {
 
   if (j.type === 'ai-title' && j.aiTitle) acc.title = j.aiTitle
 
-  else if (j.type === 'user') { acc.userMsgs++; acc.stoppedByLimit = false }
+  // 사람이 다시 입력했으면 잘린 자리가 아니다 — 이어서 쓰고 있다는 뜻이다
+  else if (j.type === 'user') { acc.userMsgs++; acc.stoppedByLimit = false; acc.stoppedByInterrupt = false }
 
   else if (j.type === 'assistant') {
     acc.assistantMsgs++
@@ -132,6 +168,13 @@ export function foldEntry(acc, j) {
       if (Number.isFinite(ts)) acc.limitNoticeAt = ts
     } else {
       acc.stoppedByLimit = false
+    }
+    // 끊김도 같은 자리에서 본다 — **마지막** 엔트리여야 "지금 잘려 있다"는 뜻이다
+    if (isInterruptedNotice(m)) {
+      acc.stoppedByInterrupt = true
+      if (Number.isFinite(ts)) acc.interruptNoticeAt = ts
+    } else {
+      acc.stoppedByInterrupt = false
     }
     if (Array.isArray(m.content)) {
       for (const b of m.content) if (b && b.type === 'tool_use') acc.toolCalls++

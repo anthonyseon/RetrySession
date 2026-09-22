@@ -78,6 +78,20 @@ export function currentAlerts(d) {
       push('상태손상', 'critical', '재시작 상태 파일이 깨졌습니다',
         `${s.title || s.shortId} — ${s.restart.corrupt}`, s.sessionId)
     }
+
+    /**
+     * API 과부하가 **잦다.**
+     *
+     * 🔴 과부하는 우리 실패가 아니라서 회로를 차단하지 않는다(그게 맞다). 그런데
+     *   그러면 아무도 아무 말을 안 한다 — 재시작을 켜 뒀는데 하루 종일 한 번도
+     *   못 돈 채로 조용하다. 차단은 안 하되 **말은 해야** 한다.
+     *   한 번에 떠들면 거짓 경보가 된다(529 한 번은 정상 범위다). 세 번부터 말한다.
+     */
+    if (s.restart?.on && (s.restart.overloadToday || 0) >= 3) {
+      push('과부하잦음', 'warning', 'API 과부하로 재시작이 계속 막힙니다',
+        `${s.title || s.shortId} — 오늘 ${s.restart.overloadToday}회. 저쪽 문제라 기다리면 풀립니다(차단하지 않았습니다). ` +
+        'status.claude.com 을 확인하세요.', s.sessionId)
+    }
   }
 
   /* OS 트리거가 없거나 실패 — 이게 없으면 세션 밖에서 아무것도 돌지 않는다 */

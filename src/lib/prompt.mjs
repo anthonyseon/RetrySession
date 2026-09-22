@@ -16,13 +16,18 @@ import { trackerPath } from './targets.mjs'
  * 재개 지시문. 세션을 이어받으므로 문맥 설명은 필요 없다 — **무엇을 계속할지와
  * 무인 실행의 한계**만 말한다.
  */
-function buildPrompt(target, project, { limitStopped = false } = {}) {
-  // 제한에 잘렸다면 그 사실을 먼저 알린다 — 대화 마지막 줄이 "limit" 알림이라
-  // 그것을 설명 없이 두면 무엇을 이어야 할지 헷갈린다.
+function buildPrompt(target, project, { limitStopped = false, interrupted = false } = {}) {
+  // 왜 끊겼는지를 먼저 알린다 — 대화 마지막 줄이 시스템 알림이라, 설명 없이 두면
+  // 그 알림을 자기 답으로 오해하고 무엇을 이어야 할지 헷갈린다.
   const head = limitStopped
     ? ['이 대화는 **사용량 제한에 걸려 중간에 끊겼다.** 제한은 이제 풀렸다.',
        '대화의 마지막 줄에 보이는 limit 알림은 네 답이 아니라 시스템 알림이다.', '']
-    : []
+    : interrupted
+      ? ['이 대화는 **네 응답이 끝까지 전달되지 못한 채 끊겼다** (절전이나 연결 문제).',
+         '대화의 마지막 줄에 보이는 `API Error: The response stopped arriving` 는 네 답이 아니라 시스템 알림이고,',
+         '**그 바로 위의 네 답은 중간에 잘렸을 수 있다.** 이어 쓰기 전에 어디까지 실제로 반영됐는지 먼저 확인하라 —',
+         '파일에 쓰다 말았을 수 있다. 다시 처음부터 하지 말고, 남은 부분만 끝내라.', '']
+      : []
 
   if (target.resumePrompt) {
     return [
@@ -38,14 +43,14 @@ function buildPrompt(target, project, { limitStopped = false } = {}) {
   const tp = trackerPath(project)
   if (tp) {
     const body = resumePrompt(readTracker(tp), project)
-    return limitStopped ? [...head, body].join('\n') : body
+    return head.length ? [...head, body].join('\n') : body
   }
 
   /**
-   * 제한으로 잘린 경우의 지시문.
+   * 잘린 자리에서 이어가는 지시문.
    *
-   * 🔴 이 갈래는 **제한중단일 때만** 도달한다. 추적기도 재개지시도 없고 제한도
-   *   아니면 판정이 먼저 막는다 — 무엇을 이어서 할지 정해지지 않은 채로
+   * 🔴 이 갈래는 **제한중단이거나 끊김일 때만** 도달한다. 추적기도 재개지시도 없고
+   *   둘 다 아니면 판정이 먼저 막는다 — 무엇을 이어서 할지 정해지지 않은 채로
    *   acceptEdits 권한의 무인 실행을 띄우지 않는다.
    *   (예전에는 여기에 범용 "이어서 진행하라"가 있었지만 도달할 수 없는 죽은 코드였다.)
    */

@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { emptyTotals, foldEntry, foldLines } from '../src/lib/sessions.mjs'
+import { emptyTotals, foldEntry, foldLines, isLimitNotice, isInterruptedNotice } from '../src/lib/sessions.mjs'
 import { quotaView } from '../src/lib/status.mjs'
 
 const A = (o) => ({ type: 'assistant', timestamp: '2026-09-18T01:00:00.000Z', ...o })
@@ -154,4 +154,64 @@ test('🔴 할당량 — 기록 시각을 반드시 함께 준다 (지금 상태
   const v = quotaView({ status: 'rejected', resetsAt: 1, _at: Date.now() - 60_000 })
   assert.ok(v.recordedAt, '기록 시각이 없으면 낡은 값을 현재로 오해한다')
   assert.ok(v.recordedMinAgo >= 1)
+})
+
+/* ── 끊긴 응답 (절전·네트워크 멎음) ──────────────────────────── */
+
+/**
+ * 🔴 이 도구는 절전을 **막는 데** 가장 공을 들였는데(pc.mjs · 설정 모달 · powercfg
+ *   백업), 못 막아 잘린 세션은 재개 지점으로 쳐주지 않았다. 막으려던 사고가 났을 때
+ *   정작 복구를 안 하는 셈이었다.
+ *
+ * 🔴 문구는 지어내지 않았다. 트랜스크립트 800파일·106,329줄에서 실측한 것이다.
+ */
+const synth = (t) => ({ model: '<synthetic>', content: t })
+const REAL_INTERRUPT = 'API Error: The response stopped arriving. The response above may be incomplete.'
+
+test('🔴 실측된 끊김 문구를 알아본다', () => {
+  assert.equal(isInterruptedNotice(synth(REAL_INTERRUPT)), true)
+  assert.equal(isInterruptedNotice(synth('Your computer went to sleep mid-response. The response above may be incomplete.')), true)
+  assert.equal(isInterruptedNotice({ model: '<synthetic>', content: [{ type: 'text', text: REAL_INTERRUPT }] }), true,
+    '블록 배열로 와도 읽어야 한다')
+})
+
+/**
+ * 🔴 이 한 줄이 오탐을 통째로 막는다 — 화면을 긁는 도구들이 장식 걸러내기와
+ *   툴출력 마스킹까지 만들어 푸는 문제를, 우리는 모델 필드 하나로 끝낸다.
+ *   실측: `API Error: The response stopped arriving` 라는 글자는 **어시스턴트가 그
+ *   오류를 설명하는 산문**에도 나왔다(claude-opus-5 로 기록됨). 그것을 "지금 끊겨
+ *   있다"로 읽으면 멀쩡한 세션에 무인 재개를 띄운다.
+ */
+test('🔴 사람·어시스턴트가 그 오류를 **설명한 글**은 끊김이 아니다', () => {
+  const prose = { model: 'claude-opus-5', content: `${REAL_INTERRUPT} — 출력이 너무 커서 깨진 것입니다. 3개로 쪼개겠습니다.` }
+  assert.equal(isInterruptedNotice(prose), false, '<synthetic> 관문을 지나서 판정하면 안 된다')
+  assert.equal(isInterruptedNotice({ model: undefined, content: REAL_INTERRUPT }), false)
+  assert.equal(isLimitNotice({ model: 'claude-opus-5', content: "You've hit your session limit · resets 6pm" }), false)
+})
+
+test('모를 때는 끊김이라고 하지 않는다', () => {
+  for (const m of [null, undefined, {}, synth(''), synth('정상 응답'), { model: '<synthetic>', content: 123 }]) {
+    assert.equal(isInterruptedNotice(m), false, `${JSON.stringify(m)} 를 끊김으로 읽으면 안 된다`)
+  }
+})
+
+test('🔴 제한과 끊김은 서로를 가리지 않는다', () => {
+  assert.equal(isLimitNotice(synth(REAL_INTERRUPT)), false)
+  assert.equal(isInterruptedNotice(synth("You've hit your session limit · resets 6pm (Asia/Seoul)")), false)
+})
+
+test('🔴 마지막 엔트리일 때만 "지금 끊겨 있다"다 (뒤에 답이 더 있으면 이어진 것이다)', () => {
+  const acc = emptyTotals()
+  foldEntry(acc, { type: 'assistant', message: synth(REAL_INTERRUPT) }, Date.now())
+  assert.equal(acc.stoppedByInterrupt, true)
+  foldEntry(acc, { type: 'assistant', message: { model: 'claude-opus-5', content: '이어서 답한다' } }, Date.now())
+  assert.equal(acc.stoppedByInterrupt, false, '뒤에 정상 답이 오면 끊긴 상태가 아니다')
+})
+
+test('🔴 사람이 다시 입력했으면 끊긴 자리가 아니다', () => {
+  const acc = emptyTotals()
+  foldEntry(acc, { type: 'assistant', message: synth(REAL_INTERRUPT) }, Date.now())
+  assert.equal(acc.stoppedByInterrupt, true)
+  foldEntry(acc, { type: 'user', message: { content: '계속해' } }, Date.now())
+  assert.equal(acc.stoppedByInterrupt, false, '사람이 이어서 쓰고 있으면 무인 재개가 끼어들면 안 된다')
 })

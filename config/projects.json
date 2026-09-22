@@ -4,7 +4,8 @@
   "_noInterval": "주기는 여기 없다 — OS 예약 작업의 트리거가 정본이다(감시 PT5M · 재개 PT15M). scripts/register-*.ps1 에서 바꾸고 재등록한다. 여기에 적어 두면 고쳐도 아무 일이 없는데 바뀐 줄 안다(실측: 읽지 않는 주기분 키가 두 개 있었다).",
   "defaults": {
     "heartbeat": {
-      "staleLimitMin": 15
+      "staleLimitMin": 15,
+      "autoWatch": false
     },
     "_resumeNotes": {
       "enabled": "저장소 단위 잠금이다. false 면 UI 에서 재시작을 켜 두어도 띄우지 않는다 — --force 로도 못 뚫는다. 새 저장소는 기본으로 꺼져 있고, 알고 켜는 것만 돈다.",
@@ -32,6 +33,7 @@
       "desc": "인계계획 실행 추적 — 원본 하트비트(08-하트비트.mjs)가 돌던 곳",
       "repo": "C:/AnthoySeon/Projects/EasyAI.Platform/Source/260713/Cnthoth-Dev/Description",
       "tracker": "_plan/_resume/07-실행추적.json",
+      "_autoWatch": "이 저장소에서 새로 뜬 세션에 **감시만** 자동으로 켠다. 재시작은 자동으로 켜지 않는다 — 돈을 쓰고 파일을 고치는 스위치는 사람이 켠다.",
       "_sessionSlugs": "~/.claude/projects/ 아래 폴더 이름. 세션 활성 감지와 워크플로 진행 스캔에 쓴다. Description 작업은 모노레포 루트 세션에서도 돌았으므로 둘 다 본다(실측).",
       "sessionSlugs": [
         "C--AnthoySeon-Projects-EasyAI-Platform-Source-260713-Cnthoth-Dev-Description",

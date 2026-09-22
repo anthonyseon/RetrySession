@@ -13,7 +13,7 @@
  *   schtasks                        → OS 예약 등록 여부
  */
 import { readFileSync } from 'node:fs'
-import { localStamp } from './stamp.mjs'
+import { localStamp, dayKey } from './stamp.mjs'
 import { readTracker } from './tracker.mjs'
 import { gitState } from './probe.mjs'
 import { heartbeatVerdict, loadRunState, budgetVerdict } from './guard.mjs'
@@ -89,6 +89,16 @@ function sessionView(s, registry, runMap, ideWins = [], procMap = new Map(), run
       maxCostUSDPerDay: project.resume.maxCostUSDPerDay ?? null,
       failStreak: st.failStreak || 0,
       failStreakMax: project.resume.failStreakMax,
+      /**
+       * 오늘 API 과부하로 막힌 횟수. 연속실패로는 안 세지만(차단기를 태우지 않는다)
+       * **몇 번이나 막혔는지는 보여야 한다** — 조용히 넘기면 "왜 아무 일도 안 일어나지"가
+       * 또 안 보인다. 잦아지면 경보로 올린다(alerts.mjs).
+       *
+       * 🔴 `dayKey` 를 쓴다. `toISOString().slice(0,10)` 은 **UTC** 라서 Asia/Seoul 에서는
+       *   하루 중 9시간 동안 없는 날짜를 찾는다 — 세어 놓고도 늘 0 으로 보인다.
+       *   기록하는 쪽(guard.recordRun)이 dayKey 로 쓰므로 읽는 쪽도 같아야 한다.
+       */
+      overloadToday: (st.overloadByDay || {})[dayKey()] || 0,
       blocked: st.blocked || null,
       corrupt: st.corrupt || null,
       budgetOk: b.ok,
@@ -152,6 +162,13 @@ function sessionView(s, registry, runMap, ideWins = [], procMap = new Map(), run
      */
     stoppedByLimit: !!s.stoppedByLimit,
     limitNoticeTime: s.limitNoticeAt ? localStamp(new Date(s.limitNoticeAt)) : null,
+
+    /**
+     * 응답이 끝까지 오지 못하고 끊긴 자리 (절전·네트워크 멎음). 재개 지점으로 인정한다.
+     * 화면에도 보여야 한다 — 사람이 "왜 여기서 멈췄지"를 묻는 바로 그 상태다.
+     */
+    stoppedByInterrupt: !!s.stoppedByInterrupt,
+    interruptNoticeTime: s.interruptNoticeAt ? localStamp(new Date(s.interruptNoticeAt)) : null,
 
     lastAt: s.lastAt ? localStamp(new Date(s.lastAt)) : null,
     activeMin: s.activeMin,

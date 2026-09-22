@@ -16,9 +16,13 @@
  * 🔴 인증은 VS Code 에 로그인된 계정을 쓴다. API 키를 쓰지 않는다 (lib/cli.mjs 의 계정환경).
  *
  * 🔴 사람이 보고 있지 않은 실행이다. 가드를 먼저 통과해야 한다 — 싼 것부터 순서대로:
- *   ① 등록  ② 조용한 시간  ③ 세션이 실행 중인가(pid)  ④ 최근 활동
- *   ⑤ 재개 지점이 있나(추적기·재개지시)  ⑥ 예산  ⑦ 락
+ *   ① 등록  ①' 저장소 잠금(resume.enabled)  ② 조용한 시간  ③ 세션이 실행 중인가(pid)
+ *   ④ 최근 활동  ⑤ 재개 지점이 있나(추적기·재개지시·제한중단·끊김)  ⑥ 예산  ⑦ 락
  *   하나라도 막히면 이유를 로그에 적고 exit 0 으로 끝낸다 — 스케줄러가 실패로 보지 않게.
+ *   같은 이유가 이어지면 로그는 **접는다**(logSkip) — 안 읽는 기록은 없는 것과 같다.
+ *
+ * 🔴 실패라고 다 우리 실패가 아니다. 사용량 제한(limited)과 API 과부하(overload)는
+ *   연속실패로 세지 않는다 — 기다리면 풀릴 일에 회로를 차단하면 사람 손을 부른다.
  *
  * 사용법
  *   node src/resume.mjs              가드 통과 시 재개 (스케줄러가 부르는 것)
@@ -27,17 +31,18 @@
  *   node src/resume.mjs --rearm      회로 차단·연속실패 해제
  *   node src/resume.mjs --force      조용한시간·활동·예산 무시 (실행 중 확인과 락은 지킨다)
  */
-import { spawn } from 'node:child_process'
 import { localStamp } from './lib/stamp.mjs'
-import { appendLine } from './lib/io.mjs'
+import { appendLine, appendOrFold } from './lib/io.mjs'
 import { readTracker } from './lib/tracker.mjs'
 import { buildPrompt } from './lib/prompt.mjs'
 import {
-  loadRunState, saveRunState, budgetVerdict, recordRun, rearm,
-  acquireLock, releaseLock, quietNow, sessionRunning, limitState, isLimitFailure,
+  loadRunState, saveRunState, budgetVerdict, recordRun,
+  acquireLock, releaseLock, quietNow, sessionRunning, limitState, isLimitFailure, isTransientFailure,
 } from './lib/guard.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath, isSessionId } from './lib/targets.mjs'
-import { runningSessions, account, claudeBin, needsShell, accountEnv, isAlive } from './lib/cli.mjs'
+import { runningSessions, isAlive } from './lib/cli.mjs'
+import { runClaude, parseResult } from './lib/claude-run.mjs'
+import { printStatus, doRearm } from './lib/resume-report.mjs'
 import { scanSessions } from './lib/sessions.mjs'
 import { singleInstance } from './lib/single.mjs'
 
@@ -47,6 +52,25 @@ const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : nu
 const DRY = flag('--dry-run'), FORCE = flag('--force')
 
 const log = (P, line) => { try { appendLine(P.resumeLogPath, line) } catch { /* 로그 실패로 재개를 막지 않는다 */ } }
+
+/**
+ * 건너뛴 이유를 적되, **같은 이유가 이어지면 접는다.**
+ *
+ * 🔴 실측 (2026-09-22): 15분마다 똑같은 `SKIP · 세션이 실행 중이다 (pid 4084)` 가 쌓여
+ *   21회차가 전부 같은 줄이었다. 사람이 열면 스무 줄을 넘겨야 달라진 한 줄에 닿는다 —
+ *   그러면 로그를 안 읽게 되고, **안 읽는 기록은 없는 것과 같다.**
+ *   줄이는 게 아니라 접는다: 횟수와 처음 시각이 남아 "언제부터 이러고 있나"를 말해 준다.
+ */
+const logSkip = (P, why) => {
+  const at = localStamp()
+  try {
+    appendOrFold(P.resumeLogPath, {
+      sameKey: ` · ${why}`,
+      line: `${at} · SKIP · ${why}`,
+      folded: ({ count, firstAt }) => `${at} · SKIP ×${count} (처음 ${firstAt}) · ${why}`,
+    })
+  } catch { /* 로그 실패로 재개를 막지 않는다 */ }
+}
 
 function pickTargets() {
   const t = loadTargets()
@@ -132,22 +156,45 @@ function verdict(target, ctx) {
   }
 
   /**
-   * 재개 지점이 있나 — 셋 중 하나여야 한다.
+   * 재개 지점이 있나 — 넷 중 하나여야 한다.
    *
    * 🔴 제한에 잘려 멈춘 것도 **재개 지점이다.** 오히려 가장 분명하다 — 잘린 그 자리다.
    *   반대로, 제한이 풀렸다고 **놀고 있던** 세션까지 깨우면 아무도 시키지 않은 일을
    *   시작하는 것이다. 그래서 "제한을 겪었다"가 아니라 "**마지막 엔트리가** 제한
-   *   알림이다"를 본다(sessions.mjs 의 제한으로멈춤).
+   *   알림이다"를 본다(sessions.mjs 의 stoppedByLimit).
+   *
+   * 🔴 끊긴 응답(절전·네트워크 멎음)도 같은 이유로 재개 지점이다 — 잘린 자리가 분명하다.
+   *   이 도구는 절전을 **막는 데** 가장 공을 들였는데, 못 막아 잘린 세션은 복구하지
+   *   않고 있었다.
    */
   const limitStopped = !!s.stoppedByLimit
+  const interrupted = !!s.stoppedByInterrupt
   const tp = trackerPath(project)
   if (tp) {
     const t = readTracker(tp)
     if (t.error) return stop(`추적기를 읽을 수 없다 — ${t.error}`)
     if (t.allDone) return stop(`할 일이 없다 (${t.doneMark} 전부 done)`)
     if (!t.doing && !t.nextTodo) return stop('추적기에 doing 도 todo 도 없다 — 재개 지점을 말해주지 않는다')
-  } else if (!target.resumePrompt && !limitStopped) {
+  } else if (!target.resumePrompt && !limitStopped && !interrupted) {
     return stop('추적기도 재개지시도 없다 — 무엇을 이어서 할지 정해지지 않았다 (UI 에서 재개지시를 넣어라)')
+  }
+
+  const point = tp
+    ? (() => { const t = readTracker(tp); return t.doing ? `doing ${t.doing.id}` : `todo ${t.nextTodo.id}` })()
+    : target.resumePrompt ? '재개지시'
+      : limitStopped ? '제한으로 잘린 지점'
+        : '끊긴 지점'
+
+  /**
+   * 🔴 끊긴 응답은 **한 번만** 이어 본다.
+   *
+   *   이어 봤는데 또 같은 자리에서 끊겼다면 원인은 절전이 아니다(실측된 예: 한 번에
+   *   내야 하는 출력이 너무 커서 스트리밍이 깨진 경우). 그대로 다시 밀면 하루 상한
+   *   12회를 같은 실패로 태운다. 사람이 재개지시로 방향을 바꿔 줘야 하는 자리다.
+   *   `--force` 로도 뚫지 않는다 — 뚫어도 같은 곳에서 깨진다.
+   */
+  if (point === '끊긴 지점' && state.lastRun?.point === '끊긴 지점') {
+    return stop('끊긴 응답을 이미 한 번 이어 봤는데 또 끊겼다 — 원인이 절전이 아니다. 재개지시로 방향을 바꿔라')
   }
 
   if (!FORCE) {
@@ -155,109 +202,20 @@ function verdict(target, ctx) {
     if (!b.ok) return stop(b.why)
   }
 
-  const point = tp
-    ? (() => { const t = readTracker(tp); return t.doing ? `doing ${t.doing.id}` : `todo ${t.nextTodo.id}` })()
-    : (target.resumePrompt ? '재개지시' : '제한으로 잘린 지점')
   return {
-    go: true, limitStopped,
-    why: `재개 지점 ${point}` + (limitStopped ? ' (사용량 제한으로 중단됐고 지금은 풀렸다)' : ''),
+    go: true, limitStopped, interrupted, point,
+    why: `재개 지점 ${point}`
+      + (limitStopped ? ' (사용량 제한으로 중단됐고 지금은 풀렸다)' : '')
+      + (interrupted && !limitStopped ? ' (응답이 끝까지 오지 못하고 끊겼다)' : ''),
     P, project, state,
-  }
-}
-
-/* ── claude 실행 ─────────────────────────────────────────────── */
-
-/**
- * 🔴 셸(cmd.exe)을 거치지 않는다.
- *   claudeBin() 이 네이티브 `claude.exe` 를 돌려주므로 인자를 배열로 그대로 넘긴다.
- *   그 덕에: 콘솔 창이 뜨지 않고, 인자를 직접 인용할 필요가 없고(코드페이지로 한글이
- *   깨지지 않는다), 프로세스 트리가 한 겹 얕아 종료가 단순하다.
- *   설치 형태가 달라 .cmd 로 물러설 때만 셸을 쓴다.
- */
-function runClaude({ sessionId, cwd, prompt, cfg, addDirs }) {
-  return new Promise((resolve) => {
-    const startedText = Date.now()
-    const args = ['--resume', sessionId, '-p', '--output-format', 'json',
-      '--permission-mode', cfg.permissionMode || 'acceptEdits']
-    for (const d of addDirs || []) args.push('--add-dir', d)
-
-    const exe = claudeBin(cfg.claudeBin)
-    // 🔴 env 를 계정환경으로 준다 — API 키가 설정돼 있어도 로그인 계정이 이긴다
-    const child = spawn(exe, args, {
-      cwd, windowsHide: true, env: accountEnv(), shell: needsShell(exe),
-    })
-
-    let stdout = '', stderr = '', timedOut = false
-    const CAP = 4_000_000
-    child.stdout.on('data', (d) => { if (stdout.length < CAP) stdout += d.toString('utf8') })
-    child.stderr.on('data', (d) => { if (stderr.length < CAP) stderr += d.toString('utf8') })
-
-    // 🔴 이 CLI 버전에 --max-turns 가 없다(실측). 폭주는 벽시계 타임아웃으로만 막는다.
-    const timer = setTimeout(() => {
-      timedOut = true
-      // 자식을 또 띄울 수 있으므로 트리째 끊는다. taskkill 은 셸 없이 부른다.
-      try {
-        spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
-      } catch { /* 이미 죽었으면 됐다 */ }
-      try { child.kill() } catch { /* 위와 같다 */ }
-    }, (cfg.timeoutMin ?? 30) * 60_000)
-
-    const end = (code) => {
-      clearTimeout(timer)
-      resolve({ code, stdout, stderr, timedOut, tookSec: Math.round((Date.now() - startedText) / 1000), exe })
-    }
-    child.on('error', (e) => { stderr += '\n' + e.message; end(-1) })
-    child.on('close', end)
-
-    try { child.stdin.write(prompt, 'utf8'); child.stdin.end() } catch (e) { stderr += `\nstdin 실패: ${e.message}` }
-  })
-}
-
-function parseResult(stdout) {
-  try {
-    const j = JSON.parse(stdout)
-    return {
-      ok: !j.is_error, summary: j.result || '',
-      costUSD: typeof j.total_cost_usd === 'number' ? +j.total_cost_usd.toFixed(4) : 0,
-      turns: j.num_turns ?? null, sid: j.session_id ?? null,
-      permDenied: Array.isArray(j.permission_denials) ? j.permission_denials.length : 0,
-    }
-  } catch {
-    return { ok: false, summary: String(stdout).slice(0, 1500), costUSD: 0, turns: null, sid: null, permDenied: 0, parseFailed: true }
   }
 }
 
 /* ── 부속 명령 ───────────────────────────────────────────────── */
 
-if (flag('--status')) {
-  const acct = account()
-  console.log(`계정: ${acct.email || '?'} · ${acct.subscriptionType || '?'}${acct.isSubscription ? ' (구독 — 정가 환산은 청구액이 아니다)' : ''}`)
-  const list = Object.entries(loadTargets().targets)
-  if (!list.length) console.log('대상이 없다.')
-  for (const [id, v] of list) {
-    const P = statePaths(id)
-    const pairCwd = v.mainCwd || v.runCwd
-    const { project } = pairCwd ? resolveRepo(pairCwd) : { project: null }
-    const st = loadRunState(P.resumeState)
-    const b = project ? budgetVerdict(st, project.resume) : { runsToday: '?', costToday: '?', ok: false, why: '저장소 미해결' }
-    console.log(`── ${id.slice(0, 8)} ${v.title ? `· ${v.title.slice(0, 40)}` : ''}`)
-    console.log(`   재시작 ${v.restart ? 'O' : 'X'} · 감시 ${v.watch ? 'O' : 'X'} · 권한 ${project?.resume.permissionMode || '-'}`)
-    console.log(`   오늘 ${b.runsToday}/${project?.resume.maxPerDay ?? '-'}회 · $${b.costToday}/$${project?.resume.maxCostUSDPerDay ?? '-'}`)
-    console.log(`   연속실패 ${st.failStreak || 0}/${project?.resume.failStreakMax ?? '-'} · 차단 ${st.blocked ? `🔴 ${st.blocked.reason}` : '없음'}`)
-    console.log(`   마지막 ${st.lastRun ? `${st.lastRun.at} · ${st.lastRun.result} · ${st.lastRun.tookSec}초 · $${st.lastRun.costUSD ?? 0}` : '없음'}`)
-  }
-  process.exit(0)
-}
+if (flag('--status')) { printStatus(); process.exit(0) }
 
-if (flag('--rearm')) {
-  for (const target of pickTargets().length ? pickTargets() : Object.entries(loadTargets().targets).map(([id, v]) => ({ sessionId: id, ...v }))) {
-    const P = statePaths(target.sessionId)
-    saveRunState(P.resumeState, rearm(loadRunState(P.resumeState)))
-    log(P, `${localStamp()} · REARM · 회로 차단·연속실패 해제 (사람이 실행)`)
-    console.log(`✅ ${target.sessionId.slice(0, 8)} — 회로 차단 해제`)
-  }
-  process.exit(0)
-}
+if (flag('--rearm')) { process.exit(doRearm(pickTargets(), { picked: !!opt('--session') }) ? 0 : 1) }
 
 /* ── 본 실행 ─────────────────────────────────────────────────── */
 
@@ -331,12 +289,12 @@ for (const target of items) {
   const short = target.sessionId.slice(0, 8)
 
   if (!v.go) {
-    log(v.P, `${localStamp()} · SKIP · ${v.why}`)
+    logSkip(v.P, v.why)
     console.log(`⛔ ${short} 건너뜀 — ${v.why}`)
     continue
   }
 
-  const prompt = buildPrompt(target, v.project, { limitStopped: v.limitStopped })
+  const prompt = buildPrompt(target, v.project, { limitStopped: v.limitStopped, interrupted: v.interrupted })
 
   if (DRY) {
     console.log(`✅ ${short} 재개 가능 — ${v.why}`)
@@ -374,15 +332,25 @@ for (const target of items) {
      *   그때 실패로 세면 세 번 만에 회로가 차단된다 — 기다리면 될 일에. 뒷받침 장치다.
      */
     const didFail = r.timedOut || r.code !== 0 || !p.ok
-    // 타임아웃은 제한이 아니다 — 30분을 실제로 돌았다는 뜻이다
-    const limitBlocked = didFail && !r.timedOut && isLimitFailure(`${p.summary} ${r.stderr}`)
+    // 타임아웃은 제한도 과부하도 아니다 — 30분을 실제로 돌았다는 뜻이다
+    const label = `${p.summary} ${r.stderr}`
+    const limitBlocked = didFail && !r.timedOut && isLimitFailure(label)
+    /**
+     * 🔴 저쪽이 흔들린 것도 우리 실패가 아니다 (제한과 같은 이유).
+     *   529·503 은 isLimitFailure 에 안 걸려 'fail' 로 세어졌고, 세 번이면 회로가
+     *   차단됐다. 기다리면 될 일에 사람 손을 부르는 것은 제한에서 이미 고친 실수다.
+     */
+    const overloaded = didFail && !r.timedOut && !limitBlocked && isTransientFailure(label)
     const result = r.timedOut ? 'timeout'
       : !didFail ? 'ok'
-      : limitBlocked ? '제한' : 'fail'
+      : limitBlocked ? 'limited'
+        : overloaded ? 'overload' : 'fail'
 
     const next = recordRun(loadRunState(v.P.resumeState), {
       result, summary: p.summary, tookSec: r.tookSec, costUSD: p.costUSD,
       turns: p.turns, sid: p.sid, permDenied: p.permDenied, exit: r.code,
+      // 같은 자리를 두 번 이어 밀지 않으려면 **무엇을 이어서** 띄웠는지 남아야 한다
+      point: v.point,
     }, cfg)
     saveRunState(v.P.resumeState, next)
 
@@ -398,11 +366,12 @@ for (const target of items) {
       next.blocked ? `  🔴 연속 ${next.failStreak}회 실패로 회로 차단됨 — 고친 뒤 --rearm` : '',
     ].filter(Boolean).join('\n'))
 
-    // 🔴 제한은 실패가 아니다 — 스케줄러 이력을 빨갛게 물들이지 않는다.
+    // 🔴 제한·과부하는 실패가 아니다 — 스케줄러 이력을 빨갛게 물들이지 않는다.
     //   가드에 막힌 회차가 exit 0 인 것과 같은 이유다. 때가 아닌 것이지 고장이 아니다.
-    const shown = result === 'ok' ? '✅' : result === '제한' ? '◔' : '✖'
+    const notOurFault = result === 'limited' || result === 'overload'
+    const shown = result === 'ok' ? '✅' : notOurFault ? '◔' : '✖'
     console.log(`${shown} ${short} — ${result} · ${r.tookSec}초 · $${p.costUSD}`)
-    if (result !== 'ok' && result !== '제한') exitCode = 1
+    if (result !== 'ok' && !notOurFault) exitCode = 1
   } finally {
     releaseLock(v.P.resumeLock)
   }

@@ -153,8 +153,8 @@ test('🔴 제한 중이면 FORCE 로도 막힌다 (억지로 밀 이유가 없�
 
 test('🔴 제한에 잘린 세션은 추적기·재개지시가 없어도 재개 지점으로 인정한다', () => {
   assert.match(resumeSrc, /const limitStopped = !!s\.stoppedByLimit/)
-  assert.match(resumeSrc, /else if \(!target\.resumePrompt && !limitStopped\)/,
-    '제한중단이면 "재개 지점 없음" 으로 막지 않아야 한다')
+  assert.match(resumeSrc, /else if \(!target\.resumePrompt && !limitStopped && !interrupted\)/,
+    '제한중단·끊김이면 "재개 지점 없음" 으로 막지 않아야 한다')
 })
 
 test('🔴 지시문이 "제한에 끊겼다"를 세션에 알려준다', () => {
@@ -165,7 +165,10 @@ test('🔴 지시문이 "제한에 끊겼다"를 세션에 알려준다', () => 
 })
 
 test('🔴 제한 결과는 스케줄러 이력을 빨갛게 물들이지 않는다', () => {
-  assert.match(resumeSrc, /result !== 'ok' && result !== '제한'/, '제한은 exit 1 이 아니다')
+  assert.match(resumeSrc, /notOurFault = result === 'limited' \|\| result === 'overload'/,
+    '제한과 과부하를 한 이름으로 묶어야 한다')
+  assert.match(resumeSrc, /if \(result !== 'ok' && !notOurFault\) exitCode = 1/,
+    '제한·과부하는 exit 1 이 아니다')
 })
 
 test('실행 중 확인은 그대로 남아 있다 (③ — 세션이 열려 있으면 안 민다)', () => {
