@@ -80,6 +80,22 @@ function verdict(target, ctx) {
   if (!target.restart && !FORCE) return stop('재시작이 꺼져 있다 (UI 에서 켜라)')
   if (!project) return stop('작업 디렉터리를 알 수 없다 — 재개를 띄울 자리가 없다')
 
+  /**
+   * 🔴 저장소 단위 잠금. **`--force` 로도 못 뚫는다.**
+   *
+   *   실측 결함 (2026-09-22): `config/projects.json` 은 `resume.enabled` 를 기본
+   *   false 로 두고 저장소마다 켜는 모양을 하고 있었는데, **아무도 그 값을 읽지
+   *   않았다.** targets.mjs 는 대체 프로젝트에 `enabled: true` 를 굳이 써 넣고
+   *   있었으니 읽으라고 둔 값이 분명하다. 끄둔 줄 알고 자리를 비우면 돈이 나간다 —
+   *   설정이 거짓말을 하는 것이 이 도구에서 가장 나쁜 고장이다.
+   *
+   *   UI 의 세션별 스위치와 층이 다르다: 여기는 "이 저장소는 무인으로 돌리지
+   *   않는다", 저기는 "이 세션을 무인으로 돌린다". 바깥 잠금이 이긴다.
+   */
+  if (cfg.enabled === false) {
+    return stop(`이 저장소는 자율 재개가 꺼져 있다 — config/projects.json 의 "${project.id}" 에서 resume.enabled 를 켜라`)
+  }
+
   if (!FORCE) {
     const qn = quietNow(cfg.quietHours)
     if (qn.quiet) return stop(qn.why)

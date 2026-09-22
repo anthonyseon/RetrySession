@@ -1,13 +1,13 @@
 {
   "_note": "트랜스크립트의 토큰 수를 비용으로 환산하는 단가표. 단가가 바뀌면 이 파일만 고친다.",
-  "_출처": "모델 기본 단가는 Anthropic 1st-party API 정가($/1M 토큰).",
-  "_실측검증": {
-    "방법": "claude -p --output-format json 의 total_cost_usd 와 usage 를 연립해 배수를 역산했다.",
-    "표본1": "input 2 · cacheWrite1h 21351 · output 4 → costUSD 0.2136200 (claude-opus-5)",
-    "표본2": "input 2 · cacheWrite1h 3160 · cacheRead 18183 · output 4 → costUSD 0.0408015 (claude-opus-5)",
+  "_source": "모델 기본 단가는 Anthropic 1st-party API 정가($/1M 토큰).",
+  "_measured": {
+    "method": "claude -p --output-format json 의 total_cost_usd 와 usage 를 연립해 배수를 역산했다.",
+    "sample1": "input 2 · cacheWrite1h 21351 · output 4 → costUSD 0.2136200 (claude-opus-5)",
+    "sample2": "input 2 · cacheWrite1h 3160 · cacheRead 18183 · output 4 → costUSD 0.0408015 (claude-opus-5)",
     "result": "2*5e-6 + 3160*10e-6 + 18183*0.5e-6 + 4*25e-6 = 0.0408015 — 오차 0. 캐시쓰기1h=입력×2, 캐시읽기=입력×0.1 확정.",
-    "미검증": "캐시쓰기 5분(×1.25)은 표본에 5m 쓰기가 없어 역산하지 못했다. 공표 배수를 그대로 쓴다.",
-    "확인일": "2026-09-18"
+    "unverified": "캐시쓰기 5분(×1.25)은 표본에 5m 쓰기가 없어 역산하지 못했다. 공표 배수를 그대로 쓴다.",
+    "checkedAt": "2026-09-18"
   },
   "factor": {
     "cacheWrite1h": 2,
@@ -52,7 +52,7 @@
       "output": 50
     }
   },
-  "_기본주석": "표에 없는 모델 id 를 만나면 이 단가로 계산하고 추정치로 표시한다 — 0 으로 처리해 비용을 감추지 않는다.",
+  "_fallbackNote": "표에 없는 모델 id 를 만나면 이 단가로 계산하고 추정치로 표시한다 — 0 으로 처리해 비용을 감추지 않는다.",
   "fallback": {
     "input": 5,
     "output": 25
