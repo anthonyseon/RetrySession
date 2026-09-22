@@ -143,9 +143,31 @@ pid 가 **재사용된** 경우까지 가리려고 락에 프로세스 시작 �
 - **세션 목록** — 다중 선택해서 감시·재시작을 한꺼번에 켜고 끈다. 실행 중 여부(pid), 활동 시각, 턴·도구·토큰·정가
 - **상세** — 선택한 세션의 처리 상황·대화·도구 호출을 2초마다 갱신. 감시 로그 · 재시작 로그 · 재개지시 설정
 - **사용량** — 계정·구독, 모델별 토큰과 정가 환산, 사용량 제한 상태와 해제 시각
-- **OS 트리거** — 세 작업의 등록 여부·마지막 결과·다음 실행
+- **OS 트리거** — 네 작업(감시·재시작·UI·트레이)의 등록 여부·마지막 결과·다음 실행
 
 화면 오른쪽 위에 **"n초 전 갱신"** 이 항상 떠 있다. 화면이 멈추면 바로 알 수 있어야 한다.
+
+### 🔴 화면은 재개가 내릴 판정을 **그대로** 보여준다
+
+실측 결함 (2026-09-22): 목록의 재시작 배지가 **예산만** 보고 `재시작 준비` 라고 말했다.
+실제로는 여덟 가지가 더 막는다(실행 중·재개 지점 없음·저장소 잠금·조용한 시간·제한·
+활동·차단·추적기 전부 done). 그래서 사람은 "준비"를 믿고 자리를 비웠는데 15분마다
+조용히 건너뛰었고, "켰는데 왜 안 도는가"를 반복해서 물었다.
+**없는 것을 있다고 말하는 것은 있는 것을 없다고 하는 것만큼 나쁘다.**
+
+판정은 [`lib/resume-gate.mjs`](./src/lib/resume-gate.mjs) **하나**다(순수 함수).
+재개가 그것으로 정하고, 화면은 같은 것을 옮긴다 — 규칙이 두 벌이면 창구마다 다른 말을 한다.
+목록에는 `● 재개 가능 · <지점>` / `⊘ 재개 안 함 · <이유>` 가 뜨고, 상세의 재시작 탭 맨
+위에는 판정 패널과 **고치는 단추**가 있다(`재개지시 넣기` · `차단 해제`).
+
+### 영역마다 접힌다
+
+요약 다섯 묶음이 각각, 열린 폴더 묶음도 접힌다(머리줄 클릭 · Enter). 접힘은 기억된다.
+**접어도 요지는 남긴다** — 접힌 것이 "없는 것"으로 보이면 감시 장치가 스스로 눈을 가린다.
+경보는 접히지 않는다. 접은 채로 '감시 끊김'이 숨으면 이 도구가 막으려는 일이 일어난다.
+
+> 🔴 화살표는 CSS `::after` 로만 그린다. `h3` 안에 글자로 넣으면 묶음 이름이 `▾계정` 이
+> 되어 이름으로 찾는 코드와 시험이 조용히 어긋난다.
 
 ## 인증과 비용
 
@@ -225,15 +247,20 @@ config/
 src/
   heartbeat.mjs          ① 감시 본체        hb.mjs  ← 스케줄러가 부르는 ASCII 진입점
   resume.mjs             ② 재시작 본체      rs.mjs  ← 같은 이유
-  ui/server.mjs          ③ 화면 (127.0.0.1) index.html · app.js
+  ui/server.mjs          ③ 화면 (127.0.0.1) index.html · app.js · app.css · fold.css
   lib/
     config.mjs  targets.mjs     설정 · 대상 등록부
     sessions.mjs detail.mjs     세션 목록·사용량(증분 캐시) · 상세 타임라인
     cli.mjs                     claude.exe 를 정보 출처로 (agents --json · auth status)
+    claude-run.mjs              claude --resume 을 띄우고 결과를 읽는다 (판정 없음)
     tracker.mjs probe.mjs       추적기 판정 · git·세션 관측
-    guard.mjs                   🔴 fail-closed 판정 (낡음·조용한시간·예산·락)
+    guard.mjs                   🔴 fail-closed 판정 (낡음·조용한시간·예산·락·실패 분류)
+    resume-gate.mjs             🔴 "지금 재개해도 되나" **판정 하나** — 재개와 화면이 같이 쓴다
+    autowatch.mjs               새 세션에 감시만 자동 등록 (기본 꺼짐)
     pricing.mjs stamp.mjs       비용 환산 · 로컬 시각
+    session-view.mjs            세션 하나의 보기 상태 (감시·재시작·추적기·판정)
     status.mjs scheduler.mjs    집계(화면·트레이·CLI 공용) · 예약 조회
+    resume-report.mjs           --status · --rearm (사람에게 보여주는 것)
 scripts/                 🔴 전부 ASCII
   register-{heartbeat,resume,ui,tray}.ps1 · register-all.ps1 · unregister-all.ps1
   tray.ps1  open-app.ps1  shortcut.ps1  status.ps1  build-exe.ps1
@@ -241,7 +268,7 @@ tools/                   start.exe · runhidden.exe 의 C# 원본 (빌드 산출
 start.ps1                사용자가 만지는 유일한 파일 (start.exe 가 이것을 부른다)
 .claude/skills/          이 저장소에서만 쓰는 작업 절차 (아래)
 state/                   런타임 기록 (추적 안 함)
-test/                    143개 — 판정·단가·ASCII·중복실행·경보·스킬을 고정
+test/                    판정·단가·ASCII·중복실행·경보·이름 규칙·설정 무결성·문서 일치를 고정
 ```
 
 ## 작업 절차 (Claude 스킬)
