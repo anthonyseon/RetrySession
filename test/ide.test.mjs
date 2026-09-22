@@ -12,9 +12,9 @@ import assert from 'node:assert/strict'
 import { findWindow, sessionsByFolder } from '../src/lib/ide.mjs'
 import { pathKey, isInside } from '../src/lib/config.mjs'
 
-const 창 = (포트, folders, 살아있음 = true) => ({
-  포트, pid: 1000 + 포트, ideName: 'Visual Studio Code',
-  workspaceFolders: folders.map(pathKey), 살아있음, 낡음: !살아있음,
+const windows = (port, folders, alive = true) => ({
+  port, pid: 1000 + port, ideName: 'Visual Studio Code',
+  workspaceFolders: folders.map(pathKey), alive, stale: !alive,
 })
 
 /* ── 경로 정규화 ─────────────────────────────────────────────── */
@@ -36,71 +36,71 @@ test('isInside — 같은 경로와 하위 경로', () => {
 /* ── 창 짝짓기 ───────────────────────────────────────────────── */
 
 test('세션 cwd 가 열린 폴더 안이면 그 창을 찾는다', () => {
-  const w = findWindow('C:/repo/sub', [창(63788, ['C:/repo'])])
-  assert.equal(w.포트, 63788)
+  const w = findWindow('C:/repo/sub', [windows(63788, ['C:/repo'])])
+  assert.equal(w.port, 63788)
 })
 
 test('🔴 낡은 lock 의 창은 짝짓지 않는다 — 닫힌 창을 열린 것으로 보이게 하면 안 된다', () => {
-  assert.equal(findWindow('C:/repo/sub', [창(44976, ['C:/repo'], false)]), null)
+  assert.equal(findWindow('C:/repo/sub', [windows(44976, ['C:/repo'], false)]), null)
 })
 
 test('여러 창에 걸치면 가장 구체적인 폴더의 창을 고른다', () => {
-  const 목록 = [창(1, ['C:/repo']), 창(2, ['C:/repo/sub'])]
-  assert.equal(findWindow('C:/repo/sub/deep', 목록).포트, 2)
+  const items = [windows(1, ['C:/repo']), windows(2, ['C:/repo/sub'])]
+  assert.equal(findWindow('C:/repo/sub/deep', items).port, 2)
 })
 
 test('열린 폴더 밖이면 null', () => {
-  assert.equal(findWindow('C:/other', [창(1, ['C:/repo'])]), null)
-  assert.equal(findWindow(null, [창(1, ['C:/repo'])]), null)
+  assert.equal(findWindow('C:/other', [windows(1, ['C:/repo'])]), null)
+  assert.equal(findWindow(null, [windows(1, ['C:/repo'])]), null)
 })
 
 /* ── 열린 폴더별 세션 (Description 물음의 핵심) ──────────────── */
 
-const 세션 = (id, 실행cwd, 주작업cwd, opts = {}) => ({
-  sessionId: id, 실행cwd: pathKey(실행cwd), 주작업cwd: pathKey(주작업cwd),
-  실행중: !!opts.실행중, 감시: { 켜짐: !!opts.감시 },
+const sessions = (id, runCwd, mainCwd, opts = {}) => ({
+  sessionId: id, runCwd: pathKey(runCwd), mainCwd: pathKey(mainCwd),
+  running: !!opts.running, watch: { on: !!opts.watch },
 })
 
 test('🔴 폴더에서 일하지만 거기서 시작하지 않은 경우를 구별한다 (Description 의 경우)', () => {
-  const 목록 = [창(63788, ['C:/dev/Platform', 'C:/dev/Description'])]
-  const sessionList = [세션('s1', 'C:/dev/Platform', 'C:/dev/Description', { 실행중: true, 감시: true })]
-  const r = sessionsByFolder(목록, sessionList)
+  const items = [windows(63788, ['C:/dev/Platform', 'C:/dev/Description'])]
+  const sessionList = [sessions('s1', 'C:/dev/Platform', 'C:/dev/Description', { running: true, watch: true })]
+  const r = sessionsByFolder(items, sessionList)
 
-  const platform = r.find((x) => x.폴더 === 'C:/dev/Platform')
-  const desc = r.find((x) => x.폴더 === 'C:/dev/Description')
+  const platform = r.find((x) => x.folders === 'C:/dev/Platform')
+  const desc = r.find((x) => x.folders === 'C:/dev/Description')
 
-  assert.equal(platform.여기서시작, 1, 'Platform 에서 시작했다')
-  assert.equal(desc.세션수, 1, 'Description 에서 일하는 세션이 1개 있다')
-  assert.equal(desc.여기서시작, 0, '🔴 Description 에서 시작한 세션은 없다 — 이것이 목록에 없어 보이는 이유다')
-  assert.equal(desc.실행중, 1)
-  assert.equal(desc.감시, 1)
+  assert.equal(platform.startedHere, 1, 'Platform 에서 시작했다')
+  assert.equal(desc.sessionCount, 1, 'Description 에서 일하는 세션이 1개 있다')
+  assert.equal(desc.startedHere, 0, '🔴 Description 에서 시작한 세션은 없다 — 이것이 목록에 없어 보이는 이유다')
+  assert.equal(desc.running, 1)
+  assert.equal(desc.watch, 1)
 })
 
 test('열려 있지만 아무 세션도 없는 폴더는 0 으로 나온다', () => {
-  const r = sessionsByFolder([창(1, ['C:/dev/Empty'])], [])
-  assert.equal(r[0].세션수, 0)
-  assert.equal(r[0].여기서시작, 0)
+  const r = sessionsByFolder([windows(1, ['C:/dev/Empty'])], [])
+  assert.equal(r[0].sessionCount, 0)
+  assert.equal(r[0].startedHere, 0)
 })
 
 test('낡은 창의 폴더는 집계하지 않는다', () => {
-  const r = sessionsByFolder([창(1, ['C:/dev/Old'], false)], [세션('s', 'C:/dev/Old', 'C:/dev/Old')])
+  const r = sessionsByFolder([windows(1, ['C:/dev/Old'], false)], [sessions('s', 'C:/dev/Old', 'C:/dev/Old')])
   assert.deepEqual(r, [])
 })
 
 test('같은 폴더가 두 창에 열려 있으면 한 줄로 합친다', () => {
   const r = sessionsByFolder(
-    [창(1, ['C:/dev/Shared']), 창(2, ['C:/dev/Shared'])],
-    [세션('s', 'C:/dev/Shared', 'C:/dev/Shared')],
+    [windows(1, ['C:/dev/Shared']), windows(2, ['C:/dev/Shared'])],
+    [sessions('s', 'C:/dev/Shared', 'C:/dev/Shared')],
   )
   assert.equal(r.length, 1, '같은 폴더가 두 줄로 보이면 세션이 두 배로 있는 것처럼 읽힌다')
-  assert.match(String(r[0].포트), /1.*2/)
+  assert.match(String(r[0].port), /1.*2/)
 })
 
 test('세션이 많은 폴더가 위로 온다', () => {
-  const 목록 = [창(1, ['C:/dev/A', 'C:/dev/B'])]
+  const items = [windows(1, ['C:/dev/A', 'C:/dev/B'])]
   const sessionList = [
-    세션('s1', 'C:/dev/B', 'C:/dev/B'),
-    세션('s2', 'C:/dev/B', 'C:/dev/B'),
+    sessions('s1', 'C:/dev/B', 'C:/dev/B'),
+    sessions('s2', 'C:/dev/B', 'C:/dev/B'),
   ]
-  assert.equal(sessionsByFolder(목록, sessionList)[0].폴더, 'C:/dev/B')
+  assert.equal(sessionsByFolder(items, sessionList)[0].folders, 'C:/dev/B')
 })

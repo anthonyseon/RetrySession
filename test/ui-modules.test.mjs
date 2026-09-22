@@ -41,7 +41,7 @@ function imports(src) {
   for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'([^']+)'/g)) {
     out.push({
       names: m[1].split(',').map((s) => s.trim().split(/\s+as\s+/)[0]).filter(Boolean),
-      경로: m[2],
+      path: m[2],
     })
   }
   return out
@@ -52,8 +52,8 @@ function exports(src) {
   const out = new Set()
   for (const m of src.matchAll(/export\s*\{([^}]*)\}/g)) {
     for (const x of m[1].split(',')) {
-      const 이름 = x.trim().split(/\s+as\s+/).pop()
-      if (이름) out.add(이름)
+      const name = x.trim().split(/\s+as\s+/).pop()
+      if (name) out.add(name)
     }
   }
   for (const m of src.matchAll(/export\s+(?:async\s+)?function\s+([^\s(]+)/g)) out.add(m[1])
@@ -64,14 +64,14 @@ function exports(src) {
 test('🔴 import 한 이름이 그쪽에 정말 export 되어 있다', () => {
   for (const f of modules) {
     const src = readPs(f)
-    for (const { names, 경로 } of imports(src)) {
-      if (!경로.startsWith('.')) continue
-      const 대상 = resolve(dirname(join(UI, f)), 경로)
-      assert.ok(existsSync(대상), `${f} 가 없는 파일을 import 한다: ${경로}`)
-      const present = exports(readFileSync(대상, 'utf8'))
-      for (const 이름 of names) {
-        assert.ok(present.has(이름),
-          `${f} 가 ${경로} 의 '${이름}' 을 가져오는데 그쪽은 export 하지 않는다 — ` +
+    for (const { names, path } of imports(src)) {
+      if (!path.startsWith('.')) continue
+      const target = resolve(dirname(join(UI, f)), path)
+      assert.ok(existsSync(target), `${f} 가 없는 파일을 import 한다: ${path}`)
+      const present = exports(readFileSync(target, 'utf8'))
+      for (const name of names) {
+        assert.ok(present.has(name),
+          `${f} 가 ${path} 의 '${name}' 을 가져오는데 그쪽은 export 하지 않는다 — ` +
           '브라우저가 모듈을 통째로 거부해 화면이 빈 채로 뜬다')
       }
     }
@@ -83,13 +83,13 @@ test('🔴 export 한 것 중 아무도 안 쓰는 것이 없다 (죽은 코드)
   const used = modules.map(readPs).join('\n')
   for (const f of modules) {
     if (f === 'app.js') continue   // 진입점은 아무도 import 하지 않는다
-    for (const 이름 of exports(readPs(f))) {
+    for (const name of exports(readPs(f))) {
       // 자기 파일 밖에서 이름이 쓰이는지 본다 — 시험만 쓰는 export 도 인정한다
       const others = modules.filter((x) => x !== f).map(readPs).join('\n')
       const tests = readdirSync(join(ROOT, 'test'))
         .map((x) => readFileSync(join(ROOT, 'test', x), 'utf8')).join('\n')
-      assert.ok(others.includes(이름) || tests.includes(이름),
-        `${f} 가 '${이름}' 을 export 하는데 아무도 쓰지 않는다 — 지워라`)
+      assert.ok(others.includes(name) || tests.includes(name),
+        `${f} 가 '${name}' 을 export 하는데 아무도 쓰지 않는다 — 지워라`)
     }
   }
   assert.ok(!/const esc =/.test(used), '쓰지 않는 esc 를 되살리지 마라')
@@ -100,30 +100,30 @@ test('🔴 조각이 정의되지 않은 이름을 부르지 않는다 (나눌 �
   const appOnly = ['보내기', 'loadStatus', 'loadDetail', '그리기', 'updateFreshness', 'errorReason', 'applySummary', '메타']
   for (const f of pieces) {
     const src = readPs(f)
-    const 코드 = src.split('\n')
+    const code = src.split('\n')
       .filter((l) => { const t = l.trim(); return t && !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*') })
       .join('\n')
-    for (const 이름 of appOnly) {
+    for (const name of appOnly) {
       // `동작.이름` 은 허용된다 — 등록소를 거치는 것이 규칙이다
-      const direct = new RegExp(`(^|[^.\\w가-힣])${이름}\\s*\\(`, 'g')
-      const left = [...코드.matchAll(direct)].filter((m) => !/function\s*$/.test(코드.slice(0, m.index)))
+      const direct = new RegExp(`(^|[^.\\w가-힣])${name}\\s*\\(`, 'g')
+      const left = [...code.matchAll(direct)].filter((m) => !/function\s*$/.test(code.slice(0, m.index)))
       assert.equal(left.length, 0,
-        `${f} 가 '${이름}()' 을 직접 부른다 — common.js 의 동작 등록소를 거쳐야 한다`)
+        `${f} 가 '${name}()' 을 직접 부른다 — common.js 의 동작 등록소를 거쳐야 한다`)
     }
   }
 })
 
 test('의존 방향이 한 쪽이다 — app -> 조각 -> common', () => {
   // common 은 아무것도 import 하지 않는다(가장 아래다)
-  assert.equal(imports(readPs('common.js')).filter((x) => x.경로.startsWith('.')).length, 0,
+  assert.equal(imports(readPs('common.js')).filter((x) => x.path.startsWith('.')).length, 0,
     'common.js 가 다른 조각을 import 하면 순환의 시작이다')
 
   // 조각들은 common 만 import 한다
   for (const f of drawingPieces) {
-    for (const { 경로 } of imports(readPs(f))) {
-      if (!경로.startsWith('.')) continue
-      assert.equal(경로, './common.js',
-        `${f} 가 ${경로} 를 import 한다 — 조각끼리 엮이면 순서에 기대게 된다`)
+    for (const { path } of imports(readPs(f))) {
+      if (!path.startsWith('.')) continue
+      assert.equal(path, './common.js',
+        `${f} 가 ${path} 를 import 한다 — 조각끼리 엮이면 순서에 기대게 된다`)
     }
   }
 })
@@ -247,14 +247,14 @@ test('🔴 조각이 쓰는 common.js 이름은 반드시 import 되어 있다',
     for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/common\.js'/g)) {
       for (const x of m[1].split(',')) imported.add(x.trim().split(/\s+as\s+/)[0])
     }
-    for (const 이름 of exported) {
-      if (imported.has(이름)) continue
+    for (const name of exported) {
+      if (imported.has(name)) continue
       // 스스로 선언했으면 제 것이다
-      if (new RegExp('(const|let|var|function|class)\\s+' + escapeRegex(이름) + '[\\s(=]').test(src)) continue
+      if (new RegExp('(const|let|var|function|class)\\s+' + escapeRegex(name) + '[\\s(=]').test(src)) continue
       // 이름 뒤에 ( . [ 가 오면 실제로 쓰는 것이다
-      const uses = new RegExp('(^|[^\\w$가-힣.])' + escapeRegex(이름) + '\\s*[(.[]', 'm')
+      const uses = new RegExp('(^|[^\\w$가-힣.])' + escapeRegex(name) + '\\s*[(.[]', 'm')
       assert.ok(!uses.test(src),
-        `${f} 가 common.js 의 '${이름}' 을 import 없이 쓴다 — 브라우저에서 ReferenceError 다`)
+        `${f} 가 common.js 의 '${name}' 을 import 없이 쓴다 — 브라우저에서 ReferenceError 다`)
     }
   }
 })

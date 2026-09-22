@@ -17,12 +17,12 @@ import { lockPath, lockState, grab } from '../src/lib/single.mjs'
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 /** 시험 전용 이름 — 진짜 구성요소 락을 건드리지 않는다 */
-const 이름 = () => `__test__${process.pid}_${Math.random().toString(36).slice(2, 8)}`
+const name = () => `__test__${process.pid}_${Math.random().toString(36).slice(2, 8)}`
 const plant = (n, v) => writeFileSync(lockPath(n), JSON.stringify(v))
 const cleanup = (n) => { try { rmSync(lockPath(n), { force: true }) } catch { /* 없으면 됐다 */ } }
 
 test('락이 없으면 잡힌다', () => {
-  const n = 이름()
+  const n = name()
   try {
     const r = grab(n)
     assert.equal(r.ok, true)
@@ -31,7 +31,7 @@ test('락이 없으면 잡힌다', () => {
 })
 
 test('🔴 살아 있는 프로세스가 잡고 있으면 막는다', () => {
-  const n = 이름()
+  const n = name()
   try {
     // 이 프로세스는 분명히 살아 있다
     plant(n, { pid: process.pid, at: '2026-09-21 00:00:00', atEpoch: Date.now() })
@@ -43,7 +43,7 @@ test('🔴 살아 있는 프로세스가 잡고 있으면 막는다', () => {
 })
 
 test('죽은 프로세스의 락은 회수한다', () => {
-  const n = 이름()
+  const n = name()
   try {
     plant(n, { pid: 999_999_999, at: 'x', atEpoch: Date.now() })
     assert.equal(grab(n).ok, true)
@@ -51,7 +51,7 @@ test('죽은 프로세스의 락은 회수한다', () => {
 })
 
 test('🔴 낡음 한계를 넘기면 살아 있어도 회수한다 (죽은 락에 영원히 막히지 않게)', () => {
-  const n = 이름()
+  const n = name()
   try {
     plant(n, { pid: process.pid, at: 'x', atEpoch: Date.now() - 200 * 60_000 })
     assert.equal(grab(n, { staleMin: 30 }).ok, true)
@@ -59,7 +59,7 @@ test('🔴 낡음 한계를 넘기면 살아 있어도 회수한다 (죽은 락�
 })
 
 test('한계 안이면 막는다 (경계 확인)', () => {
-  const n = 이름()
+  const n = name()
   try {
     plant(n, { pid: process.pid, at: 'x', atEpoch: Date.now() - 5 * 60_000 })
     assert.equal(grab(n, { staleMin: 30 }).ok, false)
@@ -67,7 +67,7 @@ test('한계 안이면 막는다 (경계 확인)', () => {
 })
 
 test('깨진 락 파일은 낡은 것으로 보고 회수한다', () => {
-  const n = 이름()
+  const n = name()
   try {
     writeFileSync(lockPath(n), '깨짐{{{')
     assert.equal(grab(n).ok, true)
@@ -75,26 +75,26 @@ test('깨진 락 파일은 낡은 것으로 보고 회수한다', () => {
 })
 
 test('락상태 — 점유/낡음/나이를 구별해 알려준다', () => {
-  const n = 이름()
+  const n = name()
   try {
     plant(n, { pid: process.pid, at: 'x', atEpoch: Date.now() - 3 * 60_000 })
     const s = lockState(n, 30)
-    assert.equal(s.점유, true)
-    assert.equal(s.낡음, false)
+    assert.equal(s.held, true)
+    assert.equal(s.stale, false)
     assert.equal(s.pid, process.pid)
-    assert.ok(s.나이분 >= 2 && s.나이분 <= 4)
+    assert.ok(s.ageMin >= 2 && s.ageMin <= 4)
 
     plant(n, { pid: 999_999_999, at: 'x', atEpoch: Date.now() })
     const d = lockState(n, 30)
-    assert.equal(d.점유, false, '죽은 pid 는 점유가 아니다')
-    assert.equal(d.낡음, true)
+    assert.equal(d.held, false, '죽은 pid 는 점유가 아니다')
+    assert.equal(d.stale, true)
   } finally { cleanup(n) }
 })
 
 test('락이 없으면 점유도 낡음도 아니다', () => {
-  const s = lockState(이름(), 30)
-  assert.equal(s.점유, false)
-  assert.equal(s.낡음, false)
+  const s = lockState(name(), 30)
+  assert.equal(s.held, false)
+  assert.equal(s.stale, false)
   assert.equal(s.pid, null)
 })
 
@@ -152,13 +152,13 @@ test('중복 창이 남아 있으면 정리한다', () => {
 })
 
 test('모든 진입점이 open-app.ps1 을 거친다 — 가드가 한 곳에만 있으면 된다', () => {
-  for (const [f, 설명] of [
+  for (const [f, desc] of [
     ['start.ps1', 'start.ps1'],
     ['scripts/tray.ps1', '트레이'],
     ['scripts/shortcut.ps1', '바로가기'],
   ]) {
     assert.match(readFileSync(join(ROOT, f), 'utf8'), /open-app\.ps1/,
-      `${설명} 가 open-app.ps1 을 거치지 않으면 중복 창이 생긴다`)
+      `${desc} 가 open-app.ps1 을 거치지 않으면 중복 창이 생긴다`)
   }
 })
 

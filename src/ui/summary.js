@@ -19,7 +19,7 @@ const alertLabel = { critical: '치명', warning: '주의', info: '정보' }
 
 function drawAlerts(d) {
   const box = $('#alerts'); box.textContent = ''
-  const list = [...(d?.경보 || [])]
+  const list = [...(d?.alerts || [])]
 
   /**
    * 🔴 상태를 못 읽은 것 자체가 가장 급한 경보다.
@@ -27,11 +27,11 @@ function drawAlerts(d) {
    *   낡았다는 뜻이다. 머리말 구석의 작은 글씨로는 그 사실이 전달되지 않고,
    *   긴 이유는 거기서 잘린다. 배너는 전폭이고 조치를 적는 자리다.
    */
-  if (S.오류) {
+  if (S.error) {
     list.unshift({
-      코드: '상태읽기실패', 수준: 'critical',
-      제목: '상태를 읽을 수 없습니다',
-      설명: `${S.오류} — 아래 내용은 마지막으로 성공한 시점의 것입니다.`,
+      code: '상태읽기실패', level: 'critical',
+      title: '상태를 읽을 수 없습니다',
+      desc: `${S.error} — 아래 내용은 마지막으로 성공한 시점의 것입니다.`,
     })
   }
 
@@ -39,16 +39,16 @@ function drawAlerts(d) {
   box.classList.remove('hide')
 
   for (const a of list) {
-    const w = el('div', 'alert ' + a.수준)
-    w.append(el('i', 'ic', alertIcon[a.수준] || '●'))
+    const w = el('div', 'alert ' + a.level)
+    w.append(el('i', 'ic', alertIcon[a.level] || '●'))
     const t = el('div', 'txt')
-    t.append(el('div', 't', a.제목), el('div', 'd', a.설명))
-    w.append(t, el('span', 'lv', alertLabel[a.수준] || a.수준))
+    t.append(el('div', 't', a.title), el('div', 'd', a.desc))
+    w.append(t, el('span', 'lv', alertLabel[a.level] || a.level))
     // 세션에 딸린 경보면 눌러서 그 세션 상세로 간다 — 조치까지 한 번에
-    if (a.대상) {
+    if (a.target) {
       w.style.cursor = 'pointer'
       w.title = '이 세션의 상세 보기'
-      w.addEventListener('click', () => { S.openSession = a.대상; S.detail = null; actions.draw(); actions.loadDetail() })
+      w.addEventListener('click', () => { S.openSession = a.target; S.detail = null; actions.draw(); actions.loadDetail() })
     }
     box.append(w)
   }
@@ -82,9 +82,9 @@ function shortTime(s) {
  *   계정 얘기와 OS 예약 얘기가 같은 무게로 나란히 있으면 어디를 볼지 알 수 없다.
  *   묶어서 이름을 붙이고, 값을 오른쪽에 모아 세로로 훑히게 한다.
  */
-function group(제목) {
+function group(title) {
   const g = el('div', 'grp')
-  g.append(el('h3', null, 제목))
+  g.append(el('h3', null, title))
   return g
 }
 
@@ -101,23 +101,23 @@ function group(제목) {
  * @param 값 문자열이거나 DOM 노드(배지 등)
  * @param 설명 값의 근거. 줄바꿈을 쓰면 그대로 보인다.
  */
-function line(g, 이름, 값, 설명, badgeEl) {
+function line(g, name, value, desc, badgeEl) {
   const r = el('div', 'grow')
 
   const top = el('div', 'gtop')
-  top.append(el('span', 'k', 이름))
+  top.append(el('span', 'k', name))
   const v = el('span', 'v')
-  if (값 instanceof Node) v.append(값)
-  else v.textContent = String(값)
+  if (value instanceof Node) v.append(value)
+  else v.textContent = String(value)
   if (badgeEl) { v.append(document.createTextNode(' ')); v.append(badgeEl) }
   top.append(v)
   r.append(top)
 
-  if (설명) r.append(el('div', 'gd', 설명))
+  if (desc) r.append(el('div', 'gd', desc))
 
   // 값이 좁은 칸에서 잘리거나 세부가 세 줄을 넘칠 때를 위한 보험
-  const valueText = 값 instanceof Node ? 값.textContent : 값
-  r.title = 설명 ? `${이름} — ${valueText}\n${설명}` : `${이름} — ${valueText}`
+  const valueText = value instanceof Node ? value.textContent : value
+  r.title = desc ? `${name} — ${valueText}\n${desc}` : `${name} — ${valueText}`
   g.append(r)
   return r
 }
@@ -132,32 +132,32 @@ function line(g, 이름, 값, 설명, badgeEl) {
  */
 function drawTiles(d) {
   const box = $('#tiles'); box.textContent = ''
-  const a = d.계정, q = d.할당량, h = d.합계
+  const a = d.account, q = d.quota, h = d.totals
 
   /* ── 계정 ── */
   const g1 = group('계정')
   line(g1, '계정', a.email || '확인 실패',
     a.ok ? `${a.subscriptionType || '?'} · ${a.authMethod || '?'} · ${a.orgName || ''}`
-         : `로그인 안 됨 — ${a.오류 || ''}`,
+         : `로그인 안 됨 — ${a.error || ''}`,
     a.ok ? null : badge('crit', '▲', '로그인 안 됨'))
   // 할당량 — 기록 시점을 반드시 함께 보여준다. 지금 상태가 아닐 수 있다.
   line(g1, '사용량 제한',
-    !q.있음 ? '기록 없음' : (q.이미해제됨 ? '해제됨' : `${q.해제_남은분}분 후 해제`),
-    !q.있음 ? q.설명
-      : `${q.종류 || '?'} · ${q.status || '?'} · 기록 ${shortTime(q.기록시각)}` +
-        (q.해제시각 ? ` · 해제 ${shortTime(q.해제시각)}` : '') +
-        (q.초과불가이유 ? ` · 초과사용 불가(${q.초과불가이유})` : ''),
-    q.있음 && !q.이미해제됨 ? badge('warn', '▲', '제한 중') : null)
+    !q.exists ? '기록 없음' : (q.alreadyLifted ? '해제됨' : `${q.liftInMin}분 후 해제`),
+    !q.exists ? q.desc
+      : `${q.kind || '?'} · ${q.status || '?'} · 기록 ${shortTime(q.recordedAt)}` +
+        (q.liftAt ? ` · 해제 ${shortTime(q.liftAt)}` : '') +
+        (q.overageBlockedWhy ? ` · 초과사용 불가(${q.overageBlockedWhy})` : ''),
+    q.exists && !q.alreadyLifted ? badge('warn', '▲', '제한 중') : null)
   box.append(g1)
 
   /* ── 실행 중 ── */
   const g2 = group('실행 중')
   // 조회가 실패했으면 "0 / 7" 이 아니라 "? / 7" 이다 — 0 은 "아무도 안 돈다"는 거짓말이다
-  line(g2, '세션', `${h.실행여부앎 === false ? '?' : h.실행중} / ${h.세션수}`,
-    h.실행여부앎 === false
-      ? `실행 여부를 확인할 수 없다 — ${h.실행여부오류 || ''} · 감시 ${h.감시켜짐} · 재시작 ${h.재시작켜짐}`
-      : `실행 중 / 전체 · 감시 ${h.감시켜짐} · 재시작 ${h.재시작켜짐}`,
-    h.실행여부앎 === false ? badge('crit', '▲', '조회 실패') : null)
+  line(g2, '세션', `${h.runKnown === false ? '?' : h.running} / ${h.sessionCount}`,
+    h.runKnown === false
+      ? `실행 여부를 확인할 수 없다 — ${h.runQueryError || ''} · 감시 ${h.watchOn} · 재시작 ${h.restartOn}`
+      : `실행 중 / 전체 · 감시 ${h.watchOn} · 재시작 ${h.restartOn}`,
+    h.runKnown === false ? badge('crit', '▲', '조회 실패') : null)
 
   /**
    * VS Code 창 — 열린 창과 남은 흔적을 구별한다.
@@ -166,35 +166,35 @@ function drawTiles(d) {
    *   실패했을 때 우리는 그걸 주장할 수 없다. 세션 줄에서 고친 것과 같은 부류다.
    *   (lock 폴더가 아예 없는 것은 실패가 아니라 진짜 0 이다 — ide.오류 로 가른다.)
    */
-  const ide = d.ide || { 창: [], 살아있는창: 0, 낡은lock: 0, 폴더: [] }
-  const tAlive = ide.창.filter((w) => w.살아있음)
-  line(g2, 'VS Code', ide.오류 ? '?' : `${ide.살아있는창}개 열림`,
+  const ide = d.ide || { windows: [], liveWindows: 0, staleLocks: 0, folders: [] }
+  const tAlive = ide.windows.filter((w) => w.alive)
+  line(g2, 'VS Code', ide.error ? '?' : `${ide.liveWindows}개 열림`,
     tAlive.length
-      ? tAlive.map((w) => `포트 ${w.포트} · pid ${w.pid} · 폴더 ${w.workspaceFolders.length}개`).join('\n') +
-        (ide.낡은lock ? `\n낡은 lock ${ide.낡은lock}개 (닫힌 창의 흔적)` : '')
-      : (ide.오류 ? `읽기 실패: ${ide.오류}` : 'VS Code 연동 정보가 없다'),
-    ide.오류 ? badge('warn', '▲', '읽기 실패')
-      : (h.세션없는폴더 ? badge('off', '○', `세션 없는 폴더 ${h.세션없는폴더}`) : null))
+      ? tAlive.map((w) => `포트 ${w.port} · pid ${w.pid} · 폴더 ${w.workspaceFolders.length}개`).join('\n') +
+        (ide.staleLocks ? `\n낡은 lock ${ide.staleLocks}개 (닫힌 창의 흔적)` : '')
+      : (ide.error ? `읽기 실패: ${ide.error}` : 'VS Code 연동 정보가 없다'),
+    ide.error ? badge('warn', '▲', '읽기 실패')
+      : (h.foldersNoSession ? badge('off', '○', `세션 없는 폴더 ${h.foldersNoSession}`) : null))
 
   /**
    * 실행 중인 claude.exe — CLI 가 보고하든 안 하든 돌고 있는 것은 전부 센다.
    * 실측: CLI 가 세션 2개를 보고할 때 프로세스는 4개였다(둘은 MCP 보조).
    */
   // 🔴 여기도 마찬가지다 — 조회에 실패했으면 "0개"가 아니라 "?" 다
-  const pr = d.프로세스 || { 목록: [], 세션수: 0, 보조수: 0, 짝없음: [] }
-  line(g2, 'claude 프로세스', pr.ok === false ? '?' : `${pr.목록.length}개`,
-    pr.ok === false ? `조회 실패: ${pr.오류 || ''}`
-      : `세션 ${pr.세션수} · 보조 ${pr.보조수}` +
-        (pr.짝없음.length ? ` · 목록에 없는 프로세스 ${pr.짝없음.length}` : '') +
-        (pr.목록[0]?.출처 ? ` · ${pr.목록[0].출처}${pr.목록[0].확장버전 ? ` ${pr.목록[0].확장버전}` : ''}` : ''),
+  const pr = d.processes || { items: [], sessionCount: 0, helperCount: 0, orphans: [] }
+  line(g2, 'claude 프로세스', pr.ok === false ? '?' : `${pr.items.length}개`,
+    pr.ok === false ? `조회 실패: ${pr.error || ''}`
+      : `세션 ${pr.sessionCount} · 보조 ${pr.helperCount}` +
+        (pr.orphans.length ? ` · 목록에 없는 프로세스 ${pr.orphans.length}` : '') +
+        (pr.items[0]?.source ? ` · ${pr.items[0].source}${pr.items[0].extVersion ? ` ${pr.items[0].extVersion}` : ''}` : ''),
     pr.ok === false ? badge('warn', '▲', '조회 실패')
-      : (h.권한우회세션 ? badge('warn', '▲', `권한 우회 ${h.권한우회세션}`) : null))
+      : (h.bypassSessions ? badge('warn', '▲', `권한 우회 ${h.bypassSessions}`) : null))
   box.append(g2)
 
   /* ── 사용량 ── */
   const g3 = group('사용량')
-  line(g3, '누적 토큰', compact(h.총토큰), `${h.세션수}개 세션 합계`)
-  line(g3, '정가 환산', '$' + n(h.총USD.toFixed ? h.총USD.toFixed(2) : h.총USD), h.비용해석)
+  line(g3, '누적 토큰', compact(h.totalTokens), `${h.sessionCount}개 세션 합계`)
+  line(g3, '정가 환산', '$' + n(h.totalUSD.toFixed ? h.totalUSD.toFixed(2) : h.totalUSD), h.costNote)
   box.append(g3)
 
   /* ── OS 트리거 ── */
@@ -204,11 +204,11 @@ function drawTiles(d) {
    *   (실측: "예약 작업이 실패로 끝났습니다 / 트레이 —" 경보를 받고 확인할 화면이 없었다).
    */
   const g4 = group('OS 트리거')
-  const 작업 = d.작업
-  for (const [키, label] of [
-    ['하트비트', '감시'], ['재시작', '재시작'], ['UI', 'UI'], ['트레이', '트레이'],
+  const tasks = d.tasks
+  for (const [key, label] of [
+    ['heartbeat', '감시'], ['restart', '재시작'], ['UI', 'UI'], ['tray', '트레이'],
   ]) {
-    const w = 작업[키]
+    const w = tasks[key]
     if (!w) continue
     /**
      * 🔴 값은 배지 **하나만** 쓴다.
@@ -217,24 +217,24 @@ function drawTiles(d) {
      *   그것만으로 충분하다. 자세한 사정(결과뜻·마지막·다음 실행)은 title 에 남기고,
      *   정말 문제일 때는 접히지 않는 경보 배너가 전체 문장을 보여준다.
      */
-    let 값, 설명
+    let value, desc
     if (w.queryFailed) {
-      값 = badge('warn', '▲', '조회 실패')
-      설명 = `${w.이름} · ${w.오류 || ''}`
-    } else if (!w.등록됨) {
-      값 = badge('crit', '▲', '미등록')
-      설명 = `${w.이름} · 등록되지 않았다 — scripts\\register-all.ps1`
+      value = badge('warn', '▲', '조회 실패')
+      desc = `${w.name} · ${w.error || ''}`
+    } else if (!w.registered) {
+      value = badge('crit', '▲', '미등록')
+      desc = `${w.name} · 등록되지 않았다 — scripts\\register-all.ps1`
     } else {
       // 강제 줄바꿈을 넣지 않는다 — 칸 폭에 맞춰 흐르게 두면 한 줄로 끝나는 경우가 많고,
       // 넣으면 항목마다 한 줄씩 더 먹어 묶음이 불필요하게 길어진다(실측: 12줄 -> 8줄)
-      설명 = `${w.상태 || '?'} · ${w.resultText || '?'} · 마지막 ${shortTime(w.마지막실행)}` +
-        (w.다음실행 ? ` · 다음 ${shortTime(w.다음실행)}` : '')
+      desc = `${w.state || '?'} · ${w.resultText || '?'} · 마지막 ${shortTime(w.lastRun)}` +
+        (w.nextRun ? ` · 다음 ${shortTime(w.nextRun)}` : '')
       // 멈춘 것과 고장 난 것은 대처가 다르다 — 같은 빨강으로 말하지 않는다
-      if (w.중지됨) 값 = badge('warn', '■', '멈춰 있음')
-      else if (!w.정상) 값 = badge('crit', '▲', '실패')
-      else 값 = badge('good', '●', w.돌고있음 ? '도는 중' : '대기')
+      if (w.stopped) value = badge('warn', '■', '멈춰 있음')
+      else if (!w.healthy) value = badge('crit', '▲', '실패')
+      else value = badge('good', '●', w.isRunning ? '도는 중' : '대기')
     }
-    line(g4, label, 값, 설명)
+    line(g4, label, value, desc)
   }
   box.append(g4)
 
@@ -245,13 +245,13 @@ function drawTiles(d) {
    *   읽기가 느려서(474ms 실측) 서버가 60초 캐시한다.
    */
   const pc = d.pc
-  if (pc && Array.isArray(pc.목록)) {
+  if (pc && Array.isArray(pc.items)) {
     const g5 = group('PC 설정')
-    for (const x of pc.목록) {
-      const color = x.수준 === 'crit' ? 'crit' : x.수준 === 'warn' ? 'warn'
-        : x.수준 === 'unknown' ? 'off' : x.수준 === 'info' ? 'off' : 'good'
-      const table = x.수준 === 'crit' ? '▲' : x.수준 === 'warn' ? '▲' : x.수준 === 'unknown' ? '?' : '●'
-      line(g5, x.이름, badge(color, table, String(x.현재)), x.왜 || (`권장: ${x.권장}`))
+    for (const x of pc.items) {
+      const color = x.level === 'crit' ? 'crit' : x.level === 'warn' ? 'warn'
+        : x.level === 'unknown' ? 'off' : x.level === 'info' ? 'off' : 'good'
+      const table = x.level === 'crit' ? '▲' : x.level === 'warn' ? '▲' : x.level === 'unknown' ? '?' : '●'
+      line(g5, x.name, badge(color, table, String(x.current)), x.why || (`권장: ${x.recommended}`))
     }
 
     /**
@@ -270,7 +270,7 @@ function drawTiles(d) {
      *   있었는데. 화면에서 옮긴 것은 옮긴 자리에만 있어야 한다.
      */
     const btn = el('div', 'pcbtn')
-    const openBtn = el('button', 'sm' + (pc.수준 === 'crit' ? ' primary' : ''), 'PC 설정 열기')
+    const openBtn = el('button', 'sm' + (pc.level === 'crit' ? ' primary' : ''), 'PC 설정 열기')
     openBtn.type = 'button'
     openBtn.dataset.pc = 'manual'
     openBtn.title = '자동 설정 · 직접 고르기 · 되돌리기 · 수동 방법을 한 화면에서'
@@ -290,19 +290,19 @@ function drawTiles(d) {
  *   상태를 포기하려는 것이 아니다. 가장 자주 보는 것만 한 줄로 남긴다.
  */
 function updateDigest(d) {
-  const h = d.합계, 작업 = d.작업 || {}
-  const trigger = ['하트비트', '재시작', 'UI', '트레이']
-    .map((k) => 작업[k]).filter(Boolean)
-  const healthyTrigger = trigger.filter((w) => w.정상).length
-  const running = h.실행여부앎 === false ? '?' : h.실행중
+  const h = d.totals, tasks = d.tasks || {}
+  const trigger = ['heartbeat', 'restart', 'UI', 'tray']
+    .map((k) => tasks[k]).filter(Boolean)
+  const healthyTrigger = trigger.filter((w) => w.healthy).length
+  const running = h.runKnown === false ? '?' : h.running
 
   $('#sumdigest').textContent = [
-    `세션 ${running}/${h.세션수}`,
-    `감시 ${h.감시켜짐}`,
-    `재시작 ${h.재시작켜짐}`,
+    `세션 ${running}/${h.sessionCount}`,
+    `감시 ${h.watchOn}`,
+    `재시작 ${h.restartOn}`,
     `트리거 ${healthyTrigger}/${trigger.length}`,
-    `$${n(h.총USD.toFixed ? h.총USD.toFixed(2) : h.총USD)}`,
-    d.할당량?.있음 && !d.할당량.이미해제됨 ? '사용량 제한 중' : null,
+    `$${n(h.totalUSD.toFixed ? h.totalUSD.toFixed(2) : h.totalUSD)}`,
+    d.quota?.exists && !d.quota.alreadyLifted ? '사용량 제한 중' : null,
   ].filter(Boolean).join('  ·  ')
 }
 

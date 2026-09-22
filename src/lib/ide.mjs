@@ -37,12 +37,12 @@ const isAlive = (pid) => {
  */
 export function ideWindows() {
   const home = claudeHome()
-  if (!home) return { 창: [], 오류: '홈 디렉터리를 찾을 수 없다' }
+  if (!home) return { windows: [], error: '홈 디렉터리를 찾을 수 없다' }
   const dir = join(home, 'ide')
-  if (!existsSync(dir)) return { 창: [], 오류: null }
+  if (!existsSync(dir)) return { windows: [], error: null }
 
-  const 창 = []
-  let 오류 = null
+  const windows = []
+  let error = null
   try {
     for (const f of readdirSync(dir)) {
       if (!f.endsWith('.lock')) continue
@@ -53,29 +53,29 @@ export function ideWindows() {
         j = JSON.parse(readFileSync(path, 'utf8'))
       } catch { continue } // 쓰는 중이면 깨질 수 있다 — 다음 회차에 잡힌다
 
-      const 포트 = Number(f.replace(/\.lock$/, '')) || null
+      const port = Number(f.replace(/\.lock$/, '')) || null
       const alive = isAlive(j.pid)
 
-      창.push({
-        포트,
+      windows.push({
+        port,
         pid: j.pid ?? null,
         ideName: j.ideName || null,
         transport: j.transport || null,
         workspaceFolders: (j.workspaceFolders || []).map(pathKey),
-        살아있음: alive,
-        낡음: !alive, // 프로세스가 없으면 닫힌 창의 흔적이다
-        기록시각: localStamp(st.mtime),
-        기록_분전: Math.round(minutesSince(st.mtime.getTime())),
+        alive: alive,
+        stale: !alive, // 프로세스가 없으면 닫힌 창의 흔적이다
+        recordedAt: localStamp(st.mtime),
+        recordedMinAgo: Math.round(minutesSince(st.mtime.getTime())),
         // 🔴 authToken 은 여기 담지 않는다 (위 주석 참조)
       })
     }
   } catch (e) {
-    오류 = e.message
+    error = e.message
   }
 
   // 살아있는 창을 먼저, 그 안에서는 최근 것 먼저
-  창.sort((a, b) => (b.살아있음 - a.살아있음) || (b.기록_분전 < a.기록_분전 ? 1 : -1))
-  return { 창, 오류 }
+  windows.sort((a, b) => (b.alive - a.alive) || (b.recordedMinAgo < a.recordedMinAgo ? 1 : -1))
+  return { windows, error }
 }
 
 /**
@@ -86,12 +86,12 @@ export function findWindow(cwd, windowList) {
   if (!cwd) return null
   let best = null, bestLen = -1
   for (const w of windowList) {
-    if (!w.살아있음) continue
+    if (!w.alive) continue
     for (const f of w.workspaceFolders) {
       if (isInside(cwd, f) && f.length > bestLen) { best = w; bestLen = f.length }
     }
   }
-  return best ? { 포트: best.포트, pid: best.pid, ideName: best.ideName, 폴더: bestLen >= 0 ? best.workspaceFolders.find((f) => isInside(cwd, f)) : null } : null
+  return best ? { port: best.port, pid: best.pid, ideName: best.ideName, folders: bestLen >= 0 ? best.workspaceFolders.find((f) => isInside(cwd, f)) : null } : null
 }
 
 /**
@@ -103,19 +103,19 @@ export function findWindow(cwd, windowList) {
 export function sessionsByFolder(windowList, sessionList) {
   const out = []
   for (const w of windowList) {
-    if (!w.살아있음) continue
+    if (!w.alive) continue
     for (const f of w.workspaceFolders) {
       const hit2 = sessionList.filter((s) =>
-        isInside(s.실행cwd || '', f) || isInside(s.주작업cwd || '', f))
+        isInside(s.runCwd || '', f) || isInside(s.mainCwd || '', f))
       out.push({
-        폴더: f,
-        포트: w.포트,
+        folders: f,
+        port: w.port,
         ideName: w.ideName,
-        세션수: hit2.length,
-        실행중: hit2.filter((s) => s.실행중).length,
-        감시: hit2.filter((s) => s.감시?.켜짐).length,
+        sessionCount: hit2.length,
+        running: hit2.filter((s) => s.running).length,
+        watch: hit2.filter((s) => s.watch?.on).length,
         // 이 폴더를 **시작 위치**로 쓴 세션이 있나 (주작업으로만 쓴 것과 구별한다)
-        여기서시작: hit2.filter((s) => isInside(s.실행cwd || '', f)).length,
+        startedHere: hit2.filter((s) => isInside(s.runCwd || '', f)).length,
         sessionIds: hit2.map((s) => s.sessionId),
       })
     }
@@ -123,13 +123,13 @@ export function sessionsByFolder(windowList, sessionList) {
   // 같은 폴더가 여러 창에 열려 있으면 하나로 합친다
   const merged = new Map()
   for (const r of out) {
-    const k = r.폴더.toLowerCase()
+    const k = r.folders.toLowerCase()
     const p = merged.get(k)
     if (!p) merged.set(k, r)
     else {
-      p.세션수 = Math.max(p.세션수, r.세션수)
-      p.포트 = `${p.포트}, ${r.포트}`
+      p.sessionCount = Math.max(p.sessionCount, r.sessionCount)
+      p.port = `${p.port}, ${r.port}`
     }
   }
-  return [...merged.values()].sort((a, b) => b.세션수 - a.세션수 || a.폴더.localeCompare(b.폴더))
+  return [...merged.values()].sort((a, b) => b.sessionCount - a.sessionCount || a.folders.localeCompare(b.folders))
 }

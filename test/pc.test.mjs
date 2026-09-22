@@ -26,7 +26,7 @@ const goodSettings = () => ({
   lidAc: null, lidDc: null,
   hibernateAvailable: false, hasBattery: true, lockedNow: false,
 })
-const find = (verdict, 키) => verdict.목록.find((x) => x.키 === 키)
+const find = (verdict, key) => verdict.items.find((x) => x.key === key)
 
 /* ── 값 해석 ─────────────────────────────────────────────────── */
 
@@ -56,41 +56,41 @@ test('실제 대기 시간은 사람이 읽게 적는다', () => {
 test('🔴 전원 연결 상태에서 잠들면 치명이다 (감시가 그때 멎는다)', () => {
   const d = goodSettings(); d.standbyAc = 600
   const v = pcVerdict(d)
-  assert.equal(v.수준, 'crit')
+  assert.equal(v.level, 'crit')
   const x = find(v, 'standbyAc')
-  assert.equal(x.수준, 'crit')
-  assert.match(x.왜, /예약 작업을 돌리지 않는다/, '왜 문제인지 말해야 한다')
-  assert.equal(x.고칠수있나, true)
+  assert.equal(x.level, 'crit')
+  assert.match(x.why, /예약 작업을 돌리지 않는다/, '왜 문제인지 말해야 한다')
+  assert.equal(x.canFix, true)
 })
 
 test('잠들지 않으면 통과', () => {
   const v = pcVerdict(goodSettings())
-  assert.equal(find(v, 'standbyAc').수준, 'ok')
+  assert.equal(find(v, 'standbyAc').level, 'ok')
 })
 
 test('🔴 최대 절전이 꺼져 있으면 그 값으로 경고하지 않는다 (발동할 수 없다)', () => {
   const d = goodSettings(); d.hibernateAvailable = false; d.hibernateAc = 600
-  assert.equal(find(pcVerdict(d), 'hibernateAc').수준, 'ok')
+  assert.equal(find(pcVerdict(d), 'hibernateAc').level, 'ok')
 })
 
 test('최대 절전이 켜져 있고 시간이 걸려 있으면 치명이다', () => {
   const d = goodSettings(); d.hibernateAvailable = true; d.hibernateAc = 1800
-  assert.equal(find(pcVerdict(d), 'hibernateAc').수준, 'crit')
+  assert.equal(find(pcVerdict(d), 'hibernateAc').level, 'crit')
 })
 
 test('🔴 덮개 설정을 못 읽으면 "모름"이다 — 괜찮다고 하지 않는다', () => {
   const v = pcVerdict(goodSettings())          // 이 PC 는 덮개 항목이 없다(실측)
   const x = find(v, 'lidAc')
-  assert.equal(x.수준, 'unknown')
-  assert.ok(!x.고칠수있나, '읽지도 못하는 값을 고치려 들면 안 된다')
-  assert.match(x.왜, /직접 확인/, '무엇을 하라는지 말해야 한다')
+  assert.equal(x.level, 'unknown')
+  assert.ok(!x.canFix, '읽지도 못하는 값을 고치려 들면 안 된다')
+  assert.match(x.why, /직접 확인/, '무엇을 하라는지 말해야 한다')
 })
 
 test('덮개가 절전이면 경고하되 치명은 아니다 (덮고 나가지 않으면 무해하다)', () => {
   const d = goodSettings(); d.lidAc = 1
   const x = find(pcVerdict(d), 'lidAc')
-  assert.equal(x.수준, 'warn')
-  assert.equal(x.고칠수있나, true)
+  assert.equal(x.level, 'warn')
+  assert.equal(x.canFix, true)
 })
 
 test('데스크톱에는 덮개 줄을 만들지 않는다', () => {
@@ -106,17 +106,17 @@ test('🔴 배터리 설정은 보여주기만 하고 고치지 않는다', () =
   const d = goodSettings(); d.standbyDc = 900; d.lidAc = 0
   const v = pcVerdict(d)
   const x = find(v, 'standbyDc')
-  assert.equal(x.수준, 'info', '배터리 절전은 경고가 아니다 — 그게 맞는 동작이다')
-  assert.ok(!v.고칠것.includes('standbyDc'), '배터리 값을 자동으로 바꾸면 안 된다')
-  assert.equal(v.수준, 'ok', '배터리 절전만으로 전체 판정이 나빠지면 안 된다')
+  assert.equal(x.level, 'info', '배터리 절전은 경고가 아니다 — 그게 맞는 동작이다')
+  assert.ok(!v.fixable.includes('standbyDc'), '배터리 값을 자동으로 바꾸면 안 된다')
+  assert.equal(v.level, 'ok', '배터리 절전만으로 전체 판정이 나빠지면 안 된다')
 })
 
 test('🔴 설정을 못 읽으면 괜찮다고 하지 않는다 (fail-closed)', () => {
-  for (const s of [null, undefined, {}, { ok: false, 오류: 'powershell 없음' }]) {
+  for (const s of [null, undefined, {}, { ok: false, error: 'powershell 없음' }]) {
     const v = pcVerdict(s)
-    assert.equal(v.읽음, false)
-    assert.equal(v.수준, 'unknown')
-    assert.equal(v.고칠것.length, 0, '모르는 채로 고치려 들면 안 된다')
+    assert.equal(v.read, false)
+    assert.equal(v.level, 'unknown')
+    assert.equal(v.fixable.length, 0, '모르는 채로 고치려 들면 안 된다')
   }
 })
 
@@ -151,7 +151,7 @@ test('🔴 기본 동작은 점검이다 — 묻지도 않고 바꾸지 않는�
 
 test('🔴 바꾸기 전에 되돌릴 길을 먼저 만든다', () => {
   const i = pcmjs.indexOf('writeJsonAtomic(backupPath')
-  const j = pcmjs.indexOf('applyArgs(verdict.고칠것)')
+  const j = pcmjs.indexOf('applyArgs(verdict.fixable)')
   assert.ok(i > 0 && j > 0, '백업과 적용을 모두 찾아야 한다')
   assert.ok(i < j, '백업이 적용보다 먼저여야 한다 — 되돌릴 수 없는 변경은 하지 않는다')
   assert.match(pcmjs, /되돌리기 기록을 저장하지 못했다[\s\S]{0,200}process\.exit\(1\)/,
@@ -207,7 +207,7 @@ const uiSrc = ['app.js', 'summary.js', 'setup.js']
  */
 test('🔴 화면에 PC 설정 묶음이 있다', () => {
   assert.match(uiSrc, /group\('PC 설정'\)/, 'PC 설정 묶음을 그려야 한다')
-  assert.match(uiSrc, /pc\.목록/, '판정 목록을 줄로 그려야 한다')
+  assert.match(uiSrc, /pc\.items/, '판정 목록을 줄로 그려야 한다')
 })
 
 test('🔴 자동 설정·되돌리기·수동 방법이 모달 안에 다 있다', () => {
@@ -266,9 +266,9 @@ test('상태를 새로 받으면 열려 있는 모달도 다시 그린다 (적�
 })
 
 test('🔴 보관된 이전 값을 화면이 보여준다 (되돌릴 길을 모르면 누르지 못한다)', () => {
-  assert.match(uiSrc, /백업\.있음/, '보관 여부를 봐야 한다')
+  assert.match(uiSrc, /backup\.exists/, '보관 여부를 봐야 한다')
   assert.match(uiSrc, /보관됨/, '보관됐다는 것을 글로도 적어야 한다')
-  assert.match(uiSrc, /백업\.오류 \? badge\('warn', '▲', '파일 손상'\)/,
+  assert.match(uiSrc, /backup\.error \? badge\('warn', '▲', '파일 손상'\)/,
     '깨진 백업을 "있음"이라 하면 되돌리기가 헛돈다')
   // 🔴 이 줄은 **모달에만** 있다. 요약에도 뒀더니 옮긴 뒤 한쪽이 죽은 코드로 남아
   //   ReferenceError 를 냈고, 세션 목록이 통째로 비었다(2026-09-22 실측).
@@ -280,7 +280,7 @@ test('🔴 되돌리기 단추는 보관된 값이 있을 때만 나온다', () 
   const i = uiSrc.indexOf("'되돌리기'")
   assert.ok(i > 0)
   const before = uiSrc.slice(Math.max(0, i - 400), i)
-  assert.match(before, /백업\.있음/, '보관이 없으면 되돌리기를 보여주면 안 된다')
+  assert.match(before, /backup\.exists/, '보관이 없으면 되돌리기를 보여주면 안 된다')
 })
 
 test('🔴 바꾸기 전에 확인을 받고, 되돌릴 수 있다고 말한다', () => {
@@ -296,7 +296,7 @@ test('수동 안내는 서버를 부르지 않는다 (모달이 이미 받아 �
   const section = uiSrc.slice(i, i + 400)
   assert.match(section, /action === 'manual'/)
   assert.match(section, /openSettings\(\)/, '모달을 열면 접힌 안내가 거기 있다')
-  assert.match(uiSrc, /pc\.안내/, '상태에 실려 온 안내를 써야 한다')
+  assert.match(uiSrc, /pc\.guide/, '상태에 실려 온 안내를 써야 한다')
 })
 
 test('🔴 자동으로 못 바꾸는 것이 있으면 수동 안내를 펼쳐 보여준다', () => {
@@ -310,26 +310,26 @@ test('🔴 자동으로 못 바꾸는 것이 있으면 수동 안내를 펼쳐 �
 test('🔴 PC 가 잠들도록 설정돼 있으면 경보를 낸다', async () => {
   const { currentAlerts } = await import('../src/lib/alerts.mjs')
   const d = {
-    세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: true },
-    pc: { 수준: 'crit', 목록: [{ 이름: '절전 (전원 연결)', 현재: '10분 뒤', 수준: 'crit' }] },
+    sessions: [], tasks: {}, locks: {}, totals: { runKnown: true },
+    pc: { level: 'crit', items: [{ name: '절전 (전원 연결)', current: '10분 뒤', level: 'crit' }] },
   }
-  const hit = currentAlerts(d).find((x) => x.코드 === 'PC절전')
+  const hit = currentAlerts(d).find((x) => x.code === 'PC절전')
   assert.ok(hit, '지금 기록이 멀쩡해도 자리를 비우면 멎는다 — 알려야 한다')
-  assert.equal(hit.수준, 'critical')
-  assert.match(hit.설명, /10분 뒤/, '무엇이 문제인지 값으로 말해야 한다')
-  assert.match(hit.설명, /-Pc -Apply|PC 설정/, '고치는 법을 적어야 한다')
+  assert.equal(hit.level, 'critical')
+  assert.match(hit.desc, /10분 뒤/, '무엇이 문제인지 값으로 말해야 한다')
+  assert.match(hit.desc, /-Pc -Apply|PC 설정/, '고치는 법을 적어야 한다')
 })
 
 test('PC 설정이 괜찮으면 그 경보는 없다', async () => {
   const { currentAlerts } = await import('../src/lib/alerts.mjs')
-  const d = { 세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: true }, pc: { 수준: 'ok', 목록: [] } }
-  assert.equal(currentAlerts(d).find((x) => x.코드 === 'PC절전'), undefined)
+  const d = { sessions: [], tasks: {}, locks: {}, totals: { runKnown: true }, pc: { level: 'ok', items: [] } }
+  assert.equal(currentAlerts(d).find((x) => x.code === 'PC절전'), undefined)
 })
 
 test('🔴 읽지 못한 경우(unknown)로는 경보를 내지 않는다 (끝없는 경보 금지)', async () => {
   const { currentAlerts } = await import('../src/lib/alerts.mjs')
-  const d = { 세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: true }, pc: { 수준: 'unknown', 목록: [] } }
-  assert.equal(currentAlerts(d).find((x) => x.코드 === 'PC절전'), undefined,
+  const d = { sessions: [], tasks: {}, locks: {}, totals: { runKnown: true }, pc: { level: 'unknown', items: [] } }
+  assert.equal(currentAlerts(d).find((x) => x.code === 'PC절전'), undefined,
     '이 PC 는 덮개 항목이 없어 영원히 unknown 이다 — 매번 경보면 진짜 문제가 묻힌다')
 })
 
@@ -337,18 +337,18 @@ test('🔴 캐시 경로에서도 백업·안내가 실려온다 (빠뜨려 단�
   const { pcState } = await import('../src/lib/pc.mjs')
   const first = pcState({ force: true })
   const second = pcState()          // 캐시 경로
-  assert.equal(second.캐시됨, true, '두 번째는 캐시를 타야 한다')
-  for (const k of ['백업', '안내']) {
+  assert.equal(second.cached, true, '두 번째는 캐시를 타야 한다')
+  for (const k of ['backup', 'guide']) {
     assert.ok(first[k], `강제 경로에 ${k} 가 없다`)
     assert.ok(second[k], `캐시 경로에 ${k} 가 없다 — 화면 단추가 빈 채로 뜬다`)
   }
-  assert.ok(second.안내.length > 0, '안내가 비어 있으면 수동 설명 단추가 아무것도 못 보여준다')
+  assert.ok(second.guide.length > 0, '안내가 비어 있으면 수동 설명 단추가 아무것도 못 보여준다')
 })
 
 test('🔴 정상인 줄에 "자동으로는 못 바꿉니다"를 붙이지 않는다 (능력 문제로 읽힌다)', () => {
   const setup = readFileSync(join(ROOT, 'src', 'ui', 'setup.js'), 'utf8')
   // 문제가 있을 때만 고칠 수 있는지를 말한다
-  assert.match(setup, /const trouble = x\.수준 !== 'ok' && x\.수준 !== 'info'/,
+  assert.match(setup, /const trouble = x\.level !== 'ok' && x\.level !== 'info'/,
     '정상·정보 줄은 고침 가능 여부를 말할 필요가 없다')
   assert.match(setup, /!trouble \? ''/, '정상이면 꼬리를 붙이지 않아야 한다')
 })

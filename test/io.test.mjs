@@ -19,8 +19,8 @@ const tmp = () => mkdtempSync(join(tmpdir(), 'rs-io-'))
 test('writeAtomic — 쓴 내용이 그대로 남는다', () => {
   const d = tmp()
   const p = join(d, 'a.json')
-  writeJsonAtomic(p, { 감시: true })
-  assert.deepEqual(JSON.parse(readFileSync(p, 'utf8')), { 감시: true })
+  writeJsonAtomic(p, { watch: true })
+  assert.deepEqual(JSON.parse(readFileSync(p, 'utf8')), { watch: true })
 })
 
 test('writeAtomic — 이미 있는 파일을 덮어쓴다', () => {
@@ -83,6 +83,6 @@ test('appendLine — 회전은 직전 세대만 밀어낸다 (.1 이 새 것으�
   const d = tmp()
   const p = join(d, 'x.log')
   for (let i = 0; i < 200; i++) appendLine(p, `줄 ${i}`, { maxBytes: 100 })
-  const 이전 = readFileSync(`${p}.1`, 'utf8')
-  assert.ok(!이전.includes('줄 0'), '아주 오래된 줄은 밀려나 있어야 한다')
+  const prev = readFileSync(`${p}.1`, 'utf8')
+  assert.ok(!prev.includes('줄 0'), '아주 오래된 줄은 밀려나 있어야 한다')
 })

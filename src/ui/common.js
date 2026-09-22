@@ -27,8 +27,8 @@ const compact = (v) => {
 const shortPath = (p) => String(p || '').replace(/^.*[\\/]Cnthoth-Dev[\\/]/i, '…/').replace(/\\/g, '/')
 
 const S = {
-  상태: null, detail: null, picked: new Set(), openSession: null,
-  tab: 'now', auto: true, lastOkAt: 0, 오류: null, onlyRegistered: false, lastDetailKey: null,
+  state: null, detail: null, picked: new Set(), openSession: null,
+  tab: 'now', auto: true, lastOkAt: 0, error: null, onlyRegistered: false, lastDetailKey: null,
   // 값을 못 읽은 것(오류)과 그리다 죽은 것(그리기오류)은 다른 고장이다
   drawError: null,
 }
@@ -76,8 +76,8 @@ function keepScroll(sel, redraw, { toTop = false } = {}) {
   drawnOnce.add(sel)
   if (firstDraw) { redraw(); box.scrollTop = 0; return }
 
-  const 이전 = box.scrollTop
-  const wasAtBottom = box.scrollHeight - box.clientHeight - 이전 <= bottomSlack
+  const prev = box.scrollTop
+  const wasAtBottom = box.scrollHeight - box.clientHeight - prev <= bottomSlack
 
   redraw()
 
@@ -86,7 +86,7 @@ function keepScroll(sel, redraw, { toTop = false } = {}) {
 
   // 레이아웃이 확정된 뒤에 되돌린다
   if (wasAtBottom) box.scrollTop = box.scrollHeight
-  else box.scrollTop = Math.min(이전, Math.max(0, box.scrollHeight - box.clientHeight))
+  else box.scrollTop = Math.min(prev, Math.max(0, box.scrollHeight - box.clientHeight))
 }
 
 
@@ -114,11 +114,11 @@ export const actions = {
  * 🔴 잡은 것을 **숨기지 않는다.** 삼켜서 넘기면 다음 사람은 원인을 못 찾는다.
  *   실패한 조각의 이름과 메시지를 돌려주고, 부르는 쪽이 화면에 적는다.
  */
-export function drawPiece(이름, f) {
+export function drawPiece(name, f) {
   try { f(); return null } catch (e) {
     // 콘솔에는 자취(stack)를 남긴다 — 화면에는 한 줄만 적는다
-    console.error(`[화면] ${이름} 그리기 실패`, e)
-    return `${이름}: ${e?.message || e}`
+    console.error(`[화면] ${name} 그리기 실패`, e)
+    return `${name}: ${e?.message || e}`
   }
 }
 

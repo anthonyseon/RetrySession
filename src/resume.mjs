@@ -46,7 +46,7 @@ const flag = (n) => argv.includes(n)
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : null }
 const DRY = flag('--dry-run'), FORCE = flag('--force')
 
-const 로그 = (P, line) => { try { appendLine(P.resumeLogPath, line) } catch { /* 로그 실패로 재개를 막지 않는다 */ } }
+const log = (P, line) => { try { appendLine(P.resumeLogPath, line) } catch { /* 로그 실패로 재개를 막지 않는다 */ } }
 
 function pickTargets() {
   const t = loadTargets()
@@ -63,25 +63,25 @@ function pickTargets() {
   }
 
   if (one) list = list.filter((x) => x.sessionId === one || x.sessionId.startsWith(one))
-  else list = list.filter((x) => x.재시작)
+  else list = list.filter((x) => x.restart)
   return list
 }
 
 /* ── 가드 ────────────────────────────────────────────────────── */
 
-function verdict(대상, ctx) {
-  const P = statePaths(대상.sessionId)
-  const pairCwd2 = 대상.주작업cwd || 대상.실행cwd
+function verdict(target, ctx) {
+  const P = statePaths(target.sessionId)
+  const pairCwd2 = target.mainCwd || target.runCwd
   const { project } = pairCwd2 ? resolveRepo(pairCwd2) : { project: null }
   const cfg = project?.resume || {}
   const state = loadRunState(P.resumeState)
   const stop = (why) => ({ go: false, why, P, project, state })
 
-  if (!대상.재시작 && !FORCE) return stop('재시작이 꺼져 있다 (UI 에서 켜라)')
+  if (!target.restart && !FORCE) return stop('재시작이 꺼져 있다 (UI 에서 켜라)')
   if (!project) return stop('작업 디렉터리를 알 수 없다 — 재개를 띄울 자리가 없다')
 
   if (!FORCE) {
-    const qn = quietNow(cfg.조용한시간)
+    const qn = quietNow(cfg.quietHours)
     if (qn.quiet) return stop(qn.why)
   }
 
@@ -91,10 +91,10 @@ function verdict(대상, ctx) {
    *   pid 로 보는 것이 정확하다 — mtime 추측이 아니다.
    *   판정 자체는 guard.mjs 에 있다(fail-closed: 모르면 "돌고 있다"). 거기서 시험한다.
    */
-  const running = sessionRunning(ctx.실행중, 대상.sessionId, isAlive)
-  if (running.실행중) return stop(running.why)
+  const running = sessionRunning(ctx.running, target.sessionId, isAlive)
+  if (running.running) return stop(running.why)
 
-  const s = ctx.sessionMap.get(대상.sessionId)
+  const s = ctx.sessionMap.get(target.sessionId)
   if (!s) return stop('세션을 찾을 수 없다 — 트랜스크립트가 정리된 것으로 보인다')
 
   /**
@@ -105,13 +105,13 @@ function verdict(대상, ctx) {
    *   사람이 --rearm 을 해줄 때까지 재개가 멎는다.
    *   제한은 고장이 아니라 때가 아닌 것이다. 억지로 밀 이유가 없으므로 FORCE 도 막는다.
    */
-  const limitInfo = limitState(s.할당량 ?? ctx.할당량)
+  const limitInfo = limitState(s.quota ?? ctx.quota)
   if (limitInfo.limited) return stop(limitInfo.why)
 
   if (!FORCE) {
-    const limit = cfg.세션활성분 ?? 10
-    if (s.활성분 !== null && s.활성분 < limit) {
-      return stop(`방금까지 활동이 있었다 (${s.활성분}분 전, 한계 ${limit}분) — 아직 사람이 붙어 있을 수 있다`)
+    const limit = cfg.sessionActiveMin ?? 10
+    if (s.activeMin !== null && s.activeMin < limit) {
+      return stop(`방금까지 활동이 있었다 (${s.activeMin}분 전, 한계 ${limit}분) — 아직 사람이 붙어 있을 수 있다`)
     }
   }
 
@@ -123,14 +123,14 @@ function verdict(대상, ctx) {
    *   시작하는 것이다. 그래서 "제한을 겪었다"가 아니라 "**마지막 엔트리가** 제한
    *   알림이다"를 본다(sessions.mjs 의 제한으로멈춤).
    */
-  const limitStopped = !!s.제한으로멈춤
+  const limitStopped = !!s.stoppedByLimit
   const tp = trackerPath(project)
   if (tp) {
     const t = readTracker(tp)
     if (t.error) return stop(`추적기를 읽을 수 없다 — ${t.error}`)
-    if (t.전부완료) return stop(`할 일이 없다 (${t.완료표기} 전부 done)`)
-    if (!t.doing && !t.다음todo) return stop('추적기에 doing 도 todo 도 없다 — 재개 지점을 말해주지 않는다')
-  } else if (!대상.재개지시 && !limitStopped) {
+    if (t.allDone) return stop(`할 일이 없다 (${t.doneMark} 전부 done)`)
+    if (!t.doing && !t.nextTodo) return stop('추적기에 doing 도 todo 도 없다 — 재개 지점을 말해주지 않는다')
+  } else if (!target.resumePrompt && !limitStopped) {
     return stop('추적기도 재개지시도 없다 — 무엇을 이어서 할지 정해지지 않았다 (UI 에서 재개지시를 넣어라)')
   }
 
@@ -140,8 +140,8 @@ function verdict(대상, ctx) {
   }
 
   const point = tp
-    ? (() => { const t = readTracker(tp); return t.doing ? `doing ${t.doing.id}` : `todo ${t.다음todo.id}` })()
-    : (대상.재개지시 ? '재개지시' : '제한으로 잘린 지점')
+    ? (() => { const t = readTracker(tp); return t.doing ? `doing ${t.doing.id}` : `todo ${t.nextTodo.id}` })()
+    : (target.resumePrompt ? '재개지시' : '제한으로 잘린 지점')
   return {
     go: true, limitStopped,
     why: `재개 지점 ${point}` + (limitStopped ? ' (사용량 제한으로 중단됐고 지금은 풀렸다)' : ''),
@@ -160,9 +160,9 @@ function verdict(대상, ctx) {
  */
 function runClaude({ sessionId, cwd, prompt, cfg, addDirs }) {
   return new Promise((resolve) => {
-    const 시작 = Date.now()
+    const startedText = Date.now()
     const args = ['--resume', sessionId, '-p', '--output-format', 'json',
-      '--permission-mode', cfg.권한모드 || 'acceptEdits']
+      '--permission-mode', cfg.permissionMode || 'acceptEdits']
     for (const d of addDirs || []) args.push('--add-dir', d)
 
     const exe = claudeBin(cfg.claudeBin)
@@ -184,11 +184,11 @@ function runClaude({ sessionId, cwd, prompt, cfg, addDirs }) {
         spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
       } catch { /* 이미 죽었으면 됐다 */ }
       try { child.kill() } catch { /* 위와 같다 */ }
-    }, (cfg.타임아웃분 ?? 30) * 60_000)
+    }, (cfg.timeoutMin ?? 30) * 60_000)
 
     const end = (code) => {
       clearTimeout(timer)
-      resolve({ code, stdout, stderr, timedOut, tookSec: Math.round((Date.now() - 시작) / 1000), exe })
+      resolve({ code, stdout, stderr, timedOut, tookSec: Math.round((Date.now() - startedText) / 1000), exe })
     }
     child.on('error', (e) => { stderr += '\n' + e.message; end(-1) })
     child.on('close', end)
@@ -202,12 +202,12 @@ function parseResult(stdout) {
     const j = JSON.parse(stdout)
     return {
       ok: !j.is_error, summary: j.result || '',
-      비용USD: typeof j.total_cost_usd === 'number' ? +j.total_cost_usd.toFixed(4) : 0,
+      costUSD: typeof j.total_cost_usd === 'number' ? +j.total_cost_usd.toFixed(4) : 0,
       turns: j.num_turns ?? null, sid: j.session_id ?? null,
       permDenied: Array.isArray(j.permission_denials) ? j.permission_denials.length : 0,
     }
   } catch {
-    return { ok: false, summary: String(stdout).slice(0, 1500), 비용USD: 0, turns: null, sid: null, permDenied: 0, parseFailed: true }
+    return { ok: false, summary: String(stdout).slice(0, 1500), costUSD: 0, turns: null, sid: null, permDenied: 0, parseFailed: true }
   }
 }
 
@@ -215,30 +215,30 @@ function parseResult(stdout) {
 
 if (flag('--status')) {
   const acct = account()
-  console.log(`계정: ${acct.email || '?'} · ${acct.subscriptionType || '?'}${acct.구독제 ? ' (구독 — 정가 환산은 청구액이 아니다)' : ''}`)
+  console.log(`계정: ${acct.email || '?'} · ${acct.subscriptionType || '?'}${acct.isSubscription ? ' (구독 — 정가 환산은 청구액이 아니다)' : ''}`)
   const list = Object.entries(loadTargets().targets)
   if (!list.length) console.log('대상이 없다.')
   for (const [id, v] of list) {
     const P = statePaths(id)
-    const pairCwd = v.주작업cwd || v.실행cwd
+    const pairCwd = v.mainCwd || v.runCwd
     const { project } = pairCwd ? resolveRepo(pairCwd) : { project: null }
     const st = loadRunState(P.resumeState)
-    const b = project ? budgetVerdict(st, project.resume) : { 오늘실행: '?', 오늘비용: '?', ok: false, why: '저장소 미해결' }
-    console.log(`── ${id.slice(0, 8)} ${v.제목 ? `· ${v.제목.slice(0, 40)}` : ''}`)
-    console.log(`   재시작 ${v.재시작 ? 'O' : 'X'} · 감시 ${v.감시 ? 'O' : 'X'} · 권한 ${project?.resume.권한모드 || '-'}`)
-    console.log(`   오늘 ${b.오늘실행}/${project?.resume.하루최대회 ?? '-'}회 · $${b.오늘비용}/$${project?.resume.하루최대비용USD ?? '-'}`)
-    console.log(`   연속실패 ${st.연속실패 || 0}/${project?.resume.연속실패한계 ?? '-'} · 차단 ${st.차단 ? `🔴 ${st.차단.이유}` : '없음'}`)
-    console.log(`   마지막 ${st.마지막실행 ? `${st.마지막실행.at} · ${st.마지막실행.결과} · ${st.마지막실행.tookSec}초 · $${st.마지막실행.비용USD ?? 0}` : '없음'}`)
+    const b = project ? budgetVerdict(st, project.resume) : { runsToday: '?', costToday: '?', ok: false, why: '저장소 미해결' }
+    console.log(`── ${id.slice(0, 8)} ${v.title ? `· ${v.title.slice(0, 40)}` : ''}`)
+    console.log(`   재시작 ${v.restart ? 'O' : 'X'} · 감시 ${v.watch ? 'O' : 'X'} · 권한 ${project?.resume.permissionMode || '-'}`)
+    console.log(`   오늘 ${b.runsToday}/${project?.resume.maxPerDay ?? '-'}회 · $${b.costToday}/$${project?.resume.maxCostUSDPerDay ?? '-'}`)
+    console.log(`   연속실패 ${st.failStreak || 0}/${project?.resume.failStreakMax ?? '-'} · 차단 ${st.blocked ? `🔴 ${st.blocked.reason}` : '없음'}`)
+    console.log(`   마지막 ${st.lastRun ? `${st.lastRun.at} · ${st.lastRun.result} · ${st.lastRun.tookSec}초 · $${st.lastRun.costUSD ?? 0}` : '없음'}`)
   }
   process.exit(0)
 }
 
 if (flag('--rearm')) {
-  for (const 대상 of pickTargets().length ? pickTargets() : Object.entries(loadTargets().targets).map(([id, v]) => ({ sessionId: id, ...v }))) {
-    const P = statePaths(대상.sessionId)
+  for (const target of pickTargets().length ? pickTargets() : Object.entries(loadTargets().targets).map(([id, v]) => ({ sessionId: id, ...v }))) {
+    const P = statePaths(target.sessionId)
     saveRunState(P.resumeState, rearm(loadRunState(P.resumeState)))
-    로그(P, `${localStamp()} · REARM · 회로 차단·연속실패 해제 (사람이 실행)`)
-    console.log(`✅ ${대상.sessionId.slice(0, 8)} — 회로 차단 해제`)
+    log(P, `${localStamp()} · REARM · 회로 차단·연속실패 해제 (사람이 실행)`)
+    console.log(`✅ ${target.sessionId.slice(0, 8)} — 회로 차단 해제`)
   }
   process.exit(0)
 }
@@ -253,8 +253,8 @@ if (flag('--rearm')) {
  */
 singleInstance('resume', { staleMin: 90 })
 
-const 목록 = pickTargets()
-if (!목록.length) {
+const items = pickTargets()
+if (!items.length) {
   console.log(`재시작 ${localStamp()} — 대상이 없다. UI 에서 세션을 골라 재시작을 켜라.`)
   process.exit(0)
 }
@@ -273,26 +273,26 @@ const readRunning = () => runningSessions({ ttlMs: 0 })   // 판정용이라 캐
 
 const firstRead = readRunning()
 if (!firstRead.ok) {
-  console.error(`⛔ 실행 중 세션을 확인할 수 없다 — ${firstRead.오류}`)
+  console.error(`⛔ 실행 중 세션을 확인할 수 없다 — ${firstRead.error}`)
   console.error('   모르는 채로 밀면 사람이 쓰는 대화에 끼어든다. 이번 회차는 건너뛴다.')
-  for (const 대상 of 목록) {
-    로그(statePaths(대상.sessionId), `${localStamp()} · SKIP · 실행 중 여부를 확인할 수 없다 (claude agents --json 실패: ${firstRead.오류})`)
+  for (const target of items) {
+    log(statePaths(target.sessionId), `${localStamp()} · SKIP · 실행 중 여부를 확인할 수 없다 (claude agents --json 실패: ${firstRead.error})`)
   }
   process.exit(0)
 }
 
 const firstScan = scanSessions()
 const ctx = {
-  실행중: firstRead,
+  running: firstRead,
   sessionMap: new Map(firstScan.sessions.map((s) => [s.sessionId, s])),
   // 세션별 기록이 없을 때 쓰는 전체 할당량(가장 최근 것)
-  할당량: firstScan.할당량,
+  quota: firstScan.quota,
   readAt: Date.now(),
 }
 
 let exitCode = 0
 
-for (const 대상 of 목록) {
+for (const target of items) {
   /**
    * 🔴 판정 직전에 다시 읽는다.
    *
@@ -303,24 +303,24 @@ for (const 대상 of 목록) {
    *   틀렸을 때의 대가는 사람과 같은 대화에 동시에 쓰는 것이다.
    */
   if (Date.now() - ctx.readAt > 60_000) {
-    ctx.실행중 = readRunning()
+    ctx.running = readRunning()
     const rescan = scanSessions()
     ctx.sessionMap = new Map(rescan.sessions.map((s) => [s.sessionId, s]))
-    ctx.할당량 = rescan.할당량
+    ctx.quota = rescan.quota
     ctx.readAt = Date.now()
     // 다시 읽다 실패하면 판정이 fail-closed 로 막는다(세션실행중) — 여기서 따로 뚫지 않는다
   }
 
-  const v = verdict(대상, ctx)
-  const short = 대상.sessionId.slice(0, 8)
+  const v = verdict(target, ctx)
+  const short = target.sessionId.slice(0, 8)
 
   if (!v.go) {
-    로그(v.P, `${localStamp()} · SKIP · ${v.why}`)
+    log(v.P, `${localStamp()} · SKIP · ${v.why}`)
     console.log(`⛔ ${short} 건너뜀 — ${v.why}`)
     continue
   }
 
-  const prompt = buildPrompt(대상, v.project, { limitStopped: v.limitStopped })
+  const prompt = buildPrompt(target, v.project, { limitStopped: v.limitStopped })
 
   if (DRY) {
     console.log(`✅ ${short} 재개 가능 — ${v.why}`)
@@ -331,25 +331,25 @@ for (const 대상 of 목록) {
   }
 
   const cfg = v.project.resume
-  const lock = acquireLock(v.P.resumeLock, cfg.락낡음분 ?? 60)
+  const lock = acquireLock(v.P.resumeLock, cfg.lockStaleMin ?? 60)
   if (!lock.ok) {
-    로그(v.P, `${localStamp()} · SKIP · ${lock.why}`)
+    log(v.P, `${localStamp()} · SKIP · ${lock.why}`)
     console.log(`⛔ ${short} 건너뜀 — ${lock.why}`)
     continue
   }
 
   try {
-    const cwd = 대상.실행cwd || v.project.repo
-    로그(v.P, [
+    const cwd = target.runCwd || v.project.repo
+    log(v.P, [
       '', '═'.repeat(70),
       `${localStamp()} · RUN 시작 · ${v.why}`,
-      `  --resume ${대상.sessionId} · 권한 ${cfg.권한모드} · 타임아웃 ${cfg.타임아웃분}분`,
+      `  --resume ${target.sessionId} · 권한 ${cfg.permissionMode} · 타임아웃 ${cfg.timeoutMin}분`,
       `  cwd ${cwd}`,
     ].join('\n'))
     console.log(`▶ ${short} 재개 — ${v.why}`)
 
     const r = await runClaude({
-      sessionId: 대상.sessionId, cwd, prompt, cfg, addDirs: cfg.addDirs,
+      sessionId: target.sessionId, cwd, prompt, cfg, addDirs: cfg.addDirs,
     })
     const p = parseResult(r.stdout)
     /**
@@ -360,33 +360,33 @@ for (const 대상 of 목록) {
     const didFail = r.timedOut || r.code !== 0 || !p.ok
     // 타임아웃은 제한이 아니다 — 30분을 실제로 돌았다는 뜻이다
     const limitBlocked = didFail && !r.timedOut && isLimitFailure(`${p.summary} ${r.stderr}`)
-    const 결과 = r.timedOut ? 'timeout'
+    const result = r.timedOut ? 'timeout'
       : !didFail ? 'ok'
       : limitBlocked ? '제한' : 'fail'
 
     const next = recordRun(loadRunState(v.P.resumeState), {
-      결과, summary: p.summary, tookSec: r.tookSec, 비용USD: p.비용USD,
+      result, summary: p.summary, tookSec: r.tookSec, costUSD: p.costUSD,
       turns: p.turns, sid: p.sid, permDenied: p.permDenied, exit: r.code,
     }, cfg)
     saveRunState(v.P.resumeState, next)
 
-    로그(v.P, [
-      `${localStamp()} · RUN 끝 · ${결과} · ${r.tookSec}초 · $${p.비용USD} · 턴 ${p.turns ?? '?'} · exit ${r.code}` +
+    log(v.P, [
+      `${localStamp()} · RUN 끝 · ${result} · ${r.tookSec}초 · $${p.costUSD} · 턴 ${p.turns ?? '?'} · exit ${r.code}` +
         (p.permDenied ? ` · 권한거부 ${p.permDenied}건` : '') +
         (r.timedOut ? ' · 🔴 타임아웃으로 강제 종료' : ''),
       // 세션이 갈라졌는지 확인한다 — 같아야 정상이다
-      p.sid && p.sid !== 대상.sessionId ? `  ⚠ 세션이 갈라졌다: ${p.sid}` : '',
+      p.sid && p.sid !== target.sessionId ? `  ⚠ 세션이 갈라졌다: ${p.sid}` : '',
       '  ── 요약 ──',
       (p.summary || '(없음)').split('\n').map((l) => '  ' + l).join('\n'),
       r.stderr.trim() ? '  ── stderr ──\n' + r.stderr.trim().split('\n').slice(-20).map((l) => '  ' + l).join('\n') : '',
-      next.차단 ? `  🔴 연속 ${next.연속실패}회 실패로 회로 차단됨 — 고친 뒤 --rearm` : '',
+      next.blocked ? `  🔴 연속 ${next.failStreak}회 실패로 회로 차단됨 — 고친 뒤 --rearm` : '',
     ].filter(Boolean).join('\n'))
 
     // 🔴 제한은 실패가 아니다 — 스케줄러 이력을 빨갛게 물들이지 않는다.
     //   가드에 막힌 회차가 exit 0 인 것과 같은 이유다. 때가 아닌 것이지 고장이 아니다.
-    const shown = 결과 === 'ok' ? '✅' : 결과 === '제한' ? '◔' : '✖'
-    console.log(`${shown} ${short} — ${결과} · ${r.tookSec}초 · $${p.비용USD}`)
-    if (결과 !== 'ok' && 결과 !== '제한') exitCode = 1
+    const shown = result === 'ok' ? '✅' : result === '제한' ? '◔' : '✖'
+    console.log(`${shown} ${short} — ${result} · ${r.tookSec}초 · $${p.costUSD}`)
+    if (result !== 'ok' && result !== '제한') exitCode = 1
   } finally {
     releaseLock(v.P.resumeLock)
   }

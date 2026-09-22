@@ -83,98 +83,98 @@ test('🔴 조용한시간 — 형식이 틀리면 조용한 시간으로 본다
 
 /* ── 예산·회로차단기 ─────────────────────────────────────────── */
 
-const cfg = { 최소간격분: 30, 하루최대회: 3, 하루최대비용USD: 5, 연속실패한계: 3 }
+const cfg = { minGapMin: 30, maxPerDay: 3, maxCostUSDPerDay: 5, failStreakMax: 3 }
 
 test('예산 — 빈 상태는 통과', () => {
   assert.equal(budgetVerdict(emptyState(), cfg, base).ok, true)
 })
 
 test('예산 — 최소 간격 안이면 막는다', () => {
-  const s = { ...emptyState(), 마지막실행: { atEpoch: base - 10 * minutes } }
+  const s = { ...emptyState(), lastRun: { atEpoch: base - 10 * minutes } }
   const v = budgetVerdict(s, cfg, base)
   assert.equal(v.ok, false)
   assert.match(v.why, /최소 간격/)
 })
 
 test('예산 — 간격을 넘겼으면 통과', () => {
-  const s = { ...emptyState(), 마지막실행: { atEpoch: base - 31 * minutes } }
+  const s = { ...emptyState(), lastRun: { atEpoch: base - 31 * minutes } }
   assert.equal(budgetVerdict(s, cfg, base).ok, true)
 })
 
 test('예산 — 하루 횟수 상한', () => {
-  const s = { ...emptyState(), 일별: { '2026-09-18': 3 } }
+  const s = { ...emptyState(), byDay: { '2026-09-18': 3 } }
   const v = budgetVerdict(s, cfg, base)
   assert.equal(v.ok, false)
   assert.match(v.why, /하루 상한 3회/)
 })
 
 test('예산 — 하루 비용 상한 (횟수는 남아도 막는다)', () => {
-  const s = { ...emptyState(), 일별: { '2026-09-18': 1 }, costByDay: { '2026-09-18': 5.5 } }
+  const s = { ...emptyState(), byDay: { '2026-09-18': 1 }, costByDay: { '2026-09-18': 5.5 } }
   const v = budgetVerdict(s, cfg, base)
   assert.equal(v.ok, false)
   assert.match(v.why, /하루 상한 \$5/)
 })
 
 test('예산 — 어제 기록은 오늘 예산에 영향 없다', () => {
-  const s = { ...emptyState(), 일별: { '2026-09-17': 99 }, costByDay: { '2026-09-17': 99 } }
+  const s = { ...emptyState(), byDay: { '2026-09-17': 99 }, costByDay: { '2026-09-17': 99 } }
   assert.equal(budgetVerdict(s, cfg, base).ok, true)
 })
 
 test('예산 — 연속실패 한계에서 막는다', () => {
-  const v = budgetVerdict({ ...emptyState(), 연속실패: 3 }, cfg, base)
+  const v = budgetVerdict({ ...emptyState(), failStreak: 3 }, cfg, base)
   assert.equal(v.ok, false)
   assert.match(v.why, /연속 3회/)
 })
 
 test('예산 — 회로 차단되면 막는다', () => {
-  const v = budgetVerdict({ ...emptyState(), 차단: { at: 'x', 이유: '연속 3회 실패' } }, cfg, base)
+  const v = budgetVerdict({ ...emptyState(), blocked: { at: 'x', reason: '연속 3회 실패' } }, cfg, base)
   assert.equal(v.ok, false)
   assert.match(v.why, /회로 차단/)
 })
 
 test('🔴 예산 — 상태 파일이 깨졌으면 막는다(fail-closed)', () => {
-  const v = budgetVerdict({ ...emptyState(), 손상: '파일이 깨졌다' }, cfg, base)
+  const v = budgetVerdict({ ...emptyState(), corrupt: '파일이 깨졌다' }, cfg, base)
   assert.equal(v.ok, false, '몇 번 돌았는지 모르면 돌리지 않는다')
 })
 
 /* ── 실행 기록 ───────────────────────────────────────────────── */
 
 test('기록 — 성공은 연속실패를 0으로 되돌린다', () => {
-  const s = { ...emptyState(), 연속실패: 2 }
-  const n = recordRun(s, { 결과: 'ok', summary: '됐다', tookSec: 10, 비용USD: 0.5 }, cfg, base)
-  assert.equal(n.연속실패, 0)
-  assert.equal(n.차단, null)
-  assert.equal(n.일별['2026-09-18'], 1)
+  const s = { ...emptyState(), failStreak: 2 }
+  const n = recordRun(s, { result: 'ok', summary: '됐다', tookSec: 10, costUSD: 0.5 }, cfg, base)
+  assert.equal(n.failStreak, 0)
+  assert.equal(n.blocked, null)
+  assert.equal(n.byDay['2026-09-18'], 1)
   assert.equal(n.costByDay['2026-09-18'], 0.5)
 })
 
 test('기록 — 비용은 같은 날에 누적된다', () => {
   let s = emptyState()
-  s = recordRun(s, { 결과: 'ok', tookSec: 1, 비용USD: 0.25 }, cfg, base)
-  s = recordRun(s, { 결과: 'ok', tookSec: 1, 비용USD: 0.3 }, cfg, base)
-  assert.equal(s.일별['2026-09-18'], 2)
+  s = recordRun(s, { result: 'ok', tookSec: 1, costUSD: 0.25 }, cfg, base)
+  s = recordRun(s, { result: 'ok', tookSec: 1, costUSD: 0.3 }, cfg, base)
+  assert.equal(s.byDay['2026-09-18'], 2)
   assert.equal(s.costByDay['2026-09-18'], 0.55)
 })
 
 test('기록 — 연속실패가 한계에 닿으면 회로를 차단한다', () => {
   let s = emptyState()
-  for (let i = 0; i < 3; i++) s = recordRun(s, { 결과: 'fail', tookSec: 1 }, cfg, base)
-  assert.equal(s.연속실패, 3)
-  assert.ok(s.차단, '한계에 닿으면 차단되어야 한다')
+  for (let i = 0; i < 3; i++) s = recordRun(s, { result: 'fail', tookSec: 1 }, cfg, base)
+  assert.equal(s.failStreak, 3)
+  assert.ok(s.blocked, '한계에 닿으면 차단되어야 한다')
   assert.equal(budgetVerdict(s, cfg, base).ok, false)
 })
 
 test('기록 — timeout 도 실패로 센다', () => {
-  const n = recordRun(emptyState(), { 결과: 'timeout', tookSec: 1800 }, cfg, base)
-  assert.equal(n.연속실패, 1)
+  const n = recordRun(emptyState(), { result: 'timeout', tookSec: 1800 }, cfg, base)
+  assert.equal(n.failStreak, 1)
 })
 
 test('--rearm 은 차단과 연속실패를 푼다', () => {
-  const s = { ...emptyState(), 연속실패: 5, 차단: { at: 'x', 이유: 'y' }, 일별: { '2026-09-18': 2 } }
+  const s = { ...emptyState(), failStreak: 5, blocked: { at: 'x', reason: 'y' }, byDay: { '2026-09-18': 2 } }
   const n = rearm(s)
-  assert.equal(n.연속실패, 0)
-  assert.equal(n.차단, null)
-  assert.equal(n.일별['2026-09-18'], 2, '하루 횟수는 남긴다 — 예산은 풀지 않는다')
+  assert.equal(n.failStreak, 0)
+  assert.equal(n.blocked, null)
+  assert.equal(n.byDay['2026-09-18'], 2, '하루 횟수는 남긴다 — 예산은 풀지 않는다')
   assert.equal(budgetVerdict(n, cfg, base).ok, true)
 })
 
@@ -184,7 +184,7 @@ test('상태 — 파일이 없으면 빈 상태(첫 실행이므로 허용)', ()
   const dir = mkdtempSync(join(tmpdir(), 'rs-'))
   try {
     const s = loadRunState(join(dir, '없는파일.json'))
-    assert.equal(s.손상, undefined)
+    assert.equal(s.corrupt, undefined)
     assert.equal(budgetVerdict(s, cfg, base).ok, true)
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
@@ -194,7 +194,7 @@ test('🔴 상태 — 파일이 깨졌으면 손상 표시 (없는 것과 구별
   try {
     const p = join(dir, 'resume.json')
     writeFileSync(p, '{깨진 JSON')
-    assert.ok(loadRunState(p).손상)
+    assert.ok(loadRunState(p).corrupt)
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
@@ -256,51 +256,51 @@ test('락 — 깨진 락 파일은 낡은 것으로 보고 회수한다', () => 
  * 🔴 이 묶음이 지키는 것: "모르면 밀지 않는다".
  *   고치기 전에는 목록 조회가 실패해도 빈 배열이 내려와 전부 "안 돌고 있다"가 됐다.
  */
-const 살아있음 = () => true
+const alive = () => true
 const dead = () => false
 
 test('🔴 실행중 — 목록 조회가 실패하면 "돌고 있다"로 답한다 (실측 결함)', () => {
-  const v = sessionRunning({ ok: false, 오류: 'claude 를 찾을 수 없다', sessions: [] }, 'a', 살아있음)
-  assert.equal(v.실행중, true, '모르는데 "안 돈다"고 하면 사람이 쓰는 대화에 끼어든다')
+  const v = sessionRunning({ ok: false, error: 'claude 를 찾을 수 없다', sessions: [] }, 'a', alive)
+  assert.equal(v.running, true, '모르는데 "안 돈다"고 하면 사람이 쓰는 대화에 끼어든다')
   assert.equal(v.isCertain, false)
   assert.match(v.why, /확인할 수 없다/)
 })
 
 test('🔴 실행중 — 목록 자체가 없으면(undefined·null) 막는다', () => {
   for (const none of [undefined, null]) {
-    assert.equal(sessionRunning(none, 'a', 살아있음).실행중, true, `${String(none)} 일 때 통과시키면 안 된다`)
+    assert.equal(sessionRunning(none, 'a', alive).running, true, `${String(none)} 일 때 통과시키면 안 된다`)
   }
 })
 
 test('🔴 실행중 — ok 가 true 가 아닌 값이면 막는다 (truthy 로 느슨하게 보지 않는다)', () => {
   for (const ambiguous of [1, 'ok', {}]) {
-    assert.equal(sessionRunning({ ok: ambiguous, sessions: [] }, 'a', 살아있음).실행중, true)
+    assert.equal(sessionRunning({ ok: ambiguous, sessions: [] }, 'a', alive).running, true)
   }
 })
 
 test('실행중 — 목록에 있고 pid 가 살아 있으면 막는다', () => {
-  const v = sessionRunning({ ok: true, sessions: [{ sessionId: 'a', pid: 123 }] }, 'a', 살아있음)
-  assert.equal(v.실행중, true)
+  const v = sessionRunning({ ok: true, sessions: [{ sessionId: 'a', pid: 123 }] }, 'a', alive)
+  assert.equal(v.running, true)
   assert.equal(v.isCertain, true)
   assert.match(v.why, /pid 123/)
 })
 
 test('실행중 — 목록에 있어도 pid 가 죽었으면 통과한다 (목록이 낡을 수 있다)', () => {
   const v = sessionRunning({ ok: true, sessions: [{ sessionId: 'a', pid: 123 }] }, 'a', dead)
-  assert.equal(v.실행중, false)
+  assert.equal(v.running, false)
   assert.equal(v.isCertain, true)
 })
 
 test('실행중 — 조회에 성공했고 목록에 없으면 통과한다 (이때만 "빈 목록"을 믿는다)', () => {
-  const v = sessionRunning({ ok: true, sessions: [] }, 'a', 살아있음)
-  assert.equal(v.실행중, false)
+  const v = sessionRunning({ ok: true, sessions: [] }, 'a', alive)
+  assert.equal(v.running, false)
   assert.equal(v.isCertain, true)
   assert.equal(v.why, null)
 })
 
 test('실행중 — 다른 세션이 돌고 있는 것은 이 세션과 무관하다', () => {
-  const v = sessionRunning({ ok: true, sessions: [{ sessionId: 'b', pid: 1 }] }, 'a', 살아있음)
-  assert.equal(v.실행중, false)
+  const v = sessionRunning({ ok: true, sessions: [{ sessionId: 'b', pid: 1 }] }, 'a', alive)
+  assert.equal(v.running, false)
 })
 
 /* ── 락을 만드는 동작 자체가 잠금인가 ───────────────────────── */
@@ -340,19 +340,19 @@ test('🔴 락 — 두 번 연달아 잡으면 두 번째는 막힌다 (같은 �
  */
 test('🔴 감시를 켠 직후 기록이 없는 것은 대기다 (끊김이 아니다)', () => {
   const v = heartbeatVerdict(null, 15, base, base - 1 * minutes)
-  assert.equal(v.대기, true, '켠 지 1분은 아직 기다릴 때다')
+  assert.equal(v.waiting, true, '켠 지 1분은 아직 기다릴 때다')
   assert.equal(v.alive, false, '그렇다고 살아있다고 하면 안 된다 — 기록은 없다')
   assert.match(v.why, /기다리는 중/, '왜 기다리는지 말해야 한다')
 })
 
 test('대기는 한계 시간까지만이다 (경계)', () => {
-  assert.equal(heartbeatVerdict(null, 15, base, base - 15 * minutes).대기, true, '15분은 아직 한계 안')
-  assert.equal(heartbeatVerdict(null, 15, base, base - 16 * minutes).대기, false, '16분이면 대기가 끝난다')
+  assert.equal(heartbeatVerdict(null, 15, base, base - 15 * minutes).waiting, true, '15분은 아직 한계 안')
+  assert.equal(heartbeatVerdict(null, 15, base, base - 16 * minutes).waiting, false, '16분이면 대기가 끝난다')
 })
 
 test('🔴 한계를 넘겼는데 첫 기록이 없으면 죽음이다 (창을 무한정 열어두지 않는다)', () => {
   const v = heartbeatVerdict(null, 15, base, base - 60 * minutes)
-  assert.equal(v.대기, false)
+  assert.equal(v.waiting, false)
   assert.equal(v.alive, false)
   assert.match(v.why, /첫 기록이 없다/, '무엇이 잘못됐는지 말해야 한다')
   assert.match(v.why, /돌지 않는다/, '조치할 방향을 짚어야 한다')
@@ -362,7 +362,7 @@ test('🔴 켠 시각을 모르면 대기로 봐주지 않는다 (fail-closed)',
   // 옛 등록부에는 epoch 이 없다. 모를 때 봐주면 진짜 끊김을 놓친다.
   for (const none of [null, undefined, NaN, Infinity, '2026-09-21']) {
     const v = heartbeatVerdict(null, 15, base, none)
-    assert.equal(v.대기, false, `켠 시각이 ${String(none)} 일 때 대기로 봐주면 안 된다`)
+    assert.equal(v.waiting, false, `켠 시각이 ${String(none)} 일 때 대기로 봐주면 안 된다`)
     assert.equal(v.alive, false)
   }
 })
@@ -371,7 +371,7 @@ test('기록이 있으면 켠 시각과 무관하게 기록으로 판정한다',
   // 방금 켰어도 기록이 낡았으면 죽음이다 — 대기가 낡은 기록을 가려선 안 된다
   const staleRecord = { atEpoch: base - 60 * minutes }
   const v = heartbeatVerdict(staleRecord, 15, base, base - 1 * minutes)
-  assert.equal(v.대기, false)
+  assert.equal(v.waiting, false)
   assert.equal(v.alive, false)
   assert.match(v.why, /60분 전/)
 })
@@ -384,5 +384,5 @@ test('대기 상태는 모든 판정 갈래에 있다 (없으면 화면이 undef
     heartbeatVerdict({ atEpoch: base - 60 * minutes }, 15, base),
     heartbeatVerdict({ atEpoch: base + 60 * minutes }, 15, base),
   ]
-  for (const v of branchSrc) assert.equal(typeof v.대기, 'boolean', JSON.stringify(v))
+  for (const v of branchSrc) assert.equal(typeof v.waiting, 'boolean', JSON.stringify(v))
 })

@@ -189,16 +189,16 @@ test('🔴 화면·기록·트레이가 조회 실패를 "정지"라고 말하�
   const hb = readFileSync(join(ROOT, 'src', 'heartbeat.mjs'), 'utf8')
   const tray = readFileSync(join(ROOT, 'scripts', 'tray.ps1'), 'utf8')
 
-  assert.match(app, /실행여부앎 === false/, '화면이 "모름"을 구별해야 한다')
+  assert.match(app, /runKnown === false/, '화면이 "모름"을 구별해야 한다')
   assert.match(hb, /실행여부모름/, '하트비트 기록이 "모름"을 남겨야 한다')
   assert.match(tray, /runningKnown/, '트레이가 "모름"을 구별해야 한다')
 })
 
 test('🔴 status.mjs 가 조회 성공 여부를 세션 판정에 넘긴다', () => {
   const st = readFileSync(join(ROOT, 'src', 'lib', 'status.mjs'), 'utf8')
-  assert.match(st, /sessionView\(s, registry, runMap, ide\.창, procMap, run\.ok\)/,
+  assert.match(st, /sessionView\(s, registry, runMap, ide\.windows, procMap, run\.ok\)/,
     'run.ok 를 넘기지 않으면 세션은 실패와 정지를 구별할 수 없다')
-  assert.match(st, /실행여부앎: run\.ok/, '합계에도 담겨야 화면이 읽는다')
+  assert.match(st, /runKnown: run\.ok/, '합계에도 담겨야 화면이 읽는다')
 })
 
 test('트레이가 읽는 새 키도 ASCII 다 (tray.ps1 이 코드에 적는다)', () => {

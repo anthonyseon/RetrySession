@@ -6,26 +6,26 @@ import { $, el, n, compact, shortPath, S, badge, actions } from './common.js'
 
 /* ── 세션 배지 (목록 전용) ──────────────────────────────────── */
 const watchBadge = (s) => {
-  if (!s.감시.켜짐) return badge('off', '○', '감시 꺼짐')
-  const v = s.감시.verdict
+  if (!s.watch.on) return badge('off', '○', '감시 꺼짐')
+  const v = s.watch.verdict
   if (!v) return badge('warn', '◔', '감시 켬 · 기록 대기')
   // 🔴 첫 기록을 기다리는 중은 끊긴 것이 아니다 — 빨강으로 말하지 않는다
-  if (v.대기) return badge('warn', '◔', `감시 켬 · ${v.why}`)
+  if (v.waiting) return badge('warn', '◔', `감시 켬 · ${v.why}`)
   return v.alive
     ? badge('good', '●', `감시 정상 · ${v.ageMin}분 전`)
     : badge('crit', '▲', `감시 끊김 · ${v.why}`)
 }
 /** 제한에 잘려 멈춰 있나 — 재개가 이어받을 수 있는 상태다 */
-const limitBadge = (s) => (s.제한으로멈춤
-  ? badge('warn', '◔', '사용량 제한으로 중단됨' + (s.제한알림시각 ? ' · ' + s.제한알림시각 : ''))
+const limitBadge = (s) => (s.stoppedByLimit
+  ? badge('warn', '◔', '사용량 제한으로 중단됨' + (s.limitNoticeTime ? ' · ' + s.limitNoticeTime : ''))
   : null)
 
 const resumeBadge = (s) => {
-  const r = s.재시작
-  if (!r.켜짐) return badge('off', '○', '재시작 꺼짐')
-  if (r.차단) return badge('crit', '▲', '재시작 차단됨')
-  if (r.손상) return badge('crit', '▲', '상태 파일 손상')
-  if (!r.예산통과) return badge('warn', '◔', '재시작 대기 · ' + (r.예산이유 || ''))
+  const r = s.restart
+  if (!r.on) return badge('off', '○', '재시작 꺼짐')
+  if (r.blocked) return badge('crit', '▲', '재시작 차단됨')
+  if (r.corrupt) return badge('crit', '▲', '상태 파일 손상')
+  if (!r.budgetOk) return badge('warn', '◔', '재시작 대기 · ' + (r.budgetWhy || ''))
   return badge('good', '●', '재시작 준비')
 }
 
@@ -41,34 +41,34 @@ const resumeBadge = (s) => {
  */
 function drawFolders(d) {
   const box = $('#folders'); box.textContent = ''
-  const 폴더 = d.ide?.폴더 || []
-  if (!폴더.length) { box.classList.add('hide'); return }
+  const folders = d.ide?.folders || []
+  if (!folders.length) { box.classList.add('hide'); return }
   box.classList.remove('hide')
 
-  for (const f of 폴더) {
+  for (const f of folders) {
     const row = el('div', 'frow')
-    const name = shortPath(f.폴더)
+    const name = shortPath(f.folders)
     row.append(el('span', 'fname', name))
 
-    if (f.여기서시작 > 0) {
-      row.append(badge('good', '●', `세션 ${f.여기서시작}`))
-    } else if (f.세션수 > 0) {
+    if (f.startedHere > 0) {
+      row.append(badge('good', '●', `세션 ${f.startedHere}`))
+    } else if (f.sessionCount > 0) {
       // 여기서 일하지만 여기서 시작하지 않았다 — 이게 Description 의 경우다
-      row.append(badge('off', '⇄', `여기서 시작한 세션 없음 · 다른 곳에서 시작한 ${f.세션수}개가 작업 중`))
+      row.append(badge('off', '⇄', `여기서 시작한 세션 없음 · 다른 곳에서 시작한 ${f.sessionCount}개가 작업 중`))
     } else {
       row.append(badge('off', '○', '세션 없음 — 이 폴더에서 Claude Code 를 시작한 적이 없다'))
     }
-    if (f.실행중) row.append(badge('good', '▶', `실행 중 ${f.실행중}`))
-    if (f.감시) row.append(badge('good', '◉', `감시 ${f.감시}`))
+    if (f.running) row.append(badge('good', '▶', `실행 중 ${f.running}`))
+    if (f.watch) row.append(badge('good', '◉', `감시 ${f.watch}`))
     box.append(row)
   }
 }
 
 /* ── 세션 목록 ───────────────────────────────────────────────── */
-function 목록(d) {
+function items(d) {
   const box = $('#slist'); box.textContent = ''
-  let list = d.세션
-  if (S.onlyRegistered) list = list.filter((s) => s.등록됨)
+  let list = d.sessions
+  if (S.onlyRegistered) list = list.filter((s) => s.registered)
 
   $('#scount').textContent = ''
   $('#scount').append(el('i', 'ic', '●'), el('span', null, `${list.length}개`))
@@ -84,13 +84,13 @@ function 목록(d) {
    *   그건 이 함수가 돌지 않았다는 뜻이고, 그 사실 자체가 단서가 된다.
    */
   if (!list.length) {
-    const sum = d.세션.length
-    const 왜 = sum === 0
+    const sum = d.sessions.length
+    const why = sum === 0
       ? '세션을 하나도 찾지 못했습니다 — ~/.claude/projects 에 기록이 없습니다.'
       : S.onlyRegistered
         ? `세션 ${sum}개를 받았지만 등록된 것이 없습니다 — '등록된 것만'을 끄면 전부 보입니다.`
         : `세션 ${sum}개를 받았는데 화면에 남은 것이 없습니다 — 걸러내는 조건을 확인하세요.`
-    box.append(el('div', 'empty', 왜))
+    box.append(el('div', 'empty', why))
     return
   }
 
@@ -107,38 +107,38 @@ function 목록(d) {
     const body = el('div')
     const t = el('div', 'stitle')
     // 🔴 "정지"와 "모름"을 구별한다. 조회가 실패했는데 정지라고 하면 거짓말이다.
-    t.append(s.실행여부앎 === false
+    t.append(s.runKnown === false
       ? badge('warn', '▲', '실행 여부 모름')
-      : badge(s.실행중 ? 'good' : 'off', s.실행중 ? '▶' : '■', s.실행중 ? `실행 중 · pid ${s.pid}` : '정지'))
-    t.append(el('span', null, s.제목 || '(제목 없음)'))
-    if (s.여러저장소) t.append(badge('off', '⇄', '여러 위치'))
+      : badge(s.running ? 'good' : 'off', s.running ? '▶' : '■', s.running ? `실행 중 · pid ${s.pid}` : '정지'))
+    t.append(el('span', null, s.title || '(제목 없음)'))
+    if (s.multiRepo) t.append(badge('off', '⇄', '여러 위치'))
     body.append(t)
 
     const m = el('div', 'smeta')
     const add = (k, v) => { const w = el('span'); w.append(el('b', null, k + ' '), document.createTextNode(v)); m.append(w) }
-    add('id', s.짧은id)
-    add('활동', s.활성분 != null ? `${s.활성분}분 전` : '?')
-    add('턴', `u${s.사용자메시지}/a${s.어시스턴트메시지}`)
-    add('도구', n(s.도구호출))
-    add('토큰', compact(s.토큰합))
-    add('정가', '$' + (s.비용USD || 0).toFixed(2))
+    add('id', s.shortId)
+    add('활동', s.activeMin != null ? `${s.activeMin}분 전` : '?')
+    add('턴', `u${s.userMsgs}/a${s.assistantMsgs}`)
+    add('도구', n(s.toolCalls))
+    add('토큰', compact(s.tokenSum))
+    add('정가', '$' + (s.costUSD || 0).toFixed(2))
     if (s.gitBranch) add('브랜치', s.gitBranch)
-    if (s.ide) add('VS Code', `포트 ${s.ide.포트}`)
+    if (s.ide) add('VS Code', `포트 ${s.ide.port}`)
     body.append(m)
-    body.append(el('div', 'path', shortPath(s.주작업cwd || s.실행cwd)))
+    body.append(el('div', 'path', shortPath(s.mainCwd || s.runCwd)))
 
     const bb = el('div', 'sbadges')
     bb.append(watchBadge(s), resumeBadge(s))
     const limitInfo = limitBadge(s); if (limitInfo) bb.append(limitInfo)
-    if (s.추적기.있음) {
-      bb.append(badge(s.추적기.전부완료 ? 'good' : 'off', '▤',
-        `추적기 ${s.추적기.완료표기}${s.추적기.doing ? ` · doing ${s.추적기.doing.id}` : ''}`))
+    if (s.tracker.exists) {
+      bb.append(badge(s.tracker.allDone ? 'good' : 'off', '▤',
+        `추적기 ${s.tracker.doneMark}${s.tracker.doing ? ` · doing ${s.tracker.doing.id}` : ''}`))
     }
-    if (s.추적기.doing위반) bb.append(badge('warn', '▲', `doing ${s.추적기.doing위반.length}개`))
+    if (s.tracker.doingViolations) bb.append(badge('warn', '▲', `doing ${s.tracker.doingViolations.length}개`))
     // 프로세스에서만 알 수 있는 것 — 사람이 알아야 하는 쪽부터
-    if (s.프로세스?.위험권한) bb.append(badge('warn', '▲', '권한 우회로 실행 중'))
-    if (s.프로세스?.addDirs?.length) {
-      bb.append(badge('off', '+', `추가 폴더 ${s.프로세스.addDirs.map((x) => x.split('/').pop()).join(', ')}`))
+    if (s.processes?.riskyPerm) bb.append(badge('warn', '▲', '권한 우회로 실행 중'))
+    if (s.processes?.addDirs?.length) {
+      bb.append(badge('off', '+', `추가 폴더 ${s.processes.addDirs.map((x) => x.split('/').pop()).join(', ')}`))
     }
     body.append(bb)
 
@@ -154,29 +154,29 @@ function 목록(d) {
    * "CLI 가 아직 모르는 세션이라서"든, **돌고 있는 것이 화면에 하나도 안 보이는 상태**가
    * 그 물음을 만든다. 정체를 몰라도 있다는 사실은 보여준다.
    */
-  const 짝없음 = d.프로세스?.짝없음 || []
-  if (짝없음.length) {
+  const orphans = d.processes?.orphans || []
+  if (orphans.length) {
     const hdr = el('div', 'orphan-hd')
     hdr.append(el('span', null, '세션 행에 짝지어지지 않은 claude 프로세스'),
-      badge('off', '?', `${짝없음.length}개`))
+      badge('off', '?', `${orphans.length}개`))
     box.append(hdr)
 
-    for (const p of 짝없음) {
+    for (const p of orphans) {
       const r = el('div', 'orow')
       const t = el('div', 'stitle')
-      t.append(badge(p.종류 === '세션' ? 'warn' : 'off', p.종류 === '세션' ? '▲' : '⚙',
-        p.종류 === 'mcp보조' ? '보조 프로세스 (세션 아님)'
-          : p.종류 === '세션' ? '세션인데 CLI 가 보고하지 않음'
+      t.append(badge(p.kind === '세션' ? 'warn' : 'off', p.kind === '세션' ? '▲' : '⚙',
+        p.kind === 'mcp보조' ? '보조 프로세스 (세션 아님)'
+          : p.kind === '세션' ? '세션인데 CLI 가 보고하지 않음'
           : '용도 미상'))
       t.append(el('span', null, `pid ${p.pid}`))
       r.append(t)
 
       const m = el('div', 'smeta')
       const add = (k, v) => { const w = el('span'); w.append(el('b', null, k + ' '), document.createTextNode(v)); m.append(w) }
-      add('시작', p.시작 || '?')
-      add('출처', p.출처 + (p.확장버전 ? ` ${p.확장버전}` : ''))
+      add('시작', p.startedText || '?')
+      add('출처', p.source + (p.extVersion ? ` ${p.extVersion}` : ''))
       if (p.sessionId) add('세션', p.sessionId.slice(0, 8))
-      if (p.권한모드) add('권한', p.권한모드)
+      if (p.permissionMode) add('권한', p.permissionMode)
       r.append(m)
       if (p.addDirs?.length) r.append(el('div', 'path', p.addDirs.map(shortPath).join('  ')))
       box.append(r)
@@ -190,4 +190,4 @@ function syncSelection() {
 }
 
 
-export { drawFolders, 목록, syncSelection }
+export { drawFolders, items, syncSelection }

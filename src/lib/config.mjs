@@ -44,7 +44,7 @@ export function loadConfig() {
     if (!p.repo) throw new Error(`프로젝트 ${p.id} 에 repo 가 없다`)
     return {
       ...p,
-      하트비트: merge(d.하트비트, p.하트비트),
+      heartbeat: merge(d.heartbeat, p.heartbeat),
       resume: merge(d.resume, p.resume),
       sessionSlugs: p.sessionSlugs || [],
     }
@@ -74,8 +74,8 @@ export function paths(project) {
   mkdirSync(dir, { recursive: true })
   return {
     stateDir: dir,
-    추적기: join(project.repo, project.tracker || '_plan/_resume/07-실행추적.json'),
-    하트비트: join(dir, 'heartbeat.json'),
+    tracker: join(project.repo, project.tracker || '_plan/_resume/07-실행추적.json'),
+    heartbeat: join(dir, 'heartbeat.json'),
     hbLogPath: join(dir, 'heartbeat.log'),
     resumeState: join(dir, 'resume.json'),
     resumeLogPath: join(dir, 'resume.log'),

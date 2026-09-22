@@ -58,28 +58,28 @@ test('🔴 할당량 기록이 없거나 해제 시각을 모르면 막지 않�
 /* ── 제한 실패를 고장으로 세지 않는다 ───────────────────────── */
 
 test('🔴 제한 때문에 실패한 회차는 연속실패를 올리지 않는다', () => {
-  const s = { ...emptyState(), 연속실패: 2 }
-  const n = recordRun(s, { 결과: '제한', tookSec: 3 }, { 연속실패한계: 3 }, base)
-  assert.equal(n.연속실패, 2, '3 이 되면 회로가 차단된다 — 기다리면 될 일에')
-  assert.equal(n.차단, null)
-  assert.equal(budgetVerdict(n, { 연속실패한계: 3 }, base + 60 * minutes).ok, true)
+  const s = { ...emptyState(), failStreak: 2 }
+  const n = recordRun(s, { result: '제한', tookSec: 3 }, { failStreakMax: 3 }, base)
+  assert.equal(n.failStreak, 2, '3 이 되면 회로가 차단된다 — 기다리면 될 일에')
+  assert.equal(n.blocked, null)
+  assert.equal(budgetVerdict(n, { failStreakMax: 3 }, base + 60 * minutes).ok, true)
 })
 
 test('🔴 그렇다고 성공도 아니다 — 연속실패를 0 으로 되돌리지 않는다', () => {
-  const s = { ...emptyState(), 연속실패: 2 }
-  const n = recordRun(s, { 결과: '제한', tookSec: 3 }, { 연속실패한계: 3 }, base)
-  assert.equal(n.연속실패, 2, '진짜 실패 2회가 제한 한 번으로 지워지면 안 된다')
+  const s = { ...emptyState(), failStreak: 2 }
+  const n = recordRun(s, { result: '제한', tookSec: 3 }, { failStreakMax: 3 }, base)
+  assert.equal(n.failStreak, 2, '진짜 실패 2회가 제한 한 번으로 지워지면 안 된다')
 })
 
 test('제한도 하루 횟수에는 센다 (프로세스를 띄웠으니 시도는 시도다)', () => {
-  const n = recordRun(emptyState(), { 결과: '제한', tookSec: 3 }, {}, base)
-  assert.equal(n.일별['2026-09-22'], 1)
+  const n = recordRun(emptyState(), { result: '제한', tookSec: 3 }, {}, base)
+  assert.equal(n.byDay['2026-09-22'], 1)
 })
 
 test('진짜 실패는 여전히 연속실패를 올린다', () => {
-  const n = recordRun({ ...emptyState(), 연속실패: 2 }, { 결과: 'fail', tookSec: 3 }, { 연속실패한계: 3 }, base)
-  assert.equal(n.연속실패, 3)
-  assert.ok(n.차단, '진짜 고장은 차단되어야 한다')
+  const n = recordRun({ ...emptyState(), failStreak: 2 }, { result: 'fail', tookSec: 3 }, { failStreakMax: 3 }, base)
+  assert.equal(n.failStreak, 3)
+  assert.ok(n.blocked, '진짜 고장은 차단되어야 한다')
 })
 
 test('isLimitFailure — 제한 문구를 알아본다', () => {
@@ -96,7 +96,7 @@ test('🔴 isLimitFailure — 모르면 false (진짜 고장을 제한으로 감
 
 /* ── ④ 제한에 잘려 멈췄나 ──────────────────────────────────── */
 
-const synthetic = (글) => ({ model: '<synthetic>', content: [{ type: 'text', text: 글 }] })
+const synthetic = (label) => ({ model: '<synthetic>', content: [{ type: 'text', text: label }] })
 
 test('🔴 제한 알림을 알아본다 (실측 표본)', () => {
   assert.equal(isLimitNotice(synthetic("You've hit your session limit · resets 1:30pm (Asia/Seoul)")), true)
@@ -115,22 +115,22 @@ test('🔴 제한 알림이 아닌 것을 제한이라 하지 않는다 (놀던 
 test('🔴 마지막 엔트리가 제한 알림일 때만 "제한으로 멈춤" 이다', () => {
   const acc = emptyTotals('s', 'slug')
   foldEntry(acc, { type: 'assistant', message: { model: 'claude-opus-5', content: [] }, timestamp: '2026-09-22T11:00:00Z' })
-  assert.equal(acc.제한으로멈춤, false)
+  assert.equal(acc.stoppedByLimit, false)
 
   foldEntry(acc, { type: 'assistant', message: synthetic("You've hit your session limit · resets 1:30pm"), timestamp: '2026-09-22T11:30:00Z' })
-  assert.equal(acc.제한으로멈춤, true, '제한에 잘린 채 멈춰 있다')
-  assert.ok(acc.제한알림at, '언제 잘렸는지도 남겨야 한다')
+  assert.equal(acc.stoppedByLimit, true, '제한에 잘린 채 멈춰 있다')
+  assert.ok(acc.limitNoticeAt, '언제 잘렸는지도 남겨야 한다')
 })
 
 test('🔴 제한 뒤에 작업이 이어졌으면 "멈춤"이 아니다 (실측: 이 PC 의 두 세션)', () => {
   const acc = emptyTotals('s', 'slug')
   foldEntry(acc, { type: 'assistant', message: synthetic("You've hit your session limit"), timestamp: '2026-09-18T11:29:00Z' })
-  assert.equal(acc.제한으로멈춤, true)
+  assert.equal(acc.stoppedByLimit, true)
 
   // 제한이 풀린 뒤 사람이 이어서 썼다
   foldEntry(acc, { type: 'user', message: { content: '계속하자' }, timestamp: '2026-09-19T20:00:00Z' })
-  assert.equal(acc.제한으로멈춤, false, '이미 이어졌는데 또 깨우면 안 된다')
-  assert.ok(acc.제한알림at, '겪었다는 사실은 남는다 — 멈춰 있다와는 다르다')
+  assert.equal(acc.stoppedByLimit, false, '이미 이어졌는데 또 깨우면 안 된다')
+  assert.ok(acc.limitNoticeAt, '겪었다는 사실은 남는다 — 멈춰 있다와는 다르다')
 })
 
 /* ── 재개가 실제로 이 규칙들을 쓰는가 ──────────────────────── */
@@ -152,8 +152,8 @@ test('🔴 제한 중이면 FORCE 로도 막힌다 (억지로 밀 이유가 없�
 })
 
 test('🔴 제한에 잘린 세션은 추적기·재개지시가 없어도 재개 지점으로 인정한다', () => {
-  assert.match(resumeSrc, /const limitStopped = !!s\.제한으로멈춤/)
-  assert.match(resumeSrc, /else if \(!대상\.재개지시 && !limitStopped\)/,
+  assert.match(resumeSrc, /const limitStopped = !!s\.stoppedByLimit/)
+  assert.match(resumeSrc, /else if \(!target\.resumePrompt && !limitStopped\)/,
     '제한중단이면 "재개 지점 없음" 으로 막지 않아야 한다')
 })
 
@@ -165,10 +165,10 @@ test('🔴 지시문이 "제한에 끊겼다"를 세션에 알려준다', () => 
 })
 
 test('🔴 제한 결과는 스케줄러 이력을 빨갛게 물들이지 않는다', () => {
-  assert.match(resumeSrc, /결과 !== 'ok' && 결과 !== '제한'/, '제한은 exit 1 이 아니다')
+  assert.match(resumeSrc, /result !== 'ok' && result !== '제한'/, '제한은 exit 1 이 아니다')
 })
 
 test('실행 중 확인은 그대로 남아 있다 (③ — 세션이 열려 있으면 안 민다)', () => {
   assert.match(resumeSrc, /const running = sessionRunning\(/)
-  assert.match(resumeSrc, /if \(running\.실행중\) return stop\(running\.why\)/)
+  assert.match(resumeSrc, /if \(running\.running\) return stop\(running\.why\)/)
 })

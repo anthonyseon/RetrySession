@@ -15,7 +15,7 @@
 'use strict'
 import { $, S, actions, keepScroll, drawPiece } from './common.js'
 import { drawAlerts, drawTiles } from './summary.js'
-import { drawFolders, 목록, syncSelection } from './list.js'
+import { drawFolders, items, syncSelection } from './list.js'
 import { redrawDetail } from './detail.js'
 import { openSettings, closeSettings, drawSettings, isSettingsOpen, chosenValues, clearChosen } from './setup.js'
 
@@ -38,13 +38,13 @@ async function post(path, body) {
     return null
   }
   const j = await r.json().catch(() => ({}))
-  if (!r.ok) alert('실패: ' + (j.오류 || r.status))
+  if (!r.ok) alert('실패: ' + (j.error || r.status))
   await loadStatus()
   return j
 }
 
 const meta = (s) => ({
-  제목: s.제목, 실행cwd: s.실행cwd, 주작업cwd: s.주작업cwd, slug: s.slug,
+  title: s.title, runCwd: s.runCwd, mainCwd: s.mainCwd, slug: s.slug,
 })
 
 /**
@@ -59,7 +59,7 @@ const meta = (s) => ({
 async function errorReason(r) {
   try {
     const j = await r.json()
-    if (j?.오류) return `${j.오류} (HTTP ${r.status})`
+    if (j?.error) return `${j.error} (HTTP ${r.status})`
   } catch { /* JSON 이 아니면 아래로 */ }
   return `HTTP ${r.status}`
 }
@@ -93,8 +93,8 @@ async function loadStatus() {
   try {
     const r = await fetch('/api/status', { cache: 'no-store' })
     if (!r.ok) throw new Error(await errorReason(r))
-    S.상태 = await r.json(); S.lastOkAt = Date.now(); S.오류 = null
-  } catch (e) { S.오류 = e.message }
+    S.state = await r.json(); S.lastOkAt = Date.now(); S.error = null
+  } catch (e) { S.error = e.message }
   draw()
 }
 
@@ -121,20 +121,20 @@ async function loadDetail() {
  *   실패를 삼키지는 않는다 — 신선도 줄에 어느 조각이 왜 죽었는지 적는다.
  */
 function draw() {
-  const d = S.상태
+  const d = S.state
   // 🔴 상태가 없어도 경보는 그린다 — 첫 요청부터 실패했을 때 빈 화면만 뜨면
   //   사람은 무엇이 잘못됐는지 알 길이 없다.
   if (!d) { S.drawError = drawPiece('경보', () => drawAlerts(null)); updateFreshness(); return }
 
   const failed = [
     drawPiece('계정', () => {
-      $('#acct').textContent = d.계정.email ? `${d.계정.email} · ${d.계정.subscriptionType || ''}` : '계정 확인 실패'
+      $('#acct').textContent = d.account.email ? `${d.account.email} · ${d.account.subscriptionType || ''}` : '계정 확인 실패'
     }),
     drawPiece('경보', () => drawAlerts(d)),
     drawPiece('요약', () => drawTiles(d)),
     drawPiece('폴더', () => drawFolders(d)),
     drawPiece('PC 설정', () => drawSettings()),
-    drawPiece('세션 목록', () => keepScroll('#slist', () => { 목록(d); syncSelection() })),
+    drawPiece('세션 목록', () => keepScroll('#slist', () => { items(d); syncSelection() })),
     drawPiece('상세', () => redrawDetail()),
   ].filter(Boolean)
   S.drawError = failed.length ? failed.join(' · ') : null
@@ -150,11 +150,11 @@ function updateFreshness() {
   const seconds = S.lastOkAt ? Math.round((Date.now() - S.lastOkAt) / 1000) : null
   const dot = $('#dot')
   // 🔴 그리기가 깨진 것도 '이상'이다. 값은 새것인데 화면이 옛것·빈것일 수 있다.
-  const isBad = Boolean(S.오류 || S.drawError)
+  const isBad = Boolean(S.error || S.drawError)
   dot.className = 'dot' + (isBad ? ' off' : seconds === null ? ' off' : seconds > 12 ? ' stale' : '')
-  if (S.오류) $('#freshness').textContent = `읽기 실패${seconds !== null ? ` (${seconds}초 전 성공)` : ''} — ${S.오류}`
-  else if (!S.상태) $('#freshness').textContent = '연결 중…'
-  else $('#freshness').textContent = `${S.상태.at} · ${seconds}초 전 갱신 · 스캔 ${S.상태.스캔.ms}ms`
+  if (S.error) $('#freshness').textContent = `읽기 실패${seconds !== null ? ` (${seconds}초 전 성공)` : ''} — ${S.error}`
+  else if (!S.state) $('#freshness').textContent = '연결 중…'
+  else $('#freshness').textContent = `${S.state.at} · ${seconds}초 전 갱신 · 스캔 ${S.state.scan.ms}ms`
     + (S.drawError ? ` · ⚠ 화면 그리기 실패 — ${S.drawError}` : '')
 }
 
@@ -165,16 +165,16 @@ document.querySelector('.actions').addEventListener('click', async (e) => {
   const ids = [...S.picked]
   const meta = {}
   for (const id of ids) {
-    const s = S.상태?.세션.find((x) => x.sessionId === id)
+    const s = S.state?.sessions.find((x) => x.sessionId === id)
     if (s) meta[id] = meta(s)
   }
-  if (act === 'watch-on') await post('/api/targets', { sessionIds: ids, 감시: true, meta })
-  else if (act === 'watch-off') await post('/api/targets', { sessionIds: ids, 감시: false, meta })
+  if (act === 'watch-on') await post('/api/targets', { sessionIds: ids, watch: true, meta })
+  else if (act === 'watch-off') await post('/api/targets', { sessionIds: ids, watch: false, meta })
   else if (act === 'resume-on') {
     if (!confirm(`${ids.length}개 세션에 자율 재시작을 켭니다.\n\n사람이 보지 않는 상태에서 OS 예약이 claude --resume 을 띄워 토큰을 쓰고 파일을 고칠 수 있습니다. 가드(실행 중 확인·하루 횟수·비용 상한·연속실패 차단)는 걸려 있습니다.\n\n계속할까요?`)) return
-    await post('/api/targets', { sessionIds: ids, 재시작: true, meta })
+    await post('/api/targets', { sessionIds: ids, restart: true, meta })
   }
-  else if (act === 'resume-off') await post('/api/targets', { sessionIds: ids, 재시작: false, meta })
+  else if (act === 'resume-off') await post('/api/targets', { sessionIds: ids, restart: false, meta })
   else if (act === 'rearm') await post('/api/rearm', { sessionIds: ids })
   else if (act === 'remove') {
     if (!confirm(`${ids.length}개 세션의 등록을 해제합니다. 감시·재시작이 모두 꺼집니다.`)) return
@@ -256,7 +256,7 @@ async function pcAction(action) {
 
   const r = await post('/api/pc', { action })
   // 결과를 그대로 보여준다 — "바꿨다"만 말하고 실제로 안 바뀌면 그게 최악이다
-  if (r && r.출력) alert(r.출력)
+  if (r && r.output) alert(r.output)
 }
 
 /**
@@ -277,9 +277,9 @@ async function pcApplyChosen() {
   if (!confirm([
     'PC 전원 설정을 바꿉니다.',
     '',
-    ...changed.map((x) => `· ${x.이름}: ${x.prev} → ${x.후}`),
+    ...changed.map((x) => `· ${x.name}: ${x.prev} → ${x.after}`),
     ...(warnText.length ? ['', '⚠ 이 선택은 감시를 멎게 할 수 있습니다'] : []),
-    ...warnText.map((x) => `· ${x.이름} — ${x.warnText}`),
+    ...warnText.map((x) => `· ${x.name} — ${x.warnText}`),
     '',
     '바꾸기 전 값을 저장하므로 되돌릴 수 있습니다.',
     '',
@@ -292,7 +292,7 @@ async function pcApplyChosen() {
   drawSettings({ force: true })
   // 결과를 그대로 보여준다. powercfg 는 없는 항목에도 성공을 돌려주므로(실측)
   // 서버가 바꾼 뒤 다시 읽어 대조한 결과를 사람이 봐야 한다.
-  if (r && r.출력) alert(r.출력)
+  if (r && r.output) alert(r.output)
 }
 
 /**

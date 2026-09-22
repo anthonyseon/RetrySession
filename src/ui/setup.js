@@ -55,9 +55,9 @@ export function closeSettings() {
 }
 
 /** 그려야 할 내용의 지문 — 이게 같으면 다시 그릴 이유가 없다 */
-const 지문 = (pc) => JSON.stringify([
-  pc.수준, pc.고칠것, pc.백업?.있음, pc.백업?.at, (pc.안내 || []).length,
-  (pc.목록 || []).map((x) => [x.키, x.수준, x.현재, x.원값]),
+const fingerprint = (pc) => JSON.stringify([
+  pc.level, pc.fixable, pc.backup?.exists, pc.backup?.at, (pc.guide || []).length,
+  (pc.items || []).map((x) => [x.key, x.level, x.current, x.raw]),
 ])
 
 /**
@@ -67,13 +67,13 @@ const 지문 = (pc) => JSON.stringify([
  * 잠든 PC 는 예약 작업을 돌리지 않는다 — 사람이 그걸 모르고 고르면 감시가 조용히 멎는다.
  * 0('안 함')만 안전하다.
  */
-export function mayStopWatching(키, 값) {
-  const n = Number(값)
+export function mayStopWatching(key, value) {
+  const n = Number(value)
   if (!Number.isFinite(n) || n === 0) return ''
-  if (키 === 'standbyAc') return '전원이 연결돼 있어도 PC 가 잠들어 그때부터 감시가 멎습니다'
-  if (키 === 'hibernateAc') return '전원이 연결돼 있어도 최대 절전에 들어 그때부터 감시가 멎습니다'
-  if (키 === 'standbyDc' || 키 === 'hibernateDc') return '배터리로 쓸 때 잠들어 감시가 멎습니다 (배터리를 아끼려면 이게 맞습니다)'
-  if (키 === 'lidAc' || 키 === 'lidDc') return '덮개를 닫으면 감시가 멎습니다'
+  if (key === 'standbyAc') return '전원이 연결돼 있어도 PC 가 잠들어 그때부터 감시가 멎습니다'
+  if (key === 'hibernateAc') return '전원이 연결돼 있어도 최대 절전에 들어 그때부터 감시가 멎습니다'
+  if (key === 'standbyDc' || key === 'hibernateDc') return '배터리로 쓸 때 잠들어 감시가 멎습니다 (배터리를 아끼려면 이게 맞습니다)'
+  if (key === 'lidAc' || key === 'lidDc') return '덮개를 닫으면 감시가 멎습니다'
   return ''
 }
 
@@ -95,16 +95,16 @@ export function chosenValues() {
   const changed = []
   const body = $('#setupBody')
   for (const sel of body.querySelectorAll('select.pcsel')) {
-    const 키 = sel.dataset?.key
-    const 후 = sel.value
-    if (!키 || 후 === '' || 후 === null || 후 === undefined) continue
-    if (String(sel.dataset.was) === String(후)) continue
-    values[키] = Number(후)
+    const key = sel.dataset?.key
+    const after = sel.value
+    if (!key || after === '' || after === null || after === undefined) continue
+    if (String(sel.dataset.was) === String(after)) continue
+    values[key] = Number(after)
     changed.push({
-      키, 이름: sel.dataset.nm || 키,
+      key, name: sel.dataset.nm || key,
       prev: sel.dataset.wasTx || sel.dataset.was,
-      후: chosenLabel(sel),
-      warnText: mayStopWatching(키, 후),
+      after: chosenLabel(sel),
+      warnText: mayStopWatching(key, after),
     })
   }
   return { values, changed }
@@ -119,8 +119,8 @@ export function chosenValues() {
  * @returns {boolean} 칸을 만들었나
  */
 function renderSelect(r, pc, x) {
-  const 종류 = pc.쓸수있는키?.[x.키]
-  const view = 종류 ? pc.선택지?.[종류] : null
+  const kind = pc.editableKeys?.[x.key]
+  const view = kind ? pc.choices?.[kind] : null
   if (!view) return false
 
   /**
@@ -130,22 +130,22 @@ function renderSelect(r, pc, x) {
    *   (다시 읽으면 그대로 null). 고를 수 있게 해 두면 사람은 고르고, 바뀌었다고
    *   믿고, 실제로는 안 바뀐다. 모를 때는 손으로 하라고 말하는 것이 맞다.
    */
-  if (!Number.isFinite(x.원값)) return false
+  if (!Number.isFinite(x.raw)) return false
 
   const sel = el('select', 'pcsel')
-  sel.id = `pcsel-${x.키}`
-  sel.dataset.key = x.키
-  sel.dataset.was = String(x.원값)
-  sel.dataset.nm = x.이름
-  sel.dataset.wasTx = String(x.현재)
+  sel.id = `pcsel-${x.key}`
+  sel.dataset.key = x.key
+  sel.dataset.was = String(x.raw)
+  sel.dataset.nm = x.name
+  sel.dataset.wasTx = String(x.current)
 
-  const wantValue = chosen.has(x.키) ? String(chosen.get(x.키)) : String(x.원값)
+  const wantValue = chosen.has(x.key) ? String(chosen.get(x.key)) : String(x.raw)
   let matched = false
   for (const o of view) {
-    const op = el('option', null, o.글)
-    op.value = String(o.값)
+    const op = el('option', null, o.label)
+    op.value = String(o.value)
     sel.append(op)
-    if (String(o.값) === wantValue) { op.selected = true; matched = true }
+    if (String(o.value) === wantValue) { op.selected = true; matched = true }
   }
   /**
    * 보기에 없는 값(20분처럼 어중간한 값, OEM 이 쓰는 2147483647 등)도 **그대로** 보여준다.
@@ -153,14 +153,14 @@ function renderSelect(r, pc, x) {
    * 돼 있다고 믿고 창을 닫는다.
    */
   if (!matched) {
-    const op = el('option', null, `${x.현재} (현재 값)`)
+    const op = el('option', null, `${x.current} (현재 값)`)
     op.value = wantValue
     op.selected = true
     sel.append(op)
   }
   sel.value = wantValue
   sel.addEventListener('change', () => {
-    chosen.set(x.키, sel.value)
+    chosen.set(x.key, sel.value)
     updateApplyButton()
   })
 
@@ -193,17 +193,17 @@ function updateApplyButton() {
  */
 export function drawSettings({ force = false } = {}) {
   if (!isSettingsOpen()) return
-  const pc = S.상태?.pc
+  const pc = S.state?.pc
   const body = $('#setupBody')
   const foot = $('#setupFoot')
 
-  if (!pc || !Array.isArray(pc.목록)) {
+  if (!pc || !Array.isArray(pc.items)) {
     body.textContent = ''; foot.textContent = ''; applyBtn = null; drawnPrint = null
     body.append(el('div', 'empty', '아직 PC 설정을 읽지 못했습니다. 잠시 뒤 다시 열어 주세요.'))
     return
   }
 
-  const thisPrint = 지문(pc)
+  const thisPrint = fingerprint(pc)
   if (!force && thisPrint === drawnPrint) return
   drawnPrint = thisPrint
   body.textContent = ''; foot.textContent = ''; applyBtn = null
@@ -216,13 +216,13 @@ export function drawSettings({ force = false } = {}) {
 
   /* ── 항목별 현재/권장/고르기 ── */
   let cellCount = 0
-  for (const x of pc.목록) {
+  for (const x of pc.items) {
     const r = el('div', 'srow2')
-    r.append(el('div', 'nm', x.이름))
+    r.append(el('div', 'nm', x.name))
     const st = el('div', 'st')
-    st.append(badge(color[x.수준] || 'off', table[x.수준] || '●', String(x.현재)))
+    st.append(badge(color[x.level] || 'off', table[x.level] || '●', String(x.current)))
     r.append(st)
-    if (x.왜) r.append(el('div', 'wh', x.왜))
+    if (x.why) r.append(el('div', 'wh', x.why))
 
     /**
      * 🔴 "자동으로는 못 바꿉니다"를 **아무 줄에나 붙이지 않는다.**
@@ -230,42 +230,42 @@ export function drawSettings({ force = false } = {}) {
      *   뜻이 "이건 자동으로 못 고친다"는 능력 문제처럼 읽혔다(실측: 다섯 줄 전부).
      *   문제가 있을 때만 고칠 수 있는지 없는지를 말한다.
      */
-    const trouble = x.수준 !== 'ok' && x.수준 !== 'info'
+    const trouble = x.level !== 'ok' && x.level !== 'info'
     const tail2 = !trouble ? ''
-      : x.고칠수있나 ? ' · 자동으로 바꿀 수 있습니다'
+      : x.canFix ? ' · 자동으로 바꿀 수 있습니다'
         : ' · 자동으로는 못 바꿉니다 — 아래 수동 방법을 보세요'
-    r.append(el('div', 'rec', `권장: ${x.권장}${tail2}`))
+    r.append(el('div', 'rec', `권장: ${x.recommended}${tail2}`))
 
     if (renderSelect(r, pc, x)) cellCount += 1
     body.append(r)
   }
 
   /* ── 보관된 이전 값 — 되돌릴 수 있다는 것을 보여준다 ── */
-  const 백업 = pc.백업 || {}
+  const backup = pc.backup || {}
   const b = el('div', 'srow2')
   b.append(el('div', 'nm', '이전 값 보관'))
   const bst = el('div', 'st')
-  bst.append(백업.있음 ? badge('good', '▤', '보관됨')
-    : 백업.오류 ? badge('warn', '▲', '파일 손상') : badge('off', '○', '아직 없음'))
+  bst.append(backup.exists ? badge('good', '▤', '보관됨')
+    : backup.error ? badge('warn', '▲', '파일 손상') : badge('off', '○', '아직 없음'))
   b.append(bst)
-  b.append(el('div', 'wh', 백업.있음
-    ? `${백업.at} 에 ${(백업.바꾼것 || []).join(', ') || '설정'} 을 바꾸기 전 값을 저장했습니다. '되돌리기'로 복구합니다.`
-    : 백업.오류
-      ? 백업.오류
+  b.append(el('div', 'wh', backup.exists
+    ? `${backup.at} 에 ${(backup.changedKeys || []).join(', ') || '설정'} 을 바꾸기 전 값을 저장했습니다. '되돌리기'로 복구합니다.`
+    : backup.error
+      ? backup.error
       : '설정을 바꾸면 바꾸기 전 값을 먼저 저장합니다. 저장에 실패하면 바꾸지 않습니다.'))
   body.append(b)
 
   /* ── 수동 설정 방법 (자동으로 못 바꾸는 것) ── */
-  const needsManual = pc.목록.some((x) => x.수준 !== 'ok' && x.수준 !== 'info' && !x.고칠수있나)
-  const 안내 = Array.isArray(pc.안내) ? pc.안내 : []
-  if (안내.length) {
+  const needsManual = pc.items.some((x) => x.level !== 'ok' && x.level !== 'info' && !x.canFix)
+  const guide = Array.isArray(pc.guide) ? pc.guide : []
+  if (guide.length) {
     const d = el('details')
     const sm = el('summary', null, needsManual
       ? '수동 설정 방법 — 자동으로 못 바꾸는 항목이 있습니다'
       : '수동 설정 방법 (직접 바꾸려면)')
     sm.style.cursor = 'pointer'
     sm.style.fontSize = '12.5px'
-    d.append(sm, el('pre', 'manual', 안내.join('\n')))
+    d.append(sm, el('pre', 'manual', guide.join('\n')))
     if (needsManual) d.open = true     // 할 일이 있으면 펼쳐서 보여준다
     body.append(d)
   }
@@ -278,7 +278,7 @@ export function drawSettings({ force = false } = {}) {
     foot.append(applyBtn)
     updateApplyButton()
   }
-  const fixCount = (pc.고칠것 || []).length
+  const fixCount = (pc.fixable || []).length
   if (fixCount) {
     const a = el('button', 'sm primary', `권장값으로 (${fixCount}개)`)
     a.type = 'button'
@@ -286,15 +286,15 @@ export function drawSettings({ force = false } = {}) {
     a.title = '전원 연결 상태에서 잠들지 않게 합니다. 배터리는 건드리지 않고, 이전 값은 보관합니다.'
     foot.append(a)
   } else if (!cellCount) {
-    foot.append(el('span', 'note', pc.수준 === 'ok'
+    foot.append(el('span', 'note', pc.level === 'ok'
       ? '자동으로 바꿀 것이 없습니다 — 이대로 계속 돌 수 있습니다.'
       : '자동으로 바꿀 수 있는 항목이 없습니다. 위 수동 방법을 보세요.'))
   }
-  if (백업.있음) {
+  if (backup.exists) {
     const r = el('button', 'sm', '되돌리기')
     r.type = 'button'
     r.dataset.pc = 'restore'
-    r.title = `보관된 값으로 되돌립니다 (${백업.at || '시각 미상'})`
+    r.title = `보관된 값으로 되돌립니다 (${backup.at || '시각 미상'})`
     foot.append(r)
   }
   foot.append(el('span', 'spacer'))

@@ -26,10 +26,10 @@ test('🔴 서버가 보낸 이유를 버리지 않는다 (HTTP 500 만 보여�
   assert.match(src, /await errorReason\(r\)/, '상태 읽기가 그 함수를 써야 한다')
   // 🔴 주석을 뺀 코드만 본다. 옛 코드를 설명하는 주석이 검사에 걸려서는 안 된다
   //   (이 저장소에서 같은 함정에 두 번 걸렸다 — 근거를 적으면 그 근거가 걸린다).
-  const 코드 = src.split('\n')
+  const code = src.split('\n')
     .filter((l) => { const t = l.trim(); return t && !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*') })
     .join('\n')
-  assert.ok(!/throw new Error\('HTTP ' \+ r\.status\)/.test(코드),
+  assert.ok(!/throw new Error\('HTTP ' \+ r\.status\)/.test(code),
     '상태 코드만 던지면 이유가 사라진다')
   // JSON 이 아닐 때의 대비도 있어야 한다
   const i = src.indexOf('async function errorReason')
@@ -40,7 +40,7 @@ test('🔴 상태를 못 읽으면 그것을 가장 급한 경보로 띄운다',
   const sum = readFileSync(join(ROOT, 'src', 'ui', 'summary.js'), 'utf8')
   const i = sum.indexOf('function drawAlerts')
   const section = sum.slice(i, i + 1200)
-  assert.match(section, /S\.오류/, '읽기 실패를 경보 목록에 넣어야 한다')
+  assert.match(section, /S\.error/, '읽기 실패를 경보 목록에 넣어야 한다')
   assert.match(section, /unshift/, '가장 위에 놓아야 한다 — 나머지 전부가 낡았다는 뜻이다')
   assert.match(section, /critical/, '치명으로 다뤄야 한다')
   // 상태가 없을 때도 경보는 그려야 한다(첫 요청부터 실패한 경우)
@@ -88,7 +88,7 @@ test('🔴 실패를 삼키지 않는다 — 화면과 콘솔에 남긴다', () 
   const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
   assert.match(app, /S\.drawError/, '그리기 실패를 기억해야 한다')
   assert.match(app, /화면 그리기 실패/, '신선도 줄에 적어야 한다 — 값은 새것인데 화면이 빈 수 있다')
-  assert.match(app, /S\.오류 \|\| S\.drawError/, '그리기가 깨진 것도 점(dot)이 이상으로 보여야 한다')
+  assert.match(app, /S\.error \|\| S\.drawError/, '그리기가 깨진 것도 점(dot)이 이상으로 보여야 한다')
 })
 
 /**
@@ -115,8 +115,8 @@ test('🔴 그리기() 는 모든 조각을 조각그리기로 감싼다', () =>
   }
   // 이름을 붙여 부른다 — 실패 줄에 "무엇이" 죽었는지 나와야 조치할 수 있다
   const names = [...body.matchAll(/drawPiece\('([^']+)'/g)].map((m) => m[1])
-  for (const 이름 of ['계정', '경보', '요약', '폴더', 'PC 설정', '세션 목록', '상세']) {
-    assert.ok(names.includes(이름), `${이름} 조각이 감싸여 있지 않다 (실제: ${names.join(', ')})`)
+  for (const name of ['계정', '경보', '요약', '폴더', 'PC 설정', '세션 목록', '상세']) {
+    assert.ok(names.includes(name), `${name} 조각이 감싸여 있지 않다 (실제: ${names.join(', ')})`)
   }
 })
 

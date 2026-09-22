@@ -40,24 +40,24 @@ export function heartbeatVerdict(hb, limitMin = 15, now = Date.now(), onEpoch = 
       const sinceOn = minutesSince(onEpoch, now)
       if (sinceOn <= limitMin) {
         return {
-          alive: false, 대기: true, ageMin: null,
+          alive: false, waiting: true, ageMin: null,
           why: `감시를 켠 지 ${Math.max(0, Math.round(sinceOn))}분 — 첫 기록을 기다리는 중 (5분마다 기록한다)`,
         }
       }
       return {
-        alive: false, 대기: false, ageMin: null,
+        alive: false, waiting: false, ageMin: null,
         why: `감시를 켠 지 ${Math.round(sinceOn)}분이 지났는데 첫 기록이 없다 (한계 ${limitMin}분) — 하트비트가 돌지 않는다`,
       }
     }
-    return { alive: false, 대기: false, ageMin: null, why: '하트비트 파일을 읽을 수 없다' }
+    return { alive: false, waiting: false, ageMin: null, why: '하트비트 파일을 읽을 수 없다' }
   }
   if (typeof hb.atEpoch !== 'number') {
-    return { alive: false, 대기: false, ageMin: null, why: 'atEpoch 필드가 없다(구 버전이 쓴 파일) — 낡음을 판정할 수 없다' }
+    return { alive: false, waiting: false, ageMin: null, why: 'atEpoch 필드가 없다(구 버전이 쓴 파일) — 낡음을 판정할 수 없다' }
   }
   const ageMin = Math.round(minutesSince(hb.atEpoch, now))
-  if (ageMin > limitMin) return { alive: false, 대기: false, ageMin, why: `마지막 기록이 ${ageMin}분 전 (한계 ${limitMin}분)` }
-  if (ageMin < -5) return { alive: false, 대기: false, ageMin, why: `마지막 기록이 미래다(${ageMin}분) — 시계가 어긋났다` }
-  return { alive: true, 대기: false, ageMin, why: null }
+  if (ageMin > limitMin) return { alive: false, waiting: false, ageMin, why: `마지막 기록이 ${ageMin}분 전 (한계 ${limitMin}분)` }
+  if (ageMin < -5) return { alive: false, waiting: false, ageMin, why: `마지막 기록이 미래다(${ageMin}분) — 시계가 어긋났다` }
+  return { alive: true, waiting: false, ageMin, why: null }
 }
 
 /* ── 세션이 돌고 있는가 ─────────────────────────────────────── */
@@ -76,17 +76,17 @@ export function heartbeatVerdict(hb, limitMin = 15, now = Date.now(), onEpoch = 
  * @param 목록 {{ok:boolean, 오류:string|null, sessions:Array<{sessionId,pid}>}} runningSessions() 결과
  * @param 살아있나 pid 생존 확인 함수 — 목록이 낡았을 수 있으므로 한 번 더 본다
  */
-export function sessionRunning(목록, sessionId, isAlive = () => true) {
-  if (!목록 || 목록.ok !== true) {
+export function sessionRunning(items, sessionId, isAlive = () => true) {
+  if (!items || items.ok !== true) {
     return {
-      실행중: true, isCertain: false,
-      why: `실행 중 여부를 확인할 수 없다 — ${목록?.오류 || '목록을 받지 못했다'}. 모르는 채로 밀면 사람이 쓰는 대화에 끼어든다`,
+      running: true, isCertain: false,
+      why: `실행 중 여부를 확인할 수 없다 — ${items?.error || '목록을 받지 못했다'}. 모르는 채로 밀면 사람이 쓰는 대화에 끼어든다`,
     }
   }
-  const s = (목록.sessions || []).find((x) => x.sessionId === sessionId)
-  if (!s) return { 실행중: false, isCertain: true, why: null }
-  if (!isAlive(s.pid)) return { 실행중: false, isCertain: true, why: null }
-  return { 실행중: true, isCertain: true, why: `세션이 실행 중이다 (pid ${s.pid}) — 사람이 쓰는 중이므로 건드리지 않는다` }
+  const s = (items.sessions || []).find((x) => x.sessionId === sessionId)
+  if (!s) return { running: false, isCertain: true, why: null }
+  if (!isAlive(s.pid)) return { running: false, isCertain: true, why: null }
+  return { running: true, isCertain: true, why: `세션이 실행 중이다 (pid ${s.pid}) — 사람이 쓰는 중이므로 건드리지 않는다` }
 }
 
 /* ── 사용량 제한 ─────────────────────────────────────────────── */
@@ -109,11 +109,11 @@ export function sessionRunning(목록, sessionId, isAlive = () => true) {
  *
  * @param 할당량 트랜스크립트에서 읽은 quotaLimits (resetsAt 은 **초** 단위)
  */
-export function limitState(할당량, now = Date.now()) {
+export function limitState(quota, now = Date.now()) {
   const none = { limited: false, lifted: false, leftMin: null, liftedEpoch: null, why: null }
-  if (!할당량 || typeof 할당량 !== 'object') return none
+  if (!quota || typeof quota !== 'object') return none
 
-  const resetsAt = 할당량.resetsAt
+  const resetsAt = quota.resetsAt
   if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt)) {
     return { ...none, why: null, unknown: true }
   }
@@ -123,7 +123,7 @@ export function limitState(할당량, now = Date.now()) {
   if (leftMin > 0) {
     return {
       limited: true, lifted: false, leftMin, liftedEpoch,
-      why: `사용량 제한 중 (${할당량.rateLimitType || '?'}) — ${leftMin}분 후 해제. 제한 중에 띄우면 실패로 기록돼 회로를 태운다`,
+      why: `사용량 제한 중 (${quota.rateLimitType || '?'}) — ${leftMin}분 후 해제. 제한 중에 띄우면 실패로 기록돼 회로를 태운다`,
     }
   }
   return { limited: false, lifted: true, leftMin, liftedEpoch, why: null }
@@ -136,8 +136,8 @@ export function limitState(할당량, now = Date.now()) {
  * 그때 이것을 실패로 세면 세 번 만에 회로가 차단된다 — 기다리면 될 일에.
  * 🔴 모르면 실패로 센다(false) — 진짜 고장을 제한으로 감추면 안 된다.
  */
-export function isLimitFailure(글) {
-  const s = String(글 || '')
+export function isLimitFailure(label) {
+  const s = String(label || '')
   if (!s) return false
   return /limit/i.test(s) && /(usage|rate|quota|reset|weekly|session limit)/i.test(s)
 }
@@ -161,7 +161,7 @@ export function quietNow(quiet, now = new Date()) {
 
 /* ── 실행 상태(예산·회로차단기) ───────────────────────────────── */
 
-export const emptyState = () => ({ 마지막실행: null, 일별: {}, costByDay: {}, 연속실패: 0, 차단: null })
+export const emptyState = () => ({ lastRun: null, byDay: {}, costByDay: {}, failStreak: 0, blocked: null })
 
 /**
  * 실행 상태를 읽는다.
@@ -174,7 +174,7 @@ export function loadRunState(path) {
     const s = JSON.parse(readFileSync(path, 'utf8'))
     return { ...emptyState(), ...s }
   } catch (e) {
-    return { ...emptyState(), 손상: `실행 상태 파일이 깨졌다: ${e.message}` }
+    return { ...emptyState(), corrupt: `실행 상태 파일이 깨졌다: ${e.message}` }
   }
 }
 
@@ -199,41 +199,41 @@ export function saveRunState(path, state) {
  */
 export function budgetVerdict(state, cfg, now = Date.now()) {
   const today = dayKey(new Date(now))
-  const 오늘실행 = (state.일별 || {})[today] || 0
-  const 오늘비용 = +((state.costByDay || {})[today] || 0).toFixed(4)
-  const no = (why) => ({ ok: false, why, 오늘실행, 오늘비용 })
+  const runsToday = (state.byDay || {})[today] || 0
+  const costToday = +((state.costByDay || {})[today] || 0).toFixed(4)
+  const no = (why) => ({ ok: false, why, runsToday, costToday })
 
-  if (state.손상) return no(state.손상)
-  if (state.차단) return no(`회로 차단됨 (${state.차단.at}): ${state.차단.이유} — 고친 뒤 --rearm 으로 푼다`)
+  if (state.corrupt) return no(state.corrupt)
+  if (state.blocked) return no(`회로 차단됨 (${state.blocked.at}): ${state.blocked.reason} — 고친 뒤 --rearm 으로 푼다`)
 
-  const limit = cfg.연속실패한계 ?? 3
-  if ((state.연속실패 || 0) >= limit) {
-    return no(`연속 ${state.연속실패}회 실패 (한계 ${limit}) — 고친 뒤 --rearm 으로 푼다`)
+  const limit = cfg.failStreakMax ?? 3
+  if ((state.failStreak || 0) >= limit) {
+    return no(`연속 ${state.failStreak}회 실패 (한계 ${limit}) — 고친 뒤 --rearm 으로 푼다`)
   }
 
-  const max = cfg.하루최대회 ?? 12
-  if (오늘실행 >= max) return no(`오늘 ${오늘실행}회 실행 (하루 상한 ${max}회)`)
+  const max = cfg.maxPerDay ?? 12
+  if (runsToday >= max) return no(`오늘 ${runsToday}회 실행 (하루 상한 ${max}회)`)
 
-  const costCap = cfg.하루최대비용USD
-  if (typeof costCap === 'number' && 오늘비용 >= costCap) {
-    return no(`오늘 $${오늘비용} 사용 (하루 상한 $${costCap})`)
+  const costCap = cfg.maxCostUSDPerDay
+  if (typeof costCap === 'number' && costToday >= costCap) {
+    return no(`오늘 $${costToday} 사용 (하루 상한 $${costCap})`)
   }
 
-  const interval = cfg.최소간격분 ?? 30
-  const last = state.마지막실행
+  const interval = cfg.minGapMin ?? 30
+  const last = state.lastRun
   if (last && typeof last.atEpoch === 'number') {
     const elapsed = minutesSince(last.atEpoch, now)
     if (elapsed < interval) return no(`마지막 실행 ${elapsed}분 전 (최소 간격 ${interval}분)`)
   }
 
-  return { ok: true, why: null, 오늘실행, 오늘비용 }
+  return { ok: true, why: null, runsToday, costToday }
 }
 
 /** 실행 1회를 상태에 반영한다. 순수 함수 — 새 상태를 돌려준다 */
 export function recordRun(state, detail, cfg = {}, now = Date.now()) {
-  const { 결과, summary, tookSec, 비용USD = 0 } = detail
+  const { result, summary, tookSec, costUSD = 0 } = detail
   const today = dayKey(new Date(now))
-  const okCount = 결과 === 'ok'
+  const okCount = result === 'ok'
 
   /**
    * 🔴 제한은 실패가 아니다 — 연속실패를 올리지 않는다.
@@ -243,36 +243,36 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
    *   진짜 실패 두 번 뒤에 제한 한 번이 끼어도 그 두 번은 그대로 남아야 한다.
    *   하루 횟수에는 센다(프로세스를 띄웠으니 시도는 시도다).
    */
-  const limitInfo = 결과 === '제한'
-  const 연속실패 = okCount ? 0 : limitInfo ? (state.연속실패 || 0) : (state.연속실패 || 0) + 1
-  const limit = cfg.연속실패한계 ?? 3
+  const limitInfo = result === '제한'
+  const failStreak = okCount ? 0 : limitInfo ? (state.failStreak || 0) : (state.failStreak || 0) + 1
+  const limit = cfg.failStreakMax ?? 3
   const prevCost = (state.costByDay || {})[today] || 0
 
   const next = {
     ...state,
-    마지막실행: {
+    lastRun: {
       ...detail,
       at: localStamp(new Date(now)),
       atEpoch: now,
-      결과,
+      result,
       summary: String(summary ?? '').slice(0, 2000),
       tookSec,
     },
-    일별: { ...(state.일별 || {}), [today]: ((state.일별 || {})[today] || 0) + 1 },
-    costByDay: { ...(state.costByDay || {}), [today]: +(prevCost + (비용USD || 0)).toFixed(4) },
-    연속실패,
-    차단: 연속실패 >= limit
-      ? { at: localStamp(new Date(now)), 이유: `연속 ${연속실패}회 실패` }
-      : state.차단 || null,
+    byDay: { ...(state.byDay || {}), [today]: ((state.byDay || {})[today] || 0) + 1 },
+    costByDay: { ...(state.costByDay || {}), [today]: +(prevCost + (costUSD || 0)).toFixed(4) },
+    failStreak,
+    blocked: failStreak >= limit
+      ? { at: localStamp(new Date(now)), reason: `연속 ${failStreak}회 실패` }
+      : state.blocked || null,
   }
-  delete next.손상 // 정상 기록에 성공했으므로 손상 표시는 지운다
+  delete next.corrupt // 정상 기록에 성공했으므로 손상 표시는 지운다
   return next
 }
 
 /** 회로 차단과 연속실패를 푼다(--rearm). 순수 함수 */
 export function rearm(state) {
-  const next = { ...state, 연속실패: 0, 차단: null }
-  delete next.손상
+  const next = { ...state, failStreak: 0, blocked: null }
+  delete next.corrupt
   return next
 }
 
@@ -307,12 +307,12 @@ export function acquireLock(path, staleMin = 60) {
   try { held = JSON.parse(readFileSync(path, 'utf8')) } catch { /* 깨진 락은 낡은 것으로 본다 */ }
 
   const ageMin = held?.atEpoch ? minutesSince(held.atEpoch) : Infinity
-  let 살아있음 = false
+  let alive = false
   if (held?.pid) {
-    try { process.kill(held.pid, 0); 살아있음 = true } catch { 살아있음 = false }
+    try { process.kill(held.pid, 0); alive = true } catch { alive = false }
   }
 
-  if (살아있음 && ageMin < staleMin) {
+  if (alive && ageMin < staleMin) {
     return { ok: false, why: `이미 돌고 있다 (pid ${held.pid}, ${ageMin}분 전 시작)` }
   }
 

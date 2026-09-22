@@ -44,24 +44,24 @@ export function tail(path, n = 40, maxBytes = 65536) {
  *   resetsAt 이 과거면 이미 풀린 것이다 — 그걸 명시하지 않으면 "지금 막혀 있다"고 오해한다.
  */
 export function quotaView(q) {
-  if (!q) return { 있음: false, 설명: '기록 없음 — 이 PC 의 트랜스크립트에 제한 기록이 없다' }
+  if (!q) return { exists: false, desc: '기록 없음 — 이 PC 의 트랜스크립트에 제한 기록이 없다' }
   const resetMs = q.resetsAt ? q.resetsAt * 1000 : null
   const leftMin = resetMs ? Math.round((resetMs - Date.now()) / 60000) : null
   const passed = leftMin !== null && leftMin <= 0
   return {
-    있음: true,
+    exists: true,
     status: q.status || null,
-    종류: q.rateLimitType || null,
-    기록시각: q._at ? localStamp(new Date(q._at)) : null,
-    기록_분전: q._at ? Math.round(minutesSince(q._at)) : null,
-    해제시각: resetMs ? localStamp(new Date(resetMs)) : null,
-    해제_남은분: leftMin,
-    이미해제됨: passed,
-    초과사용중: !!q.isUsingOverage,
-    초과상태: q.overageStatus || null,
-    초과불가이유: q.overageDisabledReason || null,
-    대체가능: !!q.unifiedRateLimitFallbackAvailable,
-    설명: passed
+    kind: q.rateLimitType || null,
+    recordedAt: q._at ? localStamp(new Date(q._at)) : null,
+    recordedMinAgo: q._at ? Math.round(minutesSince(q._at)) : null,
+    liftAt: resetMs ? localStamp(new Date(resetMs)) : null,
+    liftInMin: leftMin,
+    alreadyLifted: passed,
+    inOverage: !!q.isUsingOverage,
+    overageState: q.overageStatus || null,
+    overageBlockedWhy: q.overageDisabledReason || null,
+    canFallback: !!q.unifiedRateLimitFallbackAvailable,
+    desc: passed
       ? `마지막 제한(${q.rateLimitType || '?'})은 이미 해제됐다 — ${resetMs ? localStamp(new Date(resetMs)) : '?'} 기준`
       : `제한 ${q.status || '?'} · ${q.rateLimitType || '?'} · ${leftMin}분 후 해제`,
   }

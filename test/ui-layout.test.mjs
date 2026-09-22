@@ -178,8 +178,8 @@ test('🔴 요약은 묶음으로 나뉜다 — 같은 질문에 답하는 것�
   assert.match(html, /\.grp\{/, '묶음 칸 스타일이 있어야 한다')
   assert.match(html, /\.grp > h3\{/, '묶음마다 이름이 있어야 한다 — 이름 없는 묶음은 묶음이 아니다')
 
-  for (const 이름 of ['계정', '실행 중', '사용량', 'OS 트리거']) {
-    assert.ok(appjs.includes(`group('${이름}')`), `'${이름}' 묶음이 없다`)
+  for (const name of ['계정', '실행 중', '사용량', 'OS 트리거']) {
+    assert.ok(appjs.includes(`group('${name}')`), `'${name}' 묶음이 없다`)
   }
 })
 
@@ -198,7 +198,7 @@ test('🔴 이름과 값은 한 줄에 마주 놓이고 값은 오른쪽에 모�
  *   안 보이면 지금 상태인지 알 수 없다. 값만 던지고 근거를 감추면 판단할 수 없다.
  */
 test('🔴 세부 설명이 화면에 보인다 (title 에만 두면 근거가 감춰진다)', () => {
-  assert.match(appjs, /if \(설명\) r\.append\(el\('div', 'gd', 설명\)\)/,
+  assert.match(appjs, /if \(desc\) r\.append\(el\('div', 'gd', desc\)\)/,
     '설명을 실제 줄로 그려야 한다')
   assert.match(html, /\.gd\{/, '세부 줄 스타일이 있어야 한다')
   // 근거에 줄바꿈이 있는 것(창 목록 등)은 그대로 보여야 한다
@@ -210,11 +210,11 @@ test('🔴 세부에는 상한이 있다 — 없으면 요약이 다시 화면�
   assert.ok(m, '세부 줄 수 상한이 있어야 한다')
   assert.ok(Number(m[1]) >= 2 && Number(m[1]) <= 4,
     `세부 상한이 ${m[1]}줄이다 — 2~4줄이어야 근거를 보여주면서 자리를 지킨다`)
-  assert.match(appjs, /r\.title = 설명/, '상한을 넘친 부분은 title 에 남아야 한다')
+  assert.match(appjs, /r\.title = desc/, '상한을 넘친 부분은 title 에 남아야 한다')
 })
 
 test('🔴 상태는 색만으로 나르지 않는다 — 배지가 아이콘과 라벨을 함께 담는다', () => {
-  assert.match(appjs, /badge\('good', '●', w\.돌고있음/, '정상일 때도 말로 적어야 한다')
+  assert.match(appjs, /badge\('good', '●', w\.isRunning/, '정상일 때도 말로 적어야 한다')
   assert.match(appjs, /badge\('crit', '▲', '미등록'\)/, '미등록 배지가 있어야 한다')
   assert.match(appjs, /badge\('warn', '■', '멈춰 있음'\)/, '멈춤 배지가 있어야 한다')
   assert.match(appjs, /badge\('crit', '▲', '실패'\)/, '실패 배지가 있어야 한다')
@@ -225,12 +225,12 @@ test('🔴 OS 트리거 값은 배지 하나다 — 상태 글자와 겹쳐 적�
   assert.ok(i > 0)
   const section = appjs.slice(i, appjs.indexOf('box.append(g4)', i))
   // 배지를 다섯 번째 인자로 따로 넘기면 값 + 배지가 같은 칸에 둘 다 들어간다
-  assert.ok(/line\(g4, label, 값, 설명\)/.test(section),
+  assert.ok(/line\(g4, label, value, desc\)/.test(section),
     'OS 트리거 줄은 값(배지) 하나만 넘겨야 한다')
   assert.ok(!/값 = w\.상태/.test(section), '상태 글자를 값으로 쓰면 배지와 중복된다')
   // 긴 결과뜻을 배지 라벨에 넣으면 칸을 넘친다 — title 과 경보 배너가 맡는다
   assert.ok(!/badge\([^)]*\$\{w\.resultText\}/.test(section), '결과뜻을 배지 라벨에 넣지 마라 — 칸을 넘친다')
-  assert.ok(/설명 = .*resultText/.test(section), '결과뜻은 설명(title)에 남겨야 한다')
+  assert.ok(/desc = .*resultText/.test(section), '결과뜻은 설명(title)에 남겨야 한다')
 })
 
 test('요약을 접으면 본문이 그 공간을 가져간다', () => {

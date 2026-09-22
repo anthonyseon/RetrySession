@@ -56,8 +56,8 @@ const json = (res, code, obj) => {
   res.end(body)
 }
 
-const 파일 = (res, path, type) => {
-  if (!existsSync(path)) return json(res, 404, { 오류: `없음: ${path}` })
+const files = (res, path, type) => {
+  if (!existsSync(path)) return json(res, 404, { error: `없음: ${path}` })
   const body = readFileSync(path)
   res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'content-length': body.length })
   res.end(body)
@@ -99,7 +99,7 @@ const server = createServer(async (req, res) => {
 
   try {
     /* 정적 */
-    if (req.method === 'GET' && (p === '/' || p === '/index.html')) return 파일(res, join(HERE, 'index.html'), 'text/html; charset=utf-8')
+    if (req.method === 'GET' && (p === '/' || p === '/index.html')) return files(res, join(HERE, 'index.html'), 'text/html; charset=utf-8')
 
     /**
      * 화면 스크립트. app.js 가 common/summary/list/detail 을 import 하므로
@@ -110,7 +110,7 @@ const server = createServer(async (req, res) => {
      *   파일을 읽어낼 수 있다. 화이트리스트 성격의 패턴만 통과시킨다.
      */
     if (req.method === 'GET' && /^\/[a-z][a-z0-9-]{0,30}\.js$/.test(p)) {
-      return 파일(res, join(HERE, p.slice(1)), 'text/javascript; charset=utf-8')
+      return files(res, join(HERE, p.slice(1)), 'text/javascript; charset=utf-8')
     }
 
     /**
@@ -120,7 +120,7 @@ const server = createServer(async (req, res) => {
      *   **조용히 무시한다** — 화면이 무늬 없이 뜨는데 오류는 아무 데도 안 남는다.
      */
     if (req.method === 'GET' && /^\/[a-z][a-z0-9-]{0,30}\.css$/.test(p)) {
-      return 파일(res, join(HERE, p.slice(1)), 'text/css; charset=utf-8')
+      return files(res, join(HERE, p.slice(1)), 'text/css; charset=utf-8')
     }
 
     /**
@@ -158,9 +158,9 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'GET' && p.startsWith('/api/session/')) {
       const id = decodeURIComponent(p.slice('/api/session/'.length))
-      if (!id) return json(res, 400, { 오류: 'sessionId 가 없다' })
+      if (!id) return json(res, 400, { error: 'sessionId 가 없다' })
       // 🔴 이 값은 경로가 된다. 형태를 확인하고 들여보낸다 (lib/targets.mjs 의 세션id인가 참조)
-      if (!isSessionId(id)) return json(res, 400, { 오류: 'sessionId 형태가 아니다' })
+      if (!isSessionId(id)) return json(res, 400, { error: 'sessionId 형태가 아니다' })
       const turns = Math.min(200, Number(url.searchParams.get('turns')) || 40)
       return json(res, 200, detail(id, { turns }))
     }
@@ -169,10 +169,10 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/api/targets') {
       const b = await readBody(req)
       const ids = Array.isArray(b.sessionIds) ? b.sessionIds : []
-      if (!ids.length) return json(res, 400, { 오류: 'sessionIds 가 비었다' })
+      if (!ids.length) return json(res, 400, { error: 'sessionIds 가 비었다' })
       // 하나라도 형태가 아니면 전부 거절한다 — 일부만 적용하면 무엇이 켜졌는지 알 수 없다
       const bad = ids.filter((id) => !isSessionId(id))
-      if (bad.length) return json(res, 400, { 오류: 'sessionId 형태가 아니다', badValues: bad.slice(0, 5) })
+      if (bad.length) return json(res, 400, { error: 'sessionId 형태가 아니다', badValues: bad.slice(0, 5) })
 
       /**
        * 🔴 ASCII 별칭을 함께 받는다 (`watch` / `resume` / `instruction`).
@@ -185,21 +185,21 @@ const server = createServer(async (req, res) => {
       const strOf = (...keys) => { for (const k of keys) if (typeof b[k] === 'string') return b[k]; return undefined }
 
       const patch = {}
-      const w = boolOf('감시', 'watch')
-      const r = boolOf('재시작', 'resume')
+      const w = boolOf('watch', '감시')
+      const r = boolOf('restart', 'resume', '재시작')
       const ins = strOf('재개지시', 'instruction')
-      if (w !== undefined) patch.감시 = w
-      if (r !== undefined) patch.재시작 = r
-      if (ins !== undefined) patch.재개지시 = ins.trim() || null
+      if (w !== undefined) patch.watch = w
+      if (r !== undefined) patch.restart = r
+      if (ins !== undefined) patch.resumePrompt = ins.trim() || null
 
       if (!Object.keys(patch).length) {
         return json(res, 400, {
-          오류: '바꿀 것이 없다',
+          error: '바꿀 것이 없다',
           acceptedKeys: ['감시 | watch (boolean)', '재시작 | resume (boolean)', '재개지시 | instruction (string)'],
           gotKeys: Object.keys(b),
         })
       }
-      const 결과 = setMany(ids, patch, b.meta || {})
+      const result = setMany(ids, patch, b.meta || {})
 
       /**
        * 🔴 감시를 켰으면 **지금 한 번 기록한다.**
@@ -214,11 +214,11 @@ const server = createServer(async (req, res) => {
        *   여러 세션을 한꺼번에 켜도 한 번이면 되고, 예약 회차와 겹쳐도
        *   단일 실행 락이 받아낸다(중복은 exit 0).
        */
-      if (patch.감시 === true) {
+      if (patch.watch === true) {
         try { runNow('heartbeat') } catch { /* 기록 실패가 켜기를 막지 않는다 */ }
       }
 
-      return json(res, 200, { ok: true, 결과 })
+      return json(res, 200, { ok: true, result })
     }
 
     /**
@@ -238,7 +238,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/api/targets/remove') {
       const b = await readBody(req)
       const { ids, bad } = checkIds(b)
-      if (bad.length) return json(res, 400, { 오류: 'sessionId 형태가 아니다', 자세히: bad.map(String) })
+      if (bad.length) return json(res, 400, { error: 'sessionId 형태가 아니다', detail: bad.map(String) })
       for (const id of ids) removeTarget(id)
       return json(res, 200, { ok: true, removed: ids.length })
     }
@@ -246,7 +246,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/api/rearm') {
       const b = await readBody(req)
       const { ids, bad } = checkIds(b)
-      if (bad.length) return json(res, 400, { 오류: 'sessionId 형태가 아니다', 자세히: bad.map(String) })
+      if (bad.length) return json(res, 400, { error: 'sessionId 형태가 아니다', detail: bad.map(String) })
       for (const id of ids) {
         const P = statePaths(id)
         saveRunState(P.resumeState, rearm(loadRunState(P.resumeState)))
@@ -286,22 +286,22 @@ const server = createServer(async (req, res) => {
         const good = [], bad = []
         for (const [k, v] of Object.entries(values)) {
           const r = validateValue(k, v)
-          if (r.ok) good.push(`${k}=${r.값}`)
+          if (r.ok) good.push(`${k}=${r.value}`)
           else bad.push(`${k}: ${r.why}`)
         }
-        if (bad.length) return json(res, 400, { 오류: '쓸 수 없는 값이다', 자세히: bad })
-        if (!good.length) return json(res, 400, { 오류: 'values 가 비었다' })
+        if (bad.length) return json(res, 400, { error: '쓸 수 없는 값이다', detail: bad })
+        if (!good.length) return json(res, 400, { error: 'values 가 비었다' })
         args2 = ['--set', ...good]
       }
-      if (!args2) return json(res, 400, { 오류: "action 은 'apply' · 'restore' · 'set' 중 하나여야 한다" })
+      if (!args2) return json(res, 400, { error: "action 은 'apply' · 'restore' · 'set' 중 하나여야 한다" })
 
       const r = spawnSync(process.execPath, [join(RS_HOME, 'src', 'pc.mjs'), ...args2], {
         cwd: RS_HOME, encoding: 'utf8', timeout: 60000, windowsHide: true,
       })
       // 바꿨으면 캐시가 거짓말을 한다 — 다음 조회가 새로 읽게 한다
       clearCache()
-      const 출력 = `${r.stdout || ''}${r.stderr || ''}`.trim()
-      return json(res, 200, { ok: r.status === 0, actions: b.action, exit: r.status, 출력, nowMs: pcState({ force: true }) })
+      const output = `${r.stdout || ''}${r.stderr || ''}`.trim()
+      return json(res, 200, { ok: r.status === 0, actions: b.action, exit: r.status, output, nowMs: pcState({ force: true }) })
     }
 
     if (req.method === 'POST' && p === '/api/run') {
@@ -310,11 +310,11 @@ const server = createServer(async (req, res) => {
       // 🔴 이 값은 자식 프로세스의 인자가 된다. 형태를 확인하지 않으면 `--session a` 처럼
       //   앞글자만 주어 의도하지 않은 세션까지 걸리게 할 수 있다(대상들() 은 앞자리로 맞춘다).
       const sid = b.sessionId || null
-      if (sid && !isSessionId(sid)) return json(res, 400, { 오류: 'sessionId 형태가 아니다' })
+      if (sid && !isSessionId(sid)) return json(res, 400, { error: 'sessionId 형태가 아니다' })
       return json(res, 200, runNow(kind, sid))
     }
 
-    return json(res, 404, { 오류: `없는 경로: ${p}` })
+    return json(res, 404, { error: `없는 경로: ${p}` })
   } catch (e) {
     /**
      * 🔴 **누구의 잘못인지** 상태 코드로 구별한다.
@@ -324,7 +324,7 @@ const server = createServer(async (req, res) => {
      *   이 저장소가 반복해서 고쳐 온 것과 같은 부류다 — 고칠 수 있는 이유를 감추지 않는다.
      */
     const clientFault = /JSON 이 아니다|본문이 너무 크다/.test(e.message || '')
-    return json(res, clientFault ? 400 : 500, { 오류: e.message })
+    return json(res, clientFault ? 400 : 500, { error: e.message })
   }
 })
 

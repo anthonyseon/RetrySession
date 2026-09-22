@@ -16,11 +16,11 @@
  */
 import { execSync, spawn } from 'node:child_process'
 
-export const 작업이름 = {
-  하트비트: 'EasyAI-RetrySession-Heartbeat',
-  재시작: 'EasyAI-RetrySession-Resume',
+export const taskNames = {
+  heartbeat: 'EasyAI-RetrySession-Heartbeat',
+  restart: 'EasyAI-RetrySession-Resume',
   UI: 'EasyAI-RetrySession-UI',
-  트레이: 'EasyAI-RetrySession-Tray',
+  tray: 'EasyAI-RetrySession-Tray',
 }
 
 /**
@@ -74,7 +74,7 @@ const _cache = new Map()
 
 /** PowerShell 한 줄. 동기·비동기 두 길이 **같은 명령**을 쓴다 (두 벌로 만들지 않는다) */
 function psCommand() {
-  const names = Object.values(작업이름)
+  const names = Object.values(taskNames)
   const list = names.map((n) => `'${n}'`).join(',')
   // 날짜는 고정 형식으로 찍는다 — 로케일 날짜 문자열은 파싱도 표시도 불안정하다
   const ps = [
@@ -96,11 +96,11 @@ function psCommand() {
 
 const parseOut = (out) => {
   const parsed = JSON.parse(out)
-  return { ok: true, rows: Array.isArray(parsed) ? parsed : [parsed], 오류: null }
+  return { ok: true, rows: Array.isArray(parsed) ? parsed : [parsed], error: null }
 }
 const toQueryError = (e) => ({
   ok: false, rows: [],
-  오류: (e.stderr || e.message || '').toString().trim().slice(0, 300) || '조회 실패',
+  error: (e.stderr || e.message || '').toString().trim().slice(0, 300) || '조회 실패',
 })
 
 function query() {
@@ -160,31 +160,31 @@ function refreshAsync() {
 export function taskState({ ttlMs = 30000 } = {}) {
   const hit = _cache.get('tasks')
   if (hit && Date.now() - hit.at < ttlMs) {
-    return { ...hit.v, 캐시됨: true, 나이ms: Date.now() - hit.at }
+    return { ...hit.v, cached: true, ageMs: Date.now() - hit.at }
   }
   if (hit) {
     refreshAsync()
-    return { ...hit.v, 캐시됨: true, 낡음: true, 나이ms: Date.now() - hit.at }
+    return { ...hit.v, cached: true, stale: true, ageMs: Date.now() - hit.at }
   }
 
   const v = buildTaskTable(query())
   _cache.set('tasks', { at: Date.now(), v })
-  return { ...v, 캐시됨: false, 나이ms: 0 }
+  return { ...v, cached: false, ageMs: 0 }
 }
 
 /** 조회 결과 → 작업별 판정. 순수 함수 (동기·비동기 두 길이 함께 쓴다) */
 function buildTaskTable(r) {
   const byName = new Map(r.rows.map((x) => [x.name, x]))
   const v = {}
-  for (const [키, name] of Object.entries(작업이름)) {
+  for (const [key, name] of Object.entries(taskNames)) {
     const x = byName.get(name)
     if (!r.ok) {
       // 🔴 조회 실패를 "미등록"으로 답하지 않는다 — 있는 작업을 없다고 하면 엉뚱하게 재등록한다
-      v[키] = { 이름: name, queryFailed: true, 등록됨: null, 오류: r.오류 }
+      v[key] = { name: name, queryFailed: true, registered: null, error: r.error }
       continue
     }
     if (!x || !x.registered) {
-      v[키] = { 이름: name, 등록됨: false, 상태: null, 마지막실행: null, 마지막결과: null, resultText: null, 정상: false, 오류: null }
+      v[key] = { name: name, registered: false, state: null, lastRun: null, lastResult: null, resultText: null, healthy: false, error: null }
       continue
     }
     /**
@@ -195,24 +195,24 @@ function buildTaskTable(r) {
      *   그건 고장이 아니다. 실측: start.ps1 -Restart 한 뒤 "예약 작업이 실패로
      *   끝났습니다 / 코드 4294967295" 경보가 떴고, 그때 트레이는 정상 기동해 있었다.
      */
-    const 돌고있음 = isRunningState(x.state)
-    const 중지됨 = isStoppedResult(x.lastResult)
-    v[키] = {
-      이름: name,
-      등록됨: true,
-      상태: x.state || null,
-      돌고있음,
-      마지막실행: x.lastRun || null,
-      마지막결과: x.lastResult ?? null,
+    const isRunning = isRunningState(x.state)
+    const stopped = isStoppedResult(x.lastResult)
+    v[key] = {
+      name: name,
+      registered: true,
+      state: x.state || null,
+      isRunning,
+      lastRun: x.lastRun || null,
+      lastResult: x.lastResult ?? null,
       resultText: resultText(x.lastResult),
       // 돌고 있으면 정상이다. 아니면 마지막 결과로 판정한다.
       // ⚠ 이것은 **작업**이 정상이라는 뜻이지 **서비스가 응답한다**는 뜻이 아니다 —
       //   "등록됨"과 "서비스 중"의 구별은 이 저장소의 핵심 교훈이다(/api/ping 이 그쪽을 본다).
-      정상: 돌고있음 || isOkResult(x.lastResult),
+      healthy: isRunning || isOkResult(x.lastResult),
       // 멈춘 것인가 고장인가 — 대처가 다르므로 화면·경보가 다른 문구를 쓴다
-      중지됨: !돌고있음 && 중지됨,
-      다음실행: x.nextRun || null,
-      오류: null,
+      stopped: !isRunning && stopped,
+      nextRun: x.nextRun || null,
+      error: null,
     }
   }
   return v

@@ -30,7 +30,7 @@ const lockDir = () => {
   return d
 }
 
-export const lockPath = (이름) => join(lockDir(), `${이름}.lock`)
+export const lockPath = (name) => join(lockDir(), `${name}.lock`)
 
 /** pid 가 살아있나. 신호 0 은 아무것도 보내지 않고 존재만 확인한다 */
 const isAlive = (pid) => {
@@ -42,15 +42,15 @@ const isAlive = (pid) => {
  * 락을 들여다본다(잡지 않는다). 상태 화면이 중복을 보고할 때 쓴다.
  * @returns {{점유:boolean, pid:number|null, at:string|null, 나이분:number|null, 낡음:boolean}}
  */
-export function lockState(이름, staleMin = 60) {
-  const p = lockPath(이름)
-  if (!existsSync(p)) return { 점유: false, pid: null, at: null, 나이분: null, 낡음: false }
+export function lockState(name, staleMin = 60) {
+  const p = lockPath(name)
+  if (!existsSync(p)) return { held: false, pid: null, at: null, ageMin: null, stale: false }
   let h = null
   try { h = JSON.parse(readFileSync(p, 'utf8')) } catch { /* 깨진 락은 낡은 것으로 본다 */ }
-  const 나이분 = h?.atEpoch ? Math.round(minutesSince(h.atEpoch)) : null
+  const ageMin = h?.atEpoch ? Math.round(minutesSince(h.atEpoch)) : null
   const alive = isAlive(h?.pid)
-  const 낡음 = !alive || (나이분 !== null && 나이분 >= staleMin)
-  return { 점유: alive && !낡음, pid: h?.pid ?? null, at: h?.at ?? null, 나이분, 낡음 }
+  const stale = !alive || (ageMin !== null && ageMin >= staleMin)
+  return { held: alive && !stale, pid: h?.pid ?? null, at: h?.at ?? null, ageMin, stale }
 }
 
 /**
@@ -60,8 +60,8 @@ export function lockState(이름, staleMin = 60) {
  * @param 낡음분 이 시간을 넘긴 락은 회수한다. 오래 도는 것일수록 크게 준다.
  * @returns {{ok:boolean, why:string|null, 이전:object|null}}
  */
-export function grab(이름, { staleMin = 60 } = {}) {
-  const p = lockPath(이름)
+export function grab(name, { staleMin = 60 } = {}) {
+  const p = lockPath(name)
 
   /**
    * 🔴 만들기 자체가 잠금이어야 한다.
@@ -74,7 +74,7 @@ export function grab(이름, { staleMin = 60 } = {}) {
   const make = () => {
     try {
       writeFileSync(p, JSON.stringify({
-        이름, pid: process.pid, at: localStamp(), atEpoch: Date.now(),
+        name, pid: process.pid, at: localStamp(), atEpoch: Date.now(),
         argv: process.argv.slice(2).join(' '),
       }, null, 2) + '\n', { flag: 'wx' })
       return true
@@ -85,19 +85,19 @@ export function grab(이름, { staleMin = 60 } = {}) {
   }
 
   if (!make()) {
-    const s = lockState(이름, staleMin)
-    if (s.점유) {
+    const s = lockState(name, staleMin)
+    if (s.held) {
       return {
         ok: false,
-        why: `이미 돌고 있다 (pid ${s.pid}, ${s.at ?? '?'} 시작${s.나이분 !== null ? `, ${s.나이분}분 전` : ''})`,
-        이전: s,
+        why: `이미 돌고 있다 (pid ${s.pid}, ${s.at ?? '?'} 시작${s.ageMin !== null ? `, ${s.ageMin}분 전` : ''})`,
+        prev: s,
       }
     }
     // 죽은 프로세스이거나 한계를 넘겼다 — 회수하고 딱 한 번 다시 잡는다
     try { rmSync(p, { force: true }) } catch { /* 못 지우면 아래에서 실패로 답한다 */ }
     if (!make()) {
       // 회수하는 사이에 남이 잡았다. 양보한다 — 모르면 안 도는 쪽이 안전하다.
-      return { ok: false, why: '낡은 락을 회수하는 사이에 다른 프로세스가 잡았다', 이전: lockState(이름, staleMin) }
+      return { ok: false, why: '낡은 락을 회수하는 사이에 다른 프로세스가 잡았다', prev: lockState(name, staleMin) }
     }
   }
 
@@ -118,7 +118,7 @@ export function grab(이름, { staleMin = 60 } = {}) {
     process.on(sig, () => { release(); process.exit(0) })
   }
 
-  return { ok: true, why: null, 이전: null }
+  return { ok: true, why: null, prev: null }
 }
 
 /**
@@ -126,10 +126,10 @@ export function grab(이름, { staleMin = 60 } = {}) {
  *
  * 🔴 exit 0 이다 — 중복은 실패가 아니다(파일 머리 주석 참조).
  */
-export function singleInstance(이름, { staleMin = 60, quietly = false } = {}) {
-  const r = grab(이름, { staleMin })
+export function singleInstance(name, { staleMin = 60, quietly = false } = {}) {
+  const r = grab(name, { staleMin })
   if (!r.ok) {
-    if (!quietly) console.log(`⛔ ${이름}: ${r.why} — 이번 실행은 건너뛴다`)
+    if (!quietly) console.log(`⛔ ${name}: ${r.why} — 이번 실행은 건너뛴다`)
     process.exit(0)
   }
   return r
@@ -139,8 +139,8 @@ export function singleInstance(이름, { staleMin = 60, quietly = false } = {}) 
 export function allLockState() {
   const limit = { heartbeat: 30, resume: 90, ui: 24 * 60 }
   const out = {}
-  for (const [이름, staleMin] of Object.entries(limit)) {
-    out[이름] = { ...lockState(이름, staleMin), 낡음한계분: staleMin }
+  for (const [name, staleMin] of Object.entries(limit)) {
+    out[name] = { ...lockState(name, staleMin), staleLimitMin: staleMin }
   }
   return out
 }

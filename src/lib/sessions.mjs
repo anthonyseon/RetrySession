@@ -31,12 +31,12 @@ export const emptyTotals = (sessionId, slug) => ({
   //   실측: 세션 79e0e7e8 은 EasyAI.Platform(1443) · Description(4378) · Description/_plan/_resume(23)
   //   를 오갔다. 시작한 곳과 마지막으로 일한 곳이 다르고, 둘 다 쓸모가 다르다 —
   //   시작한 곳은 재시작을 띄울 자리이고, 마지막으로 일한 곳은 무엇을 하던 중이었나다.
-  cwd시작: null, cwd최근: null, cwd분포: {},
+  cwdStart: null, cwdLatest: null, cwdDist: {},
   gitBranch: null, version: null, title: null,
-  첫활동: null, 마지막활동: null,
-  사용자메시지: 0, 어시스턴트메시지: 0, 도구호출: 0,
-  모델별: {},
-  할당량: null,
+  firstAt: null, lastAt: null,
+  userMsgs: 0, assistantMsgs: 0, toolCalls: 0,
+  byModel: {},
+  quota: null,
   /**
    * 🔴 이 세션이 **사용량 제한에 잘려서** 멈췄는가.
    *
@@ -51,8 +51,8 @@ export const emptyTotals = (sessionId, slug) => ({
    *   순차로 접으므로, 제한 알림을 만나면 켜고 다른 발화를 만나면 끈다.
    *   마지막 값이 곧 "마지막 엔트리가 제한 알림이었나"다.
    */
-  제한으로멈춤: false,
-  제한알림at: null,
+  stoppedByLimit: false,
+  limitNoticeAt: null,
 })
 
 /**
@@ -64,9 +64,9 @@ export const emptyTotals = (sessionId, slug) => ({
 export function isLimitNotice(message) {
   if (!message || normalizeModel(message.model) !== '<synthetic>') return false
   const c = message.content
-  const 글 = typeof c === 'string' ? c
+  const label = typeof c === 'string' ? c
     : Array.isArray(c) ? c.map((b) => (b && b.type === 'text' ? b.text : '')).join(' ') : ''
-  return /limit/i.test(글) && /(reset|usage|session|weekly)/i.test(글)
+  return /limit/i.test(label) && /(reset|usage|session|weekly)/i.test(label)
 }
 
 /** 분포 집계용 정규화 — config.mjs 의 공용 함수를 쓴다(제각기 정규화하면 키가 갈라진다) */
@@ -78,12 +78,12 @@ function extractTokens(u) {
   // cache_creation 세부가 없는 구버전은 전체를 5분 쓰기로 본다 — 싼 쪽으로 기울지 않게
   const hasDetailLine = typeof cc.ephemeral_1h_input_tokens === 'number' || typeof cc.ephemeral_5m_input_tokens === 'number'
   return {
-    입력: u.input_tokens || 0,
-    캐시쓰기1h: hasDetailLine ? (cc.ephemeral_1h_input_tokens || 0) : 0,
-    캐시쓰기5m: hasDetailLine ? (cc.ephemeral_5m_input_tokens || 0) : (u.cache_creation_input_tokens || 0),
-    캐시읽기: u.cache_read_input_tokens || 0,
-    출력: u.output_tokens || 0,
-    사고: u.output_tokens_details?.thinking_tokens || 0,
+    input: u.input_tokens || 0,
+    cacheWrite1h: hasDetailLine ? (cc.ephemeral_1h_input_tokens || 0) : 0,
+    cacheWrite5m: hasDetailLine ? (cc.ephemeral_5m_input_tokens || 0) : (u.cache_creation_input_tokens || 0),
+    cacheRead: u.cache_read_input_tokens || 0,
+    output: u.output_tokens || 0,
+    thinking: u.output_tokens_details?.thinking_tokens || 0,
   }
 }
 
@@ -107,48 +107,48 @@ function findQuota(o, depth = 0) {
 export function foldEntry(acc, j) {
   const ts = j.timestamp ? Date.parse(j.timestamp) : NaN
   if (Number.isFinite(ts)) {
-    if (acc.첫활동 === null || ts < acc.첫활동) acc.첫활동 = ts
-    if (acc.마지막활동 === null || ts > acc.마지막활동) acc.마지막활동 = ts
+    if (acc.firstAt === null || ts < acc.firstAt) acc.firstAt = ts
+    if (acc.lastAt === null || ts > acc.lastAt) acc.lastAt = ts
   }
   if (j.cwd) {
     const k = cwdKey(j.cwd)
-    if (!acc.cwd시작) acc.cwd시작 = k
-    acc.cwd최근 = k
-    acc.cwd분포[k] = (acc.cwd분포[k] || 0) + 1
+    if (!acc.cwdStart) acc.cwdStart = k
+    acc.cwdLatest = k
+    acc.cwdDist[k] = (acc.cwdDist[k] || 0) + 1
   }
   if (j.gitBranch) acc.gitBranch = j.gitBranch
   if (j.version) acc.version = j.version
 
   if (j.type === 'ai-title' && j.aiTitle) acc.title = j.aiTitle
 
-  else if (j.type === 'user') { acc.사용자메시지++; acc.제한으로멈춤 = false }
+  else if (j.type === 'user') { acc.userMsgs++; acc.stoppedByLimit = false }
 
   else if (j.type === 'assistant') {
-    acc.어시스턴트메시지++
+    acc.assistantMsgs++
     const m = j.message || {}
     // 마지막 엔트리가 제한 알림이면 "잘린 채 멈춰 있다"는 뜻이다(빈껍데기 주석 참조)
     if (isLimitNotice(m)) {
-      acc.제한으로멈춤 = true
-      if (Number.isFinite(ts)) acc.제한알림at = ts
+      acc.stoppedByLimit = true
+      if (Number.isFinite(ts)) acc.limitNoticeAt = ts
     } else {
-      acc.제한으로멈춤 = false
+      acc.stoppedByLimit = false
     }
     if (Array.isArray(m.content)) {
-      for (const b of m.content) if (b && b.type === 'tool_use') acc.도구호출++
+      for (const b of m.content) if (b && b.type === 'tool_use') acc.toolCalls++
     }
     if (m.usage) {
       const id = m.model || '(모델미상)'
-      const cur = acc.모델별[id] || emptyTokens()
+      const cur = acc.byModel[id] || emptyTokens()
       const t = extractTokens(m.usage)
       for (const k of Object.keys(cur)) cur[k] += t[k] || 0
-      acc.모델별[id] = cur
+      acc.byModel[id] = cur
     }
   }
 
   // 할당량은 어느 엔트리에든 붙을 수 있다. 가장 최근 것만 남긴다.
   const q = findQuota(j)
-  if (q && (acc.할당량 === null || (Number.isFinite(ts) && ts >= (acc.할당량._at || 0)))) {
-    acc.할당량 = { ...q, _at: Number.isFinite(ts) ? ts : Date.now() }
+  if (q && (acc.quota === null || (Number.isFinite(ts) && ts >= (acc.quota._at || 0)))) {
+    acc.quota = { ...q, _at: Number.isFinite(ts) ? ts : Date.now() }
   }
   return acc
 }
@@ -187,7 +187,7 @@ function readPs(path, offset, size) {
   } finally { closeSync(fd) }
 }
 
-function 캐시읽기() {
+function cacheRead() {
   if (!existsSync(cacheFile)) return {}
   try { return JSON.parse(readFileSync(cacheFile, 'utf8')) } catch { return {} }
 }
@@ -198,15 +198,15 @@ function 캐시읽기() {
  * @returns {{sessions:Array, 할당량:object|null, 스캔:{파일:number, 새로읽음:number, ms:number}}}
  */
 export function scanSessions({ slugs = null, useCache = true } = {}) {
-  const 시작 = Date.now()
+  const startedText = Date.now()
   const root = claudeProjectsRoot()
   const out = []
-  const cacheBox = useCache ? 캐시읽기() : {}
+  const cacheBox = useCache ? cacheRead() : {}
   const newCache = {}
-  let 새로읽음 = 0, fileCount = 0
+  let freshRead = 0, fileCount = 0
 
   if (!root || !existsSync(root)) {
-    return { sessions: [], 할당량: null, 스캔: { 파일: 0, 새로읽음: 0, ms: 0 }, 오류: `~/.claude/projects 를 찾을 수 없다` }
+    return { sessions: [], quota: null, scan: { files: 0, freshRead: 0, ms: 0 }, error: `~/.claude/projects 를 찾을 수 없다` }
   }
 
   for (const slug of readdirSync(root)) {
@@ -232,30 +232,30 @@ export function scanSessions({ slugs = null, useCache = true } = {}) {
       } else if (c && c.acc && fs_.size > c.size) {
         acc = c.acc; offset = c.offset // 자랐다 — 자란 부분만 읽는다
         const r = readPs(path, offset, fs_.size)
-        foldLines(acc, r.text); offset = r.nextOffset; 새로읽음++
+        foldLines(acc, r.text); offset = r.nextOffset; freshRead++
       } else {
         acc = emptyTotals(sessionId, slug); offset = 0 // 처음이거나 줄었다 — 전체를 읽는다
         const r = readPs(path, 0, fs_.size)
-        foldLines(acc, r.text); offset = r.nextOffset; 새로읽음++
+        foldLines(acc, r.text); offset = r.nextOffset; freshRead++
       }
 
       newCache[path] = { size: fs_.size, mtimeMs: fs_.mtimeMs, offset, acc }
 
-      const cost = totalCost(acc.모델별)
+      const cost = totalCost(acc.byModel)
       // 가장 많이 머문 곳 — "무엇을 하던 세션인가"를 가장 잘 말해준다
-      const 주작업cwd = Object.entries(acc.cwd분포).sort((a, b) => b[1] - a[1])[0]?.[0] || null
+      const mainCwd = Object.entries(acc.cwdDist).sort((a, b) => b[1] - a[1])[0]?.[0] || null
       out.push({
         ...acc,
-        주작업cwd,
-        cwd상위: Object.entries(acc.cwd분포).sort((a, b) => b[1] - a[1]).slice(0, 4)
-          .map(([p, n]) => ({ 경로: p, 엔트리: n })),
-        파일: path,
-        바이트: fs_.size,
-        수정epoch: fs_.mtimeMs,
-        활성분: +((Date.now() - fs_.mtimeMs) / 60000).toFixed(1),
-        토큰합: Object.values(acc.모델별).reduce((s, t) => s + t.입력 + t.캐시쓰기1h + t.캐시쓰기5m + t.캐시읽기 + t.출력, 0),
-        비용USD: cost.usd,
-        비용추정포함: cost.추정포함,
+        mainCwd,
+        cwdTop: Object.entries(acc.cwdDist).sort((a, b) => b[1] - a[1]).slice(0, 4)
+          .map(([p, n]) => ({ path: p, entries: n })),
+        files: path,
+        bytes: fs_.size,
+        mtimeEpoch: fs_.mtimeMs,
+        activeMin: +((Date.now() - fs_.mtimeMs) / 60000).toFixed(1),
+        tokenSum: Object.values(acc.byModel).reduce((s, t) => s + t.input + t.cacheWrite1h + t.cacheWrite5m + t.cacheRead + t.output, 0),
+        costUSD: cost.usd,
+        costHasEstimate: cost.hasEstimate,
       })
     }
   }
@@ -264,13 +264,13 @@ export function scanSessions({ slugs = null, useCache = true } = {}) {
   try { writeAtomic(cacheFile, JSON.stringify(newCache)) } catch { /* 캐시 실패로 조회를 막지 않는다 */ }
 
   // 가장 최근 활동 순
-  out.sort((a, b) => b.수정epoch - a.수정epoch)
+  out.sort((a, b) => b.mtimeEpoch - a.mtimeEpoch)
 
   // 할당량은 전 세션 중 가장 최근 것이 현재 상태에 가장 가깝다
-  let 할당량 = null
+  let quota = null
   for (const s of out) {
-    if (s.할당량 && (!할당량 || s.할당량._at > 할당량._at)) 할당량 = s.할당량
+    if (s.quota && (!quota || s.quota._at > quota._at)) quota = s.quota
   }
 
-  return { sessions: out, 할당량, 스캔: { 파일: fileCount, 새로읽음, ms: Date.now() - 시작 } }
+  return { sessions: out, quota, scan: { files: fileCount, freshRead, ms: Date.now() - startedText } }
 }

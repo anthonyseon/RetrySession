@@ -6,7 +6,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { modelCost, totalCost, normalizeModel, priceTable, emptyTokens, 토큰합, compact, isBillable } from '../src/lib/pricing.mjs'
+import { modelCost, totalCost, normalizeModel, priceTable, emptyTokens, tokenSum, compact, isBillable } from '../src/lib/pricing.mjs'
 
 /** CLI 가 보고한 값과의 차이가 부동소수 오차 안인가 */
 const same = (actual, reported) =>
@@ -14,18 +14,18 @@ const same = (actual, reported) =>
     `보고값 ${reported} 와 어긋난다: ${actual} (차이 ${Math.abs(actual - reported)})`)
 
 test('🔴 실측 표본1 — cacheWrite1h 위주 (claude-opus-5, 보고값 $0.21362)', () => {
-  const t = { ...emptyTokens(), 입력: 2, 캐시쓰기1h: 21351, 출력: 4 }
+  const t = { ...emptyTokens(), input: 2, cacheWrite1h: 21351, output: 4 }
   same(modelCost('claude-opus-5', t).usd, 0.21362)
 })
 
 test('🔴 실측 표본2 — cacheRead 포함 (claude-opus-5, 보고값 $0.0408015)', () => {
-  const t = { ...emptyTokens(), 입력: 2, 캐시쓰기1h: 3160, 캐시읽기: 18183, 출력: 4 }
+  const t = { ...emptyTokens(), input: 2, cacheWrite1h: 3160, cacheRead: 18183, output: 4 }
   same(modelCost('claude-opus-5', t).usd, 0.0408015)
 })
 
 test('🔴 중간 반올림을 하지 않는다 — 누적 오차가 생긴다', () => {
   // 6자리로 자르면 이 값은 0.040801 이 되어 5e-7 어긋난다
-  const t = { ...emptyTokens(), 입력: 2, 캐시쓰기1h: 3160, 캐시읽기: 18183, 출력: 4 }
+  const t = { ...emptyTokens(), input: 2, cacheWrite1h: 3160, cacheRead: 18183, output: 4 }
   const usd = modelCost('claude-opus-5', t).usd
   assert.notEqual(usd, 0.040801, '반올림된 값이면 정확도를 잃은 것이다')
 })
@@ -33,33 +33,33 @@ test('🔴 중간 반올림을 하지 않는다 — 누적 오차가 생긴다',
 test('배수가 단가표에서 온다 — 코드에 박혀 있지 않다', () => {
   const table = priceTable()
   assert.equal(table.factor.cacheWrite1h, 2)
-  assert.equal(table.factor.캐시읽기, 0.1)
-  assert.equal(table.모델['claude-opus-5'].입력, 5)
-  assert.equal(table.모델['claude-opus-5'].출력, 25)
+  assert.equal(table.factor.cacheRead, 0.1)
+  assert.equal(table.models['claude-opus-5'].input, 5)
+  assert.equal(table.models['claude-opus-5'].output, 25)
 })
 
 test('캐시읽기는 입력의 1/10 이다', () => {
-  const a = modelCost('claude-opus-5', { ...emptyTokens(), 입력: 1_000_000 }).usd
-  const b = modelCost('claude-opus-5', { ...emptyTokens(), 캐시읽기: 1_000_000 }).usd
+  const a = modelCost('claude-opus-5', { ...emptyTokens(), input: 1_000_000 }).usd
+  const b = modelCost('claude-opus-5', { ...emptyTokens(), cacheRead: 1_000_000 }).usd
   assert.equal(a, 5)
   assert.equal(b, 0.5)
 })
 
 test('모델별로 단가가 다르다', () => {
-  const t = { ...emptyTokens(), 입력: 1_000_000 }
+  const t = { ...emptyTokens(), input: 1_000_000 }
   assert.equal(modelCost('claude-sonnet-5', t).usd, 2)
   assert.equal(modelCost('claude-haiku-4-5', t).usd, 1)
   assert.equal(modelCost('claude-fable-5-1', t).usd, 10)
 })
 
 test('🔴 모르는 모델은 0 이 아니라 기본 단가로 계산하고 추정으로 표시한다', () => {
-  const r = modelCost('claude-미래모델-9', { ...emptyTokens(), 입력: 1_000_000 })
-  assert.equal(r.추정, true, '추정임을 알려야 한다')
+  const r = modelCost('claude-미래모델-9', { ...emptyTokens(), input: 1_000_000 })
+  assert.equal(r.estimated, true, '추정임을 알려야 한다')
   assert.ok(r.usd > 0, '0 으로 처리하면 비용을 감추는 것이다')
 })
 
 test('알려진 모델은 추정이 아니다', () => {
-  assert.equal(modelCost('claude-opus-5', emptyTokens()).추정, false)
+  assert.equal(modelCost('claude-opus-5', emptyTokens()).estimated, false)
 })
 
 test('normalizeModel — CLI 가 붙이는 컨텍스트 접미사를 떼낸다 (실측: claude-opus-5[1m])', () => {
@@ -69,21 +69,21 @@ test('normalizeModel — CLI 가 붙이는 컨텍스트 접미사를 떼낸다 (
 })
 
 test('접미사가 붙어도 정가로 계산된다 — 추정으로 떨어지지 않는다', () => {
-  const r = modelCost('claude-opus-5[1m]', { ...emptyTokens(), 입력: 1_000_000 })
-  assert.equal(r.추정, false)
+  const r = modelCost('claude-opus-5[1m]', { ...emptyTokens(), input: 1_000_000 })
+  assert.equal(r.estimated, false)
   assert.equal(r.usd, 5)
 })
 
 test('totalCost — 여러 모델을 합하고 추정 포함 여부를 알린다', () => {
   const r = totalCost({
-    'claude-opus-5': { ...emptyTokens(), 입력: 1_000_000 },
-    'claude-sonnet-5': { ...emptyTokens(), 입력: 1_000_000 },
+    'claude-opus-5': { ...emptyTokens(), input: 1_000_000 },
+    'claude-sonnet-5': { ...emptyTokens(), input: 1_000_000 },
   })
   assert.equal(r.usd, 7)
-  assert.equal(r.추정포함, false)
+  assert.equal(r.hasEstimate, false)
 
-  const r2 = totalCost({ '이상한모델': { ...emptyTokens(), 입력: 1000 } })
-  assert.equal(r2.추정포함, true)
+  const r2 = totalCost({ '이상한모델': { ...emptyTokens(), input: 1000 } })
+  assert.equal(r2.hasEstimate, true)
 })
 
 test('totalCost — 빈 입력은 0', () => {
@@ -92,10 +92,10 @@ test('totalCost — 빈 입력은 0', () => {
 })
 
 test('토큰합', () => {
-  const r = 토큰합({ 입력: 1, 출력: 2 }, { 입력: 10, 캐시읽기: 5 })
-  assert.equal(r.입력, 11)
-  assert.equal(r.출력, 2)
-  assert.equal(r.캐시읽기, 5)
+  const r = tokenSum({ input: 1, output: 2 }, { input: 10, cacheRead: 5 })
+  assert.equal(r.input, 11)
+  assert.equal(r.output, 2)
+  assert.equal(r.cacheRead, 5)
 })
 
 test('압축 표기', () => {
@@ -117,25 +117,25 @@ test('압축 표기', () => {
 test('🔴 <synthetic> 는 모델이 아니다 — 비용 0, 추정도 아니다', () => {
   const r = modelCost('<synthetic>', emptyTokens())
   assert.equal(r.usd, 0)
-  assert.equal(r.추정, false, '모델이 아닌 것을 추정으로 표시하면 거짓 경고가 된다')
+  assert.equal(r.estimated, false, '모델이 아닌 것을 추정으로 표시하면 거짓 경고가 된다')
 })
 
 test('🔴 <synthetic> 에 토큰이 붙어 있으면 추정으로 되돌린다 (조용히 감추지 않는다)', () => {
   // 우리가 잘못 안 경우다. 0 으로 감추면 비용을 숨기는 것이 된다.
-  const r = modelCost('<synthetic>', { ...emptyTokens(), 출력: 1000 })
-  assert.equal(r.추정, true, '토큰이 있으면 계산해야 하고, 단가를 모르면 추정이다')
+  const r = modelCost('<synthetic>', { ...emptyTokens(), output: 1000 })
+  assert.equal(r.estimated, true, '토큰이 있으면 계산해야 하고, 단가를 모르면 추정이다')
   assert.ok(r.usd > 0, '토큰이 있으면 비용도 있어야 한다')
 })
 
 test('totalCost — <synthetic> 만 있으면 추정포함이 아니다', () => {
   const r = totalCost({ '<synthetic>': emptyTokens() })
   assert.equal(r.usd, 0)
-  assert.equal(r.추정포함, false)
+  assert.equal(r.hasEstimate, false)
 })
 
 test('totalCost — 진짜 모르는 모델은 여전히 추정으로 표시한다', () => {
-  const r = totalCost({ 'claude-미래-9': { ...emptyTokens(), 입력: 1_000_000 } })
-  assert.equal(r.추정포함, true, '모르는 모델을 0 으로 감추면 비용을 숨기는 것이다')
+  const r = totalCost({ 'claude-미래-9': { ...emptyTokens(), input: 1_000_000 } })
+  assert.equal(r.hasEstimate, true, '모르는 모델을 0 으로 감추면 비용을 숨기는 것이다')
   assert.ok(r.usd > 0)
 })
 

@@ -37,12 +37,12 @@ class FakeNode {
   get textContent() { return this._text + this.children.map((c) => c.textContent).join('') }
   set title(v) { this.attrs.title = v }
   get title() { return this.attrs.title }
-  append(...xs) { for (const x of xs) this.children.push(typeof x === 'string' ? new 글(x) : x) }
+  append(...xs) { for (const x of xs) this.children.push(typeof x === 'string' ? new label(x) : x) }
   setAttribute(k, v) { this.attrs[k] = String(v) }
   getAttribute(k) { return this.attrs[k] ?? null }
-  addEventListener(종류, fn) { (this._on ||= {})[종류] = fn }
+  addEventListener(kind, fn) { (this._on ||= {})[kind] = fn }
   /** 시험에서 사건을 흉내낸다 — 사람이 드롭다운을 고른 것과 같은 경로를 탄다 */
-  fire(종류) { this._on?.[종류]?.({ target: this }) }
+  fire(kind) { this._on?.[kind]?.({ target: this }) }
   get classList() { return { toggle() { }, add() { }, remove() { }, contains: () => false } }
   /** `select.pcsel` · `.pcsel` · `select` 만 안다 — 그 이상은 시험에 필요 없다 */
   querySelectorAll(selector) {
@@ -55,7 +55,7 @@ class FakeNode {
   }
   querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null }
 }
-class 글 extends FakeNode { constructor(t) { super('#text'); this._text = t } }
+class label extends FakeNode { constructor(t) { super('#text'); this._text = t } }
 
 /**
  * 최소 DOM 을 전역에 깔아둔다. **import 보다 먼저** 해야 한다 —
@@ -70,7 +70,7 @@ const cell = new Map()
 globalThis.Node = FakeNode
 globalThis.document = {
   createElement: (t) => new FakeNode(t),
-  createTextNode: (t) => new 글(t),
+  createTextNode: (t) => new label(t),
   documentElement: { dataset: {} },
   querySelector: (s) => {
     const id = s.startsWith('#') ? s.slice(1) : s
@@ -89,15 +89,15 @@ const { drawTiles } = await UI('summary.js')
  * PC 설정 모달은 **남의 PC 전원 설정을 바꾸는 화면**이다. 소스 정규식만으로
  * 시험하면 그려보지 않은 코드가 남고, 그 코드가 사고를 낸다.
  */
-const 설정 = await UI('setup.js')
+const config = await UI('setup.js')
 const { S } = await UI('common.js')
 
 /** 시험마다 화면을 비운다 (모듈은 한 번만 평가되므로 칸만 갈아준다) */
 export function prepareRender() {
   cell.clear()
-  S.상태 = null
-  설정.clearChosen()   // 지난 시험에서 고른 값·지문을 물려받지 않는다
-  return { drawTiles, cell, S, 설정, restored() { /* 전역 DOM 은 파일 전체에서 공유한다 */ } }
+  S.state = null
+  config.clearChosen()   // 지난 시험에서 고른 값·지문을 물려받지 않는다
+  return { drawTiles, cell, S, config, restored() { /* 전역 DOM 은 파일 전체에서 공유한다 */ } }
 }
 
 /**
@@ -110,33 +110,33 @@ export const readPs = (cell) => cell.get('tiles').children.map((g) => {
   const [h3, ...rows] = g.children
   const findCell = (r, cls) => r.children.find((c) => c.className === cls) || null
   return {
-    이름: h3.textContent,
+    name: h3.textContent,
     line: rows.map((r) => {
       const top = findCell(r, 'gtop')
       return [top.children[0].textContent, top.children[1].textContent.trim()]
     }),
     detailLine: rows.map((r) => findCell(r, 'gd')?.textContent ?? null),
-    설명: rows.map((r) => r.title || ''),
+    desc: rows.map((r) => r.title || ''),
   }
 })
 
 /* ── 표본 ────────────────────────────────────────────────────── */
 
-export const 정상 = () => ({
+export const healthy = () => ({
   at: '2026-09-21 13:00:00',
-  계정: { ok: true, email: 'a@b.c', subscriptionType: 'max', authMethod: 'oauth', orgName: 'Org' },
-  할당량: { 있음: true, 이미해제됨: true, 설명: '해제됨', 종류: 'unified', status: 'ok' },
-  ide: { 창: [{ 살아있음: true, 포트: 1, pid: 2, workspaceFolders: ['x'] }], 살아있는창: 1, 낡은lock: 0, 폴더: [] },
-  프로세스: { ok: true, 목록: [{ 출처: 'VS Code' }], 세션수: 1, 보조수: 0, 짝없음: [] },
-  작업: {
-    하트비트: { 이름: 'H', 등록됨: true, 상태: 'Ready', 정상: true, 돌고있음: false, 중지됨: false, resultText: '성공' },
-    재시작: { 이름: 'R', 등록됨: true, 상태: 'Ready', 정상: true, 돌고있음: false, 중지됨: false, resultText: '성공' },
-    UI: { 이름: 'U', 등록됨: true, 상태: 'Running', 정상: true, 돌고있음: true, 중지됨: false, resultText: '실행 중' },
-    트레이: { 이름: 'T', 등록됨: true, 상태: 'Running', 정상: true, 돌고있음: true, 중지됨: false, resultText: '실행 중' },
+  account: { ok: true, email: 'a@b.c', subscriptionType: 'max', authMethod: 'oauth', orgName: 'Org' },
+  quota: { exists: true, alreadyLifted: true, desc: '해제됨', kind: 'unified', status: 'ok' },
+  ide: { windows: [{ alive: true, port: 1, pid: 2, workspaceFolders: ['x'] }], liveWindows: 1, staleLocks: 0, folders: [] },
+  processes: { ok: true, items: [{ source: 'VS Code' }], sessionCount: 1, helperCount: 0, orphans: [] },
+  tasks: {
+    heartbeat: { name: 'H', registered: true, state: 'Ready', healthy: true, isRunning: false, stopped: false, resultText: '성공' },
+    restart: { name: 'R', registered: true, state: 'Ready', healthy: true, isRunning: false, stopped: false, resultText: '성공' },
+    UI: { name: 'U', registered: true, state: 'Running', healthy: true, isRunning: true, stopped: false, resultText: '실행 중' },
+    tray: { name: 'T', registered: true, state: 'Running', healthy: true, isRunning: true, stopped: false, resultText: '실행 중' },
   },
-  합계: {
-    세션수: 7, 실행중: 4, 실행여부앎: true, 감시켜짐: 2, 재시작켜짐: 0,
-    세션없는폴더: 0, 권한우회세션: 0, 총토큰: 1234567, 총USD: 4.21, 비용해석: '정가 환산 참고값',
+  totals: {
+    sessionCount: 7, running: 4, runKnown: true, watchOn: 2, restartOn: 0,
+    foldersNoSession: 0, bypassSessions: 0, totalTokens: 1234567, totalUSD: 4.21, costNote: '정가 환산 참고값',
   },
 })
 

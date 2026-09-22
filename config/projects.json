@@ -1,36 +1,36 @@
 {
-  "_주의": "RetrySession 설정 정본. 이 파일은 추적해도 되지만 경로는 PC마다 다르다 — 다른 PC에서는 projects.local.json 을 만들어 덮어쓴다(그쪽이 우선하고 추적하지 않는다).",
+  "_note": "RetrySession 설정 정본. 이 파일은 추적해도 되지만 경로는 PC마다 다르다 — 다른 PC에서는 projects.local.json 을 만들어 덮어쓴다(그쪽이 우선하고 추적하지 않는다).",
   "_읽는곳": "src/lib/config.mjs",
   "defaults": {
-    "하트비트": {
+    "heartbeat": {
       "주기분": 5,
-      "낡음한계분": 15,
+      "staleLimitMin": 15,
       "워크플로_살아있음분": 10
     },
     "_재개주석": {
-      "권한모드": "acceptEdits = 파일 편집은 허용, 그 밖의 권한은 거부된다. 완전 무인 진행은 bypassPermissions 가 필요하지만 그때는 무엇이든 실행할 수 있게 된다 — 올릴 때는 그 뜻을 알고 올려라.",
-      "하루최대비용USD": "claude -p 1회는 아무 일 없어도 최소 ~$0.21 든다(캐시 생성 21k 토큰, 실측). 횟수 상한만으로는 지출을 못 막으므로 비용 상한을 함께 둔다.",
-      "조용한시간": "null 이면 끈다. {\"from\":\"23:30\",\"to\":\"07:00\"} 처럼 자정을 넘길 수 있다."
+      "permissionMode": "acceptEdits = 파일 편집은 허용, 그 밖의 권한은 거부된다. 완전 무인 진행은 bypassPermissions 가 필요하지만 그때는 무엇이든 실행할 수 있게 된다 — 올릴 때는 그 뜻을 알고 올려라.",
+      "maxCostUSDPerDay": "claude -p 1회는 아무 일 없어도 최소 ~$0.21 든다(캐시 생성 21k 토큰, 실측). 횟수 상한만으로는 지출을 못 막으므로 비용 상한을 함께 둔다.",
+      "quietHours": "null 이면 끈다. {\"from\":\"23:30\",\"to\":\"07:00\"} 처럼 자정을 넘길 수 있다."
     },
     "resume": {
       "enabled": false,
       "주기분": 15,
-      "권한모드": "acceptEdits",
-      "최소간격분": 30,
-      "하루최대회": 12,
-      "하루최대비용USD": 5,
-      "타임아웃분": 30,
-      "세션활성분": 10,
-      "락낡음분": 60,
-      "연속실패한계": 3,
-      "조용한시간": null,
+      "permissionMode": "acceptEdits",
+      "minGapMin": 30,
+      "maxPerDay": 12,
+      "maxCostUSDPerDay": 5,
+      "timeoutMin": 30,
+      "sessionActiveMin": 10,
+      "lockStaleMin": 60,
+      "failStreakMax": 3,
+      "quietHours": null,
       "addDirs": []
     }
   },
   "projects": [
     {
       "id": "Description",
-      "설명": "인계계획 실행 추적 — 원본 하트비트(08-하트비트.mjs)가 돌던 곳",
+      "desc": "인계계획 실행 추적 — 원본 하트비트(08-하트비트.mjs)가 돌던 곳",
       "repo": "C:/AnthoySeon/Projects/EasyAI.Platform/Source/260713/Cnthoth-Dev/Description",
       "tracker": "_plan/_resume/07-실행추적.json",
       "_sessionSlugs": "~/.claude/projects/ 아래 폴더 이름. 세션 활성 감지와 워크플로 진행 스캔에 쓴다. Description 작업은 모노레포 루트 세션에서도 돌았으므로 둘 다 본다(실측).",

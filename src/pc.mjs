@@ -31,21 +31,21 @@ const icon = { ok: '✅', warn: '⚠', crit: '✖', unknown: '?', info: 'ℹ' }
 
 function render(verdict) {
   console.log('== PC 설정 — RetrySession 이 돌기 위한 조건 ==')
-  for (const x of verdict.목록) {
-    console.log(`  ${icon[x.수준] || ' '} ${x.이름.padEnd(22)} ${String(x.현재).padEnd(16)} (권장: ${x.권장})`)
-    if (x.왜) console.log(`      ${x.왜}`)
+  for (const x of verdict.items) {
+    console.log(`  ${icon[x.level] || ' '} ${x.name.padEnd(22)} ${String(x.current).padEnd(16)} (권장: ${x.recommended})`)
+    if (x.why) console.log(`      ${x.why}`)
   }
   console.log('')
-  if (verdict.수준 === 'ok') console.log('  ✅ 이 PC 는 RetrySession 이 계속 돌 수 있는 상태다.')
-  else if (verdict.수준 === 'crit') console.log('  ✖ 이대로는 PC 가 잠들면 감시도 재개도 멎는다.')
-  else if (verdict.수준 === 'warn') console.log('  ⚠ 대체로 괜찮지만 위 항목을 보라.')
+  if (verdict.level === 'ok') console.log('  ✅ 이 PC 는 RetrySession 이 계속 돌 수 있는 상태다.')
+  else if (verdict.level === 'crit') console.log('  ✖ 이대로는 PC 가 잠들면 감시도 재개도 멎는다.')
+  else if (verdict.level === 'warn') console.log('  ⚠ 대체로 괜찮지만 위 항목을 보라.')
   else console.log('  ? 일부 값을 읽지 못했다 — 괜찮다고 말할 수 없다.')
 
-  if (verdict.고칠것.length) {
-    console.log(`  고칠 수 있는 것 ${verdict.고칠것.length}개: node src/pc.mjs --apply  (되돌리기: --restore)`)
+  if (verdict.fixable.length) {
+    console.log(`  고칠 수 있는 것 ${verdict.fixable.length}개: node src/pc.mjs --apply  (되돌리기: --restore)`)
   }
   // 'info' 는 알려주기만 하는 줄이다 — 할 일 목록에 넣으면 할 일이 아닌 것이 쌓인다
-  const manual = verdict.목록.filter((x) => x.수준 === 'unknown' || (x.수준 === 'warn' && !x.고칠수있나))
+  const manual = verdict.items.filter((x) => x.level === 'unknown' || (x.level === 'warn' && !x.canFix))
   if (manual.length) console.log(`  손으로 확인할 것 ${manual.length}개: node src/pc.mjs --manual`)
 }
 
@@ -67,17 +67,17 @@ if (flag('--restore')) {
     console.error('✖ 되돌릴 기록이 없다 — --apply 를 한 적이 없다.')
     process.exit(1)
   }
-  let 백업
-  try { 백업 = JSON.parse(readFileSync(backupPath, 'utf8')) } catch (e) {
+  let backup
+  try { backup = JSON.parse(readFileSync(backupPath, 'utf8')) } catch (e) {
     console.error(`✖ 백업을 읽을 수 없다: ${e.message}`)
     process.exit(1)
   }
-  const args2 = restoreArgs(백업.이전)
+  const args2 = restoreArgs(backup.prev)
   if (!args2.length) {
     console.error('✖ 백업에 되돌릴 값이 없다.')
     process.exit(1)
   }
-  console.log(`되돌린다 — ${백업.at} 시점의 값으로`)
+  console.log(`되돌린다 — ${backup.at} 시점의 값으로`)
   const after = readPs(args2)
   render(pcVerdict(after))
   process.exit(0)
@@ -105,7 +105,7 @@ if (flag('--set')) {
     const m = /^([A-Za-z]+)=(-?\d+)$/.exec(a)
     if (!m) continue
     const r = validateValue(m[1], m[2])
-    if (r.ok) values[m[1]] = r.값
+    if (r.ok) values[m[1]] = r.value
     else wrong.push(`${a} — ${r.why}`)
   }
   for (const w of wrong) console.error(`⚠ 무시함: ${w}`)
@@ -113,16 +113,16 @@ if (flag('--set')) {
     console.error('✖ 바꿀 값이 없다. 예: node src/pc.mjs --set standbyAc=0 lidAc=0')
     process.exit(1)
   }
-  if (!verdict.읽음) {
+  if (!verdict.read) {
     console.error('✖ 설정을 읽지 못해 바꿀 수 없다. 무엇을 되돌려야 할지 모르는 채로 바꾸지 않는다.')
     process.exit(1)
   }
 
   try {
     writeJsonAtomic(backupPath, {
-      _주의: '설정을 바꾸기 직전의 PC 전원 설정. node src/pc.mjs --restore 로 되돌린다.',
-      at: localStamp(), 바꾼것: Object.keys(values),
-      이전: {
+      _note: '설정을 바꾸기 직전의 PC 전원 설정. node src/pc.mjs --restore 로 되돌린다.',
+      at: localStamp(), changedKeys: Object.keys(values),
+      prev: {
         standbyAc: before.standbyAc, hibernateAc: before.hibernateAc, lidAc: before.lidAc,
         standbyDc: before.standbyDc, hibernateDc: before.hibernateDc, lidDc: before.lidDc,
       },
@@ -140,8 +140,8 @@ if (flag('--set')) {
   const confirmed = verifyApplied(values, after2)
   if (!confirmed.ok) {
     console.error('')
-    for (const x of confirmed.안된것) {
-      console.error(`✖ ${x.키}: ${x.req} 로 바꾸려 했는데 실제는 ${x.actual === null ? '읽을 수 없음' : x.actual} 이다`)
+    for (const x of confirmed.notApplied) {
+      console.error(`✖ ${x.key}: ${x.req} 로 바꾸려 했는데 실제는 ${x.actual === null ? '읽을 수 없음' : x.actual} 이다`)
     }
     console.error('  이 항목은 이 PC 의 전원 구성에 없을 수 있다(숨김). --manual 의 방법으로 직접 바꿔라.')
     process.exit(1)
@@ -161,15 +161,15 @@ if (!flag('--apply')) {
    *   이 저장소가 반복해서 고친 그 실패다 — 끝없는 경보는 경보가 아니다.
    *   모름·경고는 화면에 또렷이 적되 종료 코드는 0 으로 둔다.
    */
-  process.exit(verdict.수준 === 'crit' ? 1 : 0)
+  process.exit(verdict.level === 'crit' ? 1 : 0)
 }
 
 /* --apply */
-if (!verdict.읽음) {
+if (!verdict.read) {
   console.error('✖ 설정을 읽지 못해 바꿀 수 없다. 무엇을 되돌려야 할지 모르는 채로 바꾸지 않는다.')
   process.exit(1)
 }
-if (!verdict.고칠것.length) {
+if (!verdict.fixable.length) {
   console.log('바꿀 것이 없다.')
   render(verdict)
   process.exit(0)
@@ -182,9 +182,9 @@ if (!verdict.고칠것.length) {
  */
 try {
   writeJsonAtomic(backupPath, {
-    _주의: '--apply 직전의 PC 전원 설정. node src/pc.mjs --restore 로 되돌린다.',
-    at: localStamp(), 바꾼것: verdict.고칠것,
-    이전: { standbyAc: before.standbyAc, hibernateAc: before.hibernateAc, lidAc: before.lidAc },
+    _note: '--apply 직전의 PC 전원 설정. node src/pc.mjs --restore 로 되돌린다.',
+    at: localStamp(), changedKeys: verdict.fixable,
+    prev: { standbyAc: before.standbyAc, hibernateAc: before.hibernateAc, lidAc: before.lidAc },
   })
 } catch (e) {
   console.error(`✖ 되돌리기 기록을 저장하지 못했다: ${e.message}`)
@@ -192,15 +192,15 @@ try {
   process.exit(1)
 }
 
-console.log(`바꾼다: ${verdict.고칠것.join(', ')}  (이전 값은 state/pc-backup.json 에 저장했다)`)
-const after = readPs(applyArgs(verdict.고칠것))
+console.log(`바꾼다: ${verdict.fixable.join(', ')}  (이전 값은 state/pc-backup.json 에 저장했다)`)
+const after = readPs(applyArgs(verdict.fixable))
 const afterVerdict = pcVerdict(after)
 render(afterVerdict)
 
 // 바꿨다고 말만 하고 안 바뀌었으면 그게 최악이다 — 다시 읽어 확인한다
-const left = afterVerdict.목록.filter((x) => x.수준 === 'crit')
+const left = afterVerdict.items.filter((x) => x.level === 'crit')
 if (left.length) {
-  console.error(`✖ 바꿨는데도 남아 있다: ${left.map((x) => x.이름).join(', ')}`)
+  console.error(`✖ 바꿨는데도 남아 있다: ${left.map((x) => x.name).join(', ')}`)
   process.exit(1)
 }
 console.log('✅ 적용됐다. 되돌리려면: node src/pc.mjs --restore')

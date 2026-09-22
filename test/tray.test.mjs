@@ -20,19 +20,19 @@ import { fileURLToPath } from 'node:url'
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const src = readFileSync(join(ROOT, 'scripts', 'tray.ps1'), 'utf8')
 /** 주석을 뺀 코드만 — 주석의 설명이 검사를 통과시키면 안 된다 */
-const 코드 = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+const code = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
 
 test('🔴 상태 조회가 UI 스레드를 붙잡지 않는다 (동기 호출 금지)', () => {
   // 상태 두 곳(/api/tray, /api/ping)은 반드시 비동기로 가져온다
-  for (const 경로 of ['/api/tray', '/api/ping']) {
-    const lines = 코드.split('\n').filter((l) => l.includes(경로))
-    assert.ok(lines.length, `${경로} 를 부르는 곳이 있어야 한다`)
+  for (const path of ['/api/tray', '/api/ping']) {
+    const lines = code.split('\n').filter((l) => l.includes(path))
+    assert.ok(lines.length, `${path} 를 부르는 곳이 있어야 한다`)
     for (const l of lines) {
       assert.ok(!/Invoke-RestMethod|Invoke-WebRequest/.test(l),
-        `${경로} 를 동기로 부르면 메뉴가 그 시간만큼 멈춘다: ${l.trim()}`)
+        `${path} 를 동기로 부르면 메뉴가 그 시간만큼 멈춘다: ${l.trim()}`)
     }
   }
-  assert.match(코드, /Get(String)?Async\(/, '비동기 요청을 써야 한다')
+  assert.match(code, /Get(String)?Async\(/, '비동기 요청을 써야 한다')
 })
 
 /**
@@ -45,22 +45,22 @@ test('🔴 상태 조회가 UI 스레드를 붙잡지 않는다 (동기 호출 �
  *   멀쩡해 보이는 트레이 + 아무것도 안 나오는 화면. 최악의 조합이다.
  */
 test('🔴 서버가 오류로 "답한 것"과 "답하지 않은 것"을 구별한다', () => {
-  assert.match(코드, /IsSuccessStatusCode/,
+  assert.match(code, /IsSuccessStatusCode/,
     '상태 코드를 봐야 500 과 타임아웃을 가를 수 있다')
-  assert.match(코드, /GetAsync\(/, 'GetStringAsync 는 500 도 예외로 던져 구별할 수 없다')
-  assert.match(코드, /Resolve-HttpError/, '오류 응답 전용 처리가 있어야 한다')
+  assert.match(code, /GetAsync\(/, 'GetStringAsync 는 500 도 예외로 던져 구별할 수 없다')
+  assert.match(code, /Resolve-HttpError/, '오류 응답 전용 처리가 있어야 한다')
 
   // 오류 응답은 crit 이어야 한다 — "느림"으로 흘리면 직전 색이 그대로 남는다
-  const i = 코드.indexOf('function Resolve-HttpError')
-  const section = 코드.slice(i, i + 300)
+  const i = code.indexOf('function Resolve-HttpError')
+  const section = code.slice(i, i + 300)
   assert.match(section, /Render 'crit'/, '오류 응답은 치명으로 그려야 한다')
   assert.ok(!/status\.slow/.test(section), '오류를 "느림"으로 부르면 안 된다')
 })
 
 test('오류 응답 처리가 두 엔드포인트 모두에 걸린다', () => {
   // ping 이 500 이면 그것도 깨진 것이다. tray 응답에만 검사를 걸면 새는 길이 남는다
-  const i = 코드.indexOf('function Poll')
-  const section = 코드.slice(i, i + 1200)
+  const i = code.indexOf('function Poll')
+  const section = code.slice(i, i + 1200)
   const okCheck = section.indexOf('IsSuccessStatusCode')
   const pingBranch = section.indexOf("-eq 'ping'")
   assert.ok(okCheck > 0 && pingBranch > 0, '두 판정을 모두 찾아야 한다')
@@ -69,51 +69,51 @@ test('오류 응답 처리가 두 엔드포인트 모두에 걸린다', () => {
 })
 
 test('🔴 타이머는 기다리지 않고 완료 여부만 본다', () => {
-  assert.match(코드, /IsCompleted/, '완료 확인으로 넘어가야 한다')
-  assert.ok(!/\.Result\b[\s\S]{0,40}IsCompleted/.test(코드),
+  assert.match(code, /IsCompleted/, '완료 확인으로 넘어가야 한다')
+  assert.ok(!/\.Result\b[\s\S]{0,40}IsCompleted/.test(code),
     '완료를 확인하기 전에 Result 를 읽으면 그 자리에서 기다리게 된다')
   // .Wait()/.GetAwaiter().GetResult() 는 곧 동기 대기다
-  assert.ok(!/\.Wait\(\)|GetAwaiter\(\)/.test(코드), '작업을 기다리면 UI 스레드가 멈춘다')
+  assert.ok(!/\.Wait\(\)|GetAwaiter\(\)/.test(code), '작업을 기다리면 UI 스레드가 멈춘다')
 })
 
 test('느린 것을 죽었다고 하지 않는다 — 실패하면 ping 으로 되묻는다', () => {
-  assert.match(코드, /Resolve-Failure/, '실패 처리를 따로 둬야 한다')
-  const i = 코드.indexOf('function Resolve-Failure')
-  const section = 코드.slice(i, i + 400)
+  assert.match(code, /Resolve-Failure/, '실패 처리를 따로 둬야 한다')
+  const i = code.indexOf('function Resolve-Failure')
+  const section = code.slice(i, i + 400)
   assert.ok(section.includes('/api/ping'), 'tray 가 실패하면 ping 으로 살아있는지 먼저 물어야 한다')
 })
 
 test('🔴 메뉴는 가만히 두면 스스로 닫힌다', () => {
-  assert.match(코드, /menuIdleFrom/, '메뉴가 열린 뒤 흐른 시간을 봐야 한다')
-  assert.match(코드, /\$menu\.Close\(\)/, '한계를 넘기면 닫아야 한다')
-  assert.match(코드, /MenuIdleSeconds/, '한계를 이름 있는 값으로 둬야 고치기 쉽다')
+  assert.match(code, /menuIdleFrom/, '메뉴가 열린 뒤 흐른 시간을 봐야 한다')
+  assert.match(code, /\$menu\.Close\(\)/, '한계를 넘기면 닫아야 한다')
+  assert.match(code, /MenuIdleSeconds/, '한계를 이름 있는 값으로 둬야 고치기 쉽다')
 })
 
 test('메뉴를 읽는 중에는 닫히지 않는다 (마우스가 올라가 있으면 시간이 되감긴다)', () => {
-  assert.match(코드, /\$menu\.Add_MouseMove/,
+  assert.match(code, /\$menu\.Add_MouseMove/,
     '마우스 움직임이 없으면 읽는 도중에 사라진다')
 })
 
 test('🔴 바깥을 클릭하면 닫힌다 (트레이 메뉴는 포커스를 잃어도 남는 버릇이 있다)', () => {
-  assert.match(코드, /AutoClose\s*=\s*\$true/, 'AutoClose 를 켜야 한다')
-  assert.match(코드, /SetForegroundWindow/,
+  assert.match(code, /AutoClose\s*=\s*\$true/, 'AutoClose 를 켜야 한다')
+  assert.match(code, /SetForegroundWindow/,
     '메뉴를 전면 창으로 만들지 않으면 포커스 상실 메시지가 오지 않아 메뉴가 남는다')
-  assert.match(코드, /\$menu\.Add_Opened/, '열릴 때 적용해야 한다')
+  assert.match(code, /\$menu\.Add_Opened/, '열릴 때 적용해야 한다')
 })
 
 test('메뉴 전용 타이머는 짧다 — 상태 틱에 얹으면 "8초"가 8~13초가 된다', () => {
-  const m = /\$menuTimer\.Interval\s*=\s*(\d+)/.exec(코드)
+  const m = /\$menuTimer\.Interval\s*=\s*(\d+)/.exec(code)
   assert.ok(m, '메뉴 타이머 간격을 찾을 수 없다')
   assert.ok(Number(m[1]) <= 1000, `메뉴 타이머가 ${m[1]}ms 다 — 1초 이하여야 한다`)
 })
 
 test('🔴 풍선 알림은 여전히 없다 (되살리지 마라 — 알림은 화면에서 본다)', () => {
-  assert.ok(!/ShowBalloonTip/.test(코드), 'tray.ps1 에 ShowBalloonTip 을 되살리지 마라')
+  assert.ok(!/ShowBalloonTip/.test(code), 'tray.ps1 에 ShowBalloonTip 을 되살리지 마라')
 })
 
 test('타이머 틱에서 새는 오류가 트레이를 죽이지 않는다', () => {
-  const i = 코드.indexOf('function Poll')
-  const section = 코드.slice(i, i + 900)
+  const i = code.indexOf('function Poll')
+  const section = code.slice(i, i + 900)
   assert.ok(/try\s*\{/.test(section), 'Poll 은 통째로 감싸야 한다 — 조용히 사라지는 감시가 최악이다')
 })
 
@@ -130,15 +130,15 @@ test('타이머 틱에서 새는 오류가 트레이를 죽이지 않는다', ()
  *   사람이 사본을 놓치므로 기계가 전부 센다.
  */
 test('🔴 살아있음을 묻는 모든 .ps1 이 /api/ping 을 쓴다 (사본을 놓치지 않게)', () => {
-  const 파일 = ['start.ps1', 'scripts/status.ps1', 'scripts/register-ui.ps1', 'scripts/open-app.ps1']
-  for (const f of 파일) {
+  const files = ['start.ps1', 'scripts/status.ps1', 'scripts/register-ui.ps1', 'scripts/open-app.ps1']
+  for (const f of files) {
     const p = join(ROOT, ...f.split('/'))
     let src
     try { src = readFileSync(p, 'utf8') } catch { continue }
-    const 코드 = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+    const code = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
 
     // 살아있음을 묻는 줄(짧은 타임아웃으로 HTTP 를 치는 줄)이 /api/tray 를 쓰면 안 된다
-    for (const l of 코드.split('\n')) {
+    for (const l of code.split('\n')) {
       if (!/Invoke-WebRequest|Invoke-RestMethod/.test(l)) continue
       if (!/api\/tray/.test(l)) continue
       assert.fail(`${f} 가 살아있음 확인에 /api/tray 를 쓴다 — 콜드 11.7초다: ${l.trim().slice(0, 90)}`)

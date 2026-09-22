@@ -18,7 +18,7 @@ import { writeJsonAtomic } from './io.mjs'
 const registryFile = join(RS_HOME, 'state', 'targets.json')
 
 export const emptyRegistry = () => ({
-  _주의: 'UI 가 쓰고 하트비트·재개가 읽는다. 추적하지 않는다 — 세션 id 는 이 PC 에서만 의미가 있다.',
+  _note: 'UI 가 쓰고 하트비트·재개가 읽는다. 추적하지 않는다 — 세션 id 는 이 PC 에서만 의미가 있다.',
   updatedAt: null,
   targets: {},
 })
@@ -45,7 +45,7 @@ export function saveTargets(t) {
   writeJsonAtomic(registryFile, { ...t, updatedAt: localStamp() })
 }
 
-const emptyTarget = () => ({ 감시: false, 재시작: false, 재개지시: null, 추가시각: localStamp() })
+const emptyTarget = () => ({ watch: false, restart: false, resumePrompt: null, addedAt: localStamp() })
 
 /**
  * 감시를 **방금 켰다면** 그 시각을 epoch 으로 남긴다.
@@ -59,19 +59,19 @@ const emptyTarget = () => ({ 감시: false, 재시작: false, 재개지시: null
  *   파싱이 환경에 따라 흔들린다. 낡음 판정은 언제나 epoch 으로 한다.
  *   끌 때는 지운다. 남겨두면 다시 켰을 때 옛 시각으로 판정한다.
  */
-function touchWatchTime(이전, patch) {
-  if (patch.감시 === true) {
-    return 이전.감시 === true ? (이전.감시켠epoch ?? Date.now()) : Date.now()
+function touchWatchTime(prev, patch) {
+  if (patch.watch === true) {
+    return prev.watch === true ? (prev.watchOnEpoch ?? Date.now()) : Date.now()
   }
-  if (patch.감시 === false) return undefined
-  return 이전.감시켠epoch   // 감시를 건드리지 않는 변경이면 그대로 둔다
+  if (patch.watch === false) return undefined
+  return prev.watchOnEpoch   // 감시를 건드리지 않는 변경이면 그대로 둔다
 }
 
-function updateTarget(이전, patch, meta) {
-  const onEpoch = touchWatchTime(이전, patch)
-  const next = { ...이전, ...meta, ...patch, 갱신시각: localStamp() }
-  if (onEpoch === undefined) delete next.감시켠epoch
-  else next.감시켠epoch = onEpoch
+function updateTarget(prev, patch, meta) {
+  const onEpoch = touchWatchTime(prev, patch)
+  const next = { ...prev, ...meta, ...patch, updatedAt: localStamp() }
+  if (onEpoch === undefined) delete next.watchOnEpoch
+  else next.watchOnEpoch = onEpoch
   return next
 }
 
@@ -86,13 +86,13 @@ export function setTarget(sessionId, patch, meta = {}) {
 /** 여러 대상을 한꺼번에 (UI 의 다중 선택) */
 export function setMany(sessionIds, patch, metaBySession = {}) {
   const t = loadTargets()
-  const 결과 = {}
+  const result = {}
   for (const id of sessionIds) {
     t.targets[id] = updateTarget(t.targets[id] || emptyTarget(), patch, metaBySession[id] || {})
-    결과[id] = t.targets[id]
+    result[id] = t.targets[id]
   }
   saveTargets(t)
-  return 결과
+  return result
 }
 
 export function removeTarget(sessionId) {
@@ -103,11 +103,11 @@ export function removeTarget(sessionId) {
 
 /** 감시가 켜진 대상 목록 */
 export const watchTarget = (t = loadTargets()) =>
-  Object.entries(t.targets).filter(([, v]) => v.감시).map(([id, v]) => ({ sessionId: id, ...v }))
+  Object.entries(t.targets).filter(([, v]) => v.watch).map(([id, v]) => ({ sessionId: id, ...v }))
 
 /** 재시작이 켜진 대상 목록 */
 export const resumeTarget = (t = loadTargets()) =>
-  Object.entries(t.targets).filter(([, v]) => v.재시작).map(([id, v]) => ({ sessionId: id, ...v }))
+  Object.entries(t.targets).filter(([, v]) => v.restart).map(([id, v]) => ({ sessionId: id, ...v }))
 
 /* ── 세션별 상태 파일 경로 ───────────────────────────────────── */
 
@@ -131,7 +131,7 @@ export function statePaths(sessionId) {
   mkdirSync(dir, { recursive: true })
   return {
     stateDir: dir,
-    하트비트: join(dir, 'heartbeat.json'),
+    heartbeat: join(dir, 'heartbeat.json'),
     hbLogPath: join(dir, 'heartbeat.log'),
     resumeState: join(dir, 'resume.json'),
     resumeLogPath: join(dir, 'resume.log'),
@@ -166,7 +166,7 @@ export function resolveRepo(cwd) {
       repo: cwd,
       tracker: null,
       sessionSlugs: [],
-      하트비트: fallback.하트비트,
+      heartbeat: fallback.heartbeat,
       resume: { ...fallback.resume, enabled: true, addDirs: [] },
     },
     hasConfig: false,
@@ -176,6 +176,6 @@ export function resolveRepo(cwd) {
 /** 이 대상에 추적기가 실제로 있는가 (재시작 지시문을 만들 수 있는지의 근거) */
 export function trackerPath(project) {
   if (!project.tracker) return null
-  const p = repoPaths(project).추적기
+  const p = repoPaths(project).tracker
   return existsSync(p) ? p : null
 }

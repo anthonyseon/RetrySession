@@ -1,5 +1,5 @@
 {
-  "_주의": "트레이 아이콘의 한글 문구. scripts/tray.ps1 은 ASCII 여야 하므로(PowerShell 5.1 이 ANSI 로 읽는다) 문구를 이 파일에서 UTF-8 로 읽어 쓴다. 여기를 고치면 트레이 문구가 바뀐다.",
+  "_note": "트레이 아이콘의 한글 문구. scripts/tray.ps1 은 ASCII 여야 하므로(PowerShell 5.1 이 ANSI 로 읽는다) 문구를 이 파일에서 UTF-8 로 읽어 쓴다. 여기를 고치면 트레이 문구가 바뀐다.",
   "_키규칙": "🔴 키는 반드시 ASCII 다 — tray.ps1 이 키 이름을 코드에 적기 때문이다. 값만 한글이다.",
   "app": "RetrySession",
   "menu": {

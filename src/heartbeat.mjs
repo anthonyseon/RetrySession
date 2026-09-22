@@ -26,7 +26,7 @@ import { loadTargets, statePaths, isSessionId } from './lib/targets.mjs'
 import { writeJsonAtomic, appendLine } from './lib/io.mjs'
 import { fullStatus } from './lib/status.mjs'
 import { sessionDetail } from './lib/detail.mjs'
-import { 작업이름 } from './lib/scheduler.mjs'
+import { taskNames } from './lib/scheduler.mjs'
 import { singleInstance } from './lib/single.mjs'
 import { changeLog } from './lib/alerts.mjs'
 
@@ -39,7 +39,7 @@ if (flag('--list')) {
   const rows = Object.entries(t.targets)
   if (!rows.length) console.log('감시·재시작 대상이 없다. UI 에서 세션을 골라 켜라 (npm run ui).')
   for (const [id, v] of rows) {
-    console.log(`${id.slice(0, 8)} · 감시 ${v.감시 ? 'O' : 'X'} · 재시작 ${v.재시작 ? 'O' : 'X'} · ${v.제목 || v.실행cwd || ''}`)
+    console.log(`${id.slice(0, 8)} · 감시 ${v.watch ? 'O' : 'X'} · 재시작 ${v.restart ? 'O' : 'X'} · ${v.title || v.runCwd || ''}`)
   }
   process.exit(0)
 }
@@ -47,13 +47,13 @@ if (flag('--list')) {
 /* ── --check : fail-closed 판정. 모르면 죽음으로 본다 ────────── */
 if (flag('--check')) {
   const t = loadTargets()
-  const 감시 = Object.entries(t.targets).filter(([, v]) => v.감시)
-  if (!감시.length) {
+  const watch = Object.entries(t.targets).filter(([, v]) => v.watch)
+  if (!watch.length) {
     console.log('ℹ 감시 대상이 없다 — 판정할 것이 없다 (이것은 정상이다)')
     process.exit(0)
   }
   let dead = 0
-  for (const [id, v] of 감시) {
+  for (const [id, v] of watch) {
     // 형태가 아닌 id 는 판정할 수 없다 = 살아있다고 말할 수 없다 (fail-closed)
     if (!isSessionId(id)) {
       dead++
@@ -62,26 +62,26 @@ if (flag('--check')) {
     }
     const P = statePaths(id)
     let hb = null
-    try { hb = JSON.parse(readFileSync(P.하트비트, 'utf8')) } catch { hb = null }
-    const limit = v.낡음한계분 ?? 15
-    const onEpoch = typeof v.감시켠epoch === 'number'
-      ? v.감시켠epoch
-      : (Date.parse(v.갱신시각 || v.추가시각 || '') || null)
+    try { hb = JSON.parse(readFileSync(P.heartbeat, 'utf8')) } catch { hb = null }
+    const limit = v.staleLimitMin ?? 15
+    const onEpoch = typeof v.watchOnEpoch === 'number'
+      ? v.watchOnEpoch
+      : (Date.parse(v.updatedAt || v.addedAt || '') || null)
     const r = heartbeatVerdict(hb, limit, Date.now(), onEpoch)
-    const 이름 = `${id.slice(0, 8)} ${v.제목 ? `(${v.제목.slice(0, 30)})` : ''}`
-    if (r.alive) console.log(`✅ ${이름} — ${r.ageMin}분 전 기록 (한계 ${limit}분)`)
+    const name = `${id.slice(0, 8)} ${v.title ? `(${v.title.slice(0, 30)})` : ''}`
+    if (r.alive) console.log(`✅ ${name} — ${r.ageMin}분 전 기록 (한계 ${limit}분)`)
     /**
      * 🔴 대기는 죽음이 아니다 — 아직 쓸 기회가 없었을 뿐이다.
      *   fail-closed 를 어기는 것이 아니다: 대기 창은 한계 시간까지만이고
      *   그 뒤에는 위의 판정이 죽음으로 답한다. 모르는 것을 정상이라 하는 게 아니라,
      *   **아직 때가 아닌 것**을 고장이라 하지 않는 것이다.
      */
-    else if (r.대기) console.log(`◔ ${이름} — ${r.why}`)
-    else { dead++; console.error(`✖ ${이름} 하트비트 죽음 — ${r.why}`) }
+    else if (r.waiting) console.log(`◔ ${name} — ${r.why}`)
+    else { dead++; console.error(`✖ ${name} 하트비트 죽음 — ${r.why}`) }
   }
   if (dead) {
     console.error('')
-    console.error(`  되살리기: powershell -Command "Start-ScheduledTask -TaskName ${작업이름.하트비트}"`)
+    console.error(`  되살리기: powershell -Command "Start-ScheduledTask -TaskName ${taskNames.heartbeat}"`)
     console.error('  작업이 아예 없으면 재등록: powershell -ExecutionPolicy Bypass -File scripts/register-heartbeat.ps1')
     process.exit(1)
   }
@@ -100,7 +100,7 @@ if (flag('--check')) {
 singleInstance('heartbeat', { staleMin: 30 })
 
 const registry = loadTargets()
-const turnedOn = Object.entries(registry.targets).filter(([, v]) => v.감시).map(([id]) => id)
+const turnedOn = Object.entries(registry.targets).filter(([, v]) => v.watch).map(([id]) => id)
 
 // 세션 id 형태가 아닌 항목은 경로가 될 수 없다. 알린 뒤 건너뛴다 —
 // 한 줄이 이상하다고 나머지 감시까지 멈추면 그게 더 나쁘다.
@@ -116,7 +116,7 @@ if (!watchTarget.length) {
 
 // 집계는 한 번만 한다 — CLI 호출과 스캔이 들어 있어 세션마다 다시 하면 낭비다
 const S = fullStatus()
-const sessionMap = new Map(S.세션.map((s) => [s.sessionId, s]))
+const sessionMap = new Map(S.sessions.map((s) => [s.sessionId, s]))
 
 /**
  * 경보 이력은 여기서 남긴다 — 5분마다 도는 것이 이것뿐이기 때문이다.
@@ -124,11 +124,11 @@ const sessionMap = new Map(S.세션.map((s) => [s.sessionId, s]))
  * 화면을 닫아둔 사이에 생긴 일을 놓치면 안 되고, 그렇다고 Windows 풍선으로
  * 띄우지도 않는다(너무 자주 떠서 진짜 경고가 묻혔다). **변화가 있을 때만** 적는다.
  */
-const alertDiff = changeLog(S.경보 || [])
+const alertDiff = changeLog(S.alerts || [])
 if (alertDiff.record) {
-  const n = (S.경보 || []).length
+  const n = (S.alerts || []).length
   console.log(n ? `⚠ 경보 ${n}건 (변화 기록됨)` : '✅ 경보 해소 (기록됨)')
-  for (const a of S.경보 || []) console.log(`   ${a.수준} · ${a.제목} — ${a.설명}`)
+  for (const a of S.alerts || []) console.log(`   ${a.level} · ${a.title} — ${a.desc}`)
 }
 
 for (const id of watchTarget) {
@@ -138,69 +138,69 @@ for (const id of watchTarget) {
   if (!s) {
     // 등록은 돼 있는데 세션이 사라졌다(정리됨·purge). 감추지 않고 그대로 남긴다.
     const none = {
-      _주의: '5분마다 덮어쓴다. 추적하지 않는다 — 단계 경계 기록은 대상 저장소의 추적기가 정본이다.',
+      _note: '5분마다 덮어쓴다. 추적하지 않는다 — 단계 경계 기록은 대상 저장소의 추적기가 정본이다.',
       at: localStamp(), atEpoch: Date.now(), sessionId: id,
-      오류: '이 세션을 찾을 수 없다 — 트랜스크립트가 정리됐거나 claude project purge 된 것으로 보인다',
+      error: '이 세션을 찾을 수 없다 — 트랜스크립트가 정리됐거나 claude project purge 된 것으로 보인다',
     }
-    writeJsonAtomic(P.하트비트, none)
-    appendLine(P.hbLogPath, `${none.at} · (세션 없음) · ${none.오류}`)
+    writeJsonAtomic(P.heartbeat, none)
+    appendLine(P.hbLogPath, `${none.at} · (세션 없음) · ${none.error}`)
     console.warn(`⚠ ${id.slice(0, 8)} — 세션을 찾을 수 없다`)
     continue
   }
 
   // 트랜스크립트 꼬리에서 "무엇을 하던 중인가" — 21MB 여도 512KB 만 읽는다
-  let 진행 = null, unfinished = []
+  let progress = null, unfinished = []
   try {
     const d = sessionDetail(id, { turns: 3, maxBytes: 256 * 1024, textLen: 300 })
-    if (d.ok) { 진행 = d.진행; unfinished = d.진행.미완결도구 }
+    if (d.ok) { progress = d.progress; unfinished = d.progress.openTools }
   } catch { /* 상세 실패로 기록을 끊지 않는다 */ }
 
   const snap = {
-    _주의: '5분마다 덮어쓴다. 추적하지 않는다(.gitignore) — 단계 경계 기록은 대상 저장소의 추적기가 정본이다.',
+    _note: '5분마다 덮어쓴다. 추적하지 않는다(.gitignore) — 단계 경계 기록은 대상 저장소의 추적기가 정본이다.',
     // 🔴 시각은 로컬 시간. UTC 로 적으면 KST 기준 9시간 낡아 보여 오판을 부른다(실측).
     at: localStamp(),
     atEpoch: Date.now(), // 낡음 판정은 문자열이 아니라 이 값으로 한다
     sessionId: id,
-    제목: s.제목,
-    실행중: s.실행중, 실행여부앎: s.실행여부앎 !== false, pid: s.pid,
-    활성분: s.활성분,
-    실행cwd: s.실행cwd, 주작업cwd: s.주작업cwd,
-    저장소: s.저장소id,
-    현재단계: s.추적기.있음
-      ? { id: s.추적기.doing?.id || '(doing 없음)', title: s.추적기.doing?.title, evidence: s.추적기.doing?.evidence, 완료단계: s.추적기.완료표기 }
+    title: s.title,
+    running: s.running, runKnown: s.runKnown !== false, pid: s.pid,
+    activeMin: s.activeMin,
+    runCwd: s.runCwd, mainCwd: s.mainCwd,
+    repo: s.repoId,
+    stage: s.tracker.exists
+      ? { id: s.tracker.doing?.id || '(doing 없음)', title: s.tracker.doing?.title, evidence: s.tracker.doing?.evidence, doneStages: s.tracker.doneMark }
       : { id: '(추적기 없음)' },
-    nextAction: s.추적기.nextAction || null,
-    전부완료: !!s.추적기.전부완료,
-    doing위반: s.추적기.doing위반 || null,
-    진행,
+    nextAction: s.tracker.nextAction || null,
+    allDone: !!s.tracker.allDone,
+    doingViolations: s.tracker.doingViolations || null,
+    progress,
     git: s.git,
-    사용량: { 토큰합: s.토큰합, 비용USD: s.비용USD, 메시지: `u${s.사용자메시지}/a${s.어시스턴트메시지}`, 도구호출: s.도구호출 },
-    할당량: S.할당량,
+    usage: { tokenSum: s.tokenSum, costUSD: s.costUSD, message: `u${s.userMsgs}/a${s.assistantMsgs}`, toolCalls: s.toolCalls },
+    quota: S.quota,
   }
   /**
    * 🔴 원자적으로 쓴다. 이 파일은 "살아 있나"의 정본이고, 판정은 fail-closed 라
    *   반쯤 쓰인 JSON 은 곧바로 "감시 끊김" 경보가 된다. 5분마다 쓰는 파일이니
    *   그 창을 없애 두지 않으면 언젠가 그 순간에 맞는다.
    */
-  writeJsonAtomic(P.하트비트, snap)
+  writeJsonAtomic(P.heartbeat, snap)
 
-  const 도구 = unfinished.length ? `도구중 ${unfinished.map((t) => t.이름).join(',')}` : (진행?.마지막종류 || '-')
+  const tools = unfinished.length ? `도구중 ${unfinished.map((t) => t.name).join(',')}` : (progress?.lastKind || '-')
   appendLine(P.hbLogPath, [
     snap.at,
     // 🔴 조회 실패를 '정지'로 적으면 나중에 이 기록을 읽는 사람이 속는다
-    s.실행여부앎 === false ? '실행여부모름' : (s.실행중 ? '실행중' : '정지'),
-    snap.현재단계.id,
-    snap.현재단계.완료단계 || '',
+    s.runKnown === false ? '실행여부모름' : (s.running ? '실행중' : '정지'),
+    snap.stage.id,
+    snap.stage.doneStages || '',
     `HEAD ${s.git?.head || '-'}`,
-    `미커밋 ${s.git?.미커밋파일수 ?? '-'}`,
-    도구,
+    `미커밋 ${s.git?.uncommittedFiles ?? '-'}`,
+    tools,
   ].join(' · ') + '\n')
 
   console.log(
     `하트비트 [${id.slice(0, 8)}] ${snap.at} · ` +
-    `${s.실행여부앎 === false ? '실행여부모름' : (s.실행중 ? '실행중' : '정지')}` +
-    ` · 단계 ${snap.현재단계.id}${snap.현재단계.완료단계 ? ` (${snap.현재단계.완료단계})` : ''}` +
-    ` · 미커밋 ${s.git?.미커밋파일수 ?? '-'}`
+    `${s.runKnown === false ? '실행여부모름' : (s.running ? '실행중' : '정지')}` +
+    ` · 단계 ${snap.stage.id}${snap.stage.doneStages ? ` (${snap.stage.doneStages})` : ''}` +
+    ` · 미커밋 ${s.git?.uncommittedFiles ?? '-'}`
   )
-  if (snap.doing위반) console.warn(`  ⚠ doing 이 ${snap.doing위반.length}개다 (${snap.doing위반.join(', ')}) — 규약은 한 번에 하나다`)
+  if (snap.doingViolations) console.warn(`  ⚠ doing 이 ${snap.doingViolations.length}개다 (${snap.doingViolations.join(', ')}) — 규약은 한 번에 하나다`)
 }

@@ -72,7 +72,7 @@ function callJson(args, { timeout = 20000, bin = null } = {}) {
     })
     return { ok: true, data: JSON.parse(out) }
   } catch (e) {
-    return { ok: false, 오류: failureText(exe, e), data: null }
+    return { ok: false, error: failureText(exe, e), data: null }
   }
 }
 
@@ -104,10 +104,10 @@ export function failureText(exe, e) {
 const _cache = new Map()
 function cached(key, ttlMs, fn) {
   const hit = _cache.get(key)
-  if (hit && Date.now() - hit.at < ttlMs) return { ...hit.v, 캐시됨: true, 나이ms: Date.now() - hit.at }
+  if (hit && Date.now() - hit.at < ttlMs) return { ...hit.v, cached: true, ageMs: Date.now() - hit.at }
   const v = fn()
   _cache.set(key, { at: Date.now(), v })
-  return { ...v, 캐시됨: false, 나이ms: 0 }
+  return { ...v, cached: false, ageMs: 0 }
 }
 
 /**
@@ -120,8 +120,8 @@ export function runningSessions({ all = false, ttlMs = 5000 } = {}) {
   const list = Array.isArray(r.data) ? r.data : []
   return {
     ok: r.ok,
-    오류: r.ok ? null : r.오류,
-    캐시됨: r.캐시됨,
+    error: r.ok ? null : r.error,
+    cached: r.cached,
     sessions: list.map((s) => ({
       sessionId: s.sessionId,
       pid: s.pid,
@@ -130,7 +130,7 @@ export function runningSessions({ all = false, ttlMs = 5000 } = {}) {
       name: s.name,
       startedAtEpoch: s.startedAt,
       // 프로세스가 실제로 살아있는지 한 번 더 본다 — 목록이 낡아 있을 수 있다
-      살아있음: isAlive(s.pid),
+      alive: isAlive(s.pid),
     })),
   }
 }
@@ -150,8 +150,8 @@ export function account({ ttlMs = 60000 } = {}) {
   const d = r.data || {}
   return {
     ok: r.ok && d.loggedIn === true,
-    오류: r.ok ? null : r.오류,
-    캐시됨: r.캐시됨,
+    error: r.ok ? null : r.error,
+    cached: r.cached,
     loggedIn: !!d.loggedIn,
     email: d.email || null,
     orgName: d.orgName || null,
@@ -160,7 +160,7 @@ export function account({ ttlMs = 60000 } = {}) {
     apiProvider: d.apiProvider || null,
     subscriptionType: d.subscriptionType || null,
     // 구독이면 정가 환산은 참고값이다
-    구독제: !!d.subscriptionType && d.subscriptionType !== 'api',
+    isSubscription: !!d.subscriptionType && d.subscriptionType !== 'api',
   }
 }
 

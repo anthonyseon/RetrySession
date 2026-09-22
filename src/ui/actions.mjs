@@ -39,28 +39,28 @@ export function runNow(kind, sessionId) {
 export function detail(sessionId, { turns = 40 } = {}) {
   const d = sessionDetail(sessionId, { turns })
   const registry = loadTargets()
-  const 대상 = registry.targets[sessionId] || null
+  const target = registry.targets[sessionId] || null
 
-  let 감시로그 = [], 재시작로그 = [], 재시작 = null, 하트비트 = null, 추적기 = null
-  if (대상) {
+  let watchLog = [], restartLog = [], restart = null, heartbeat = null, tracker = null
+  if (target) {
     const P = statePaths(sessionId)
-    감시로그 = tail(P.hbLogPath, 60)
-    재시작로그 = tail(P.resumeLogPath, 120)
-    try { 하트비트 = JSON.parse(readFileSync(P.하트비트, 'utf8')) } catch { 하트비트 = null }
+    watchLog = tail(P.hbLogPath, 60)
+    restartLog = tail(P.resumeLogPath, 120)
+    try { heartbeat = JSON.parse(readFileSync(P.heartbeat, 'utf8')) } catch { heartbeat = null }
 
-    const pairCwd = 대상.주작업cwd || 대상.실행cwd
+    const pairCwd = target.mainCwd || target.runCwd
     const { project } = pairCwd ? resolveRepo(pairCwd) : { project: null }
     if (project) {
       const st = loadRunState(P.resumeState)
       const b = budgetVerdict(st, project.resume)
-      재시작 = {
-        상태: st, 예산: b, 설정: project.resume, 저장소id: project.id,
-        추적기경로: project.tracker || null,
+      restart = {
+        state: st, budget: b, config: project.resume, repoId: project.id,
+        trackerFile: project.tracker || null,
       }
       // 상세 화면에서 재개 지점을 그대로 보여준다
       const tp = trackerPath(project)
-      if (tp) 추적기 = readTracker(tp)
+      if (tp) tracker = readTracker(tp)
     }
   }
-  return { ...d, 대상, 하트비트, 감시로그, 재시작로그, 재시작, 추적기 }
+  return { ...d, target, heartbeat, watchLog, restartLog, restart, tracker }
 }

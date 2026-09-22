@@ -42,9 +42,9 @@ function query() {
       stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 8 * 1024 * 1024,
     })
     const j = JSON.parse(out)
-    return { ok: true, rows: Array.isArray(j) ? j : [j], 오류: null }
+    return { ok: true, rows: Array.isArray(j) ? j : [j], error: null }
   } catch (e) {
-    return { ok: false, rows: [], 오류: (e.stderr || e.message || '').toString().slice(0, 300) || '조회 실패' }
+    return { ok: false, rows: [], error: (e.stderr || e.message || '').toString().slice(0, 300) || '조회 실패' }
   }
 }
 
@@ -61,7 +61,7 @@ export function parseCmdline(cmd) {
   while ((m = re.exec(c))) addDirs.push(pathKey(m[2] || m[3]))
 
   const ext = /[\\/]\.vscode[\\/]extensions[\\/]/i.test(c)
-  const 확장버전 = /anthropic\.claude-code-([\d.]+)-/i.exec(c)?.[1] || null
+  const extVersion = /anthropic\.claude-code-([\d.]+)-/i.exec(c)?.[1] || null
 
   /**
    * 세션인가 보조 프로세스인가.
@@ -72,14 +72,14 @@ export function parseCmdline(cmd) {
   const sessionKind = !mcpHelper && (c.includes('stream-json') || !!resume || !!sessionId)
 
   return {
-    종류: mcpHelper ? 'mcp보조' : (sessionKind ? '세션' : '기타'),
+    kind: mcpHelper ? 'mcp보조' : (sessionKind ? '세션' : '기타'),
     resume, sessionId: resume || sessionId,
     addDirs,
-    출처: ext ? 'VS Code 확장' : 'npm',
-    확장버전,
-    권한모드: /--permission-mode[= ](\S+)/.exec(c)?.[1] || null,
-    위험권한: c.includes('--dangerously-skip-permissions') || c.includes('--allow-dangerously-skip-permissions'),
-    길이: c.length,
+    source: ext ? 'VS Code 확장' : 'npm',
+    extVersion,
+    permissionMode: /--permission-mode[= ](\S+)/.exec(c)?.[1] || null,
+    riskyPerm: c.includes('--dangerously-skip-permissions') || c.includes('--allow-dangerously-skip-permissions'),
+    size: c.length,
   }
 }
 
@@ -89,26 +89,26 @@ export function parseCmdline(cmd) {
  */
 export function claudeProcesses({ ttlMs = 10000 } = {}) {
   const hit = _cache.get('p')
-  if (hit && Date.now() - hit.at < ttlMs) return { ...hit.v, 캐시됨: true }
+  if (hit && Date.now() - hit.at < ttlMs) return { ...hit.v, cached: true }
 
   const r = query()
-  const 목록 = r.rows.filter(Boolean).map((x) => {
+  const items = r.rows.filter(Boolean).map((x) => {
     const p = parseCmdline(x.cmd)
     return {
       pid: x.pid, ppid: x.ppid,
-      시작: x.started || null,
+      startedText: x.started || null,
       ...p,
     }
-  }).sort((a, b) => (a.종류 === '세션' ? -1 : 1) - (b.종류 === '세션' ? -1 : 1) || a.pid - b.pid)
+  }).sort((a, b) => (a.kind === '세션' ? -1 : 1) - (b.kind === '세션' ? -1 : 1) || a.pid - b.pid)
 
   const v = {
-    ok: r.ok, 오류: r.오류, 목록,
-    세션수: 목록.filter((x) => x.종류 === '세션').length,
-    보조수: 목록.filter((x) => x.종류 !== '세션').length,
+    ok: r.ok, error: r.error, items,
+    sessionCount: items.filter((x) => x.kind === '세션').length,
+    helperCount: items.filter((x) => x.kind !== '세션').length,
     queriedAt: localStamp(),
   }
   _cache.set('p', { at: Date.now(), v })
-  return { ...v, 캐시됨: false }
+  return { ...v, cached: false }
 }
 
 export function clearCache() { _cache.clear() }

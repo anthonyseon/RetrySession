@@ -64,14 +64,14 @@ test('🔴 트레이가 읽는 라벨 파일의 키는 ASCII 다 (tray.ps1 이 �
   assert.ok(existsSync(p), 'config/ui-labels.json 이 있어야 한다')
   const j = JSON.parse(readFileSync(p, 'utf8'))
 
-  const check = (o, 경로 = '') => {
+  const check = (o, path = '') => {
     for (const k of Object.keys(o)) {
       // `_주의` 같은 메모 키는 코드가 읽지 않으므로 면제한다
       if (!k.startsWith('_')) {
         // eslint-disable-next-line no-control-regex
-        assert.match(k, /^[\x20-\x7e]+$/, `키 '${경로}${k}' 가 ASCII 가 아니다 — tray.ps1 이 참조할 수 없다`)
+        assert.match(k, /^[\x20-\x7e]+$/, `키 '${path}${k}' 가 ASCII 가 아니다 — tray.ps1 이 참조할 수 없다`)
       }
-      if (o[k] && typeof o[k] === 'object') check(o[k], `${경로}${k}.`)
+      if (o[k] && typeof o[k] === 'object') check(o[k], `${path}${k}.`)
     }
   }
   check(j)
@@ -97,8 +97,8 @@ test('🔴 트레이는 /api/status 가 아니라 /api/tray 를 읽는다 (한�
 
   // 주석에서 두 경로를 대조해 설명하므로 코드 줄만 본다 — 주석까지 금지하면
   // 이유를 적을 수 없어 규칙의 근거가 사라진다
-  const 코드 = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
-  assert.ok(!코드.includes('/api/status'),
+  const code = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+  assert.ok(!code.includes('/api/status'),
     'tray.ps1 의 코드가 /api/status 를 읽으면 한글 속성명을 참조해야 하므로 ASCII 규칙을 어긴다')
 })
 
@@ -124,12 +124,12 @@ test('진입점은 본체로 넘기기만 한다 — 로직을 여기 두면 ASC
 })
 
 test('.ps1 이 가리키는 작업 이름은 scheduler.mjs 와 일치한다', async () => {
-  const { 작업이름 } = await import('../src/lib/scheduler.mjs')
+  const { taskNames } = await import('../src/lib/scheduler.mjs')
   const pairCwd = [
-    ['register-heartbeat.ps1', 작업이름.하트비트],
-    ['register-resume.ps1', 작업이름.재시작],
-    ['register-ui.ps1', 작업이름.UI],
-    ['register-tray.ps1', 작업이름.트레이],
+    ['register-heartbeat.ps1', taskNames.heartbeat],
+    ['register-resume.ps1', taskNames.restart],
+    ['register-ui.ps1', taskNames.UI],
+    ['register-tray.ps1', taskNames.tray],
   ]
   for (const [f, name] of pairCwd) {
     const src = readFileSync(join(ROOT, 'scripts', f), 'utf8')
@@ -137,7 +137,7 @@ test('.ps1 이 가리키는 작업 이름은 scheduler.mjs 와 일치한다', as
   }
   // 해제 스크립트는 셋 다 알아야 한다
   const un = readFileSync(join(ROOT, 'scripts', 'unregister-all.ps1'), 'utf8')
-  for (const name of Object.values(작업이름)) {
+  for (const name of Object.values(taskNames)) {
     assert.ok(un.includes(name), `unregister-all.ps1 에 '${name}' 이 없다 — 지워지지 않고 남는다`)
   }
 })
@@ -169,10 +169,10 @@ test('.ps1 이 가리키는 작업 이름은 scheduler.mjs 와 일치한다', as
 test('🔴 예약 작업 네 개 모두 runhidden.exe 를 거친다 (하나만 빼먹으면 창이 뜬다)', () => {
   for (const f of ['register-heartbeat.ps1', 'register-resume.ps1', 'register-ui.ps1', 'register-tray.ps1']) {
     const src = readFileSync(join(ROOT, 'scripts', f), 'utf8')
-    const 코드 = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
-    assert.ok(/runhidden\.exe/.test(코드), `scripts/${f} 가 runhidden.exe 를 쓰지 않는다`)
+    const code = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+    assert.ok(/runhidden\.exe/.test(code), `scripts/${f} 가 runhidden.exe 를 쓰지 않는다`)
     // action 을 만드는 줄이 runhidden 을 가리켜야 한다
-    const action = 코드.split('\n').filter((l) => l.includes('New-ScheduledTaskAction'))
+    const action = code.split('\n').filter((l) => l.includes('New-ScheduledTaskAction'))
     assert.ok(action.length >= 1, `${f} 에서 action 을 찾을 수 없다`)
     assert.ok(action.some((l) => /\$hidden|\$RunHidden|runhidden/i.test(l)),
       `${f} 의 action 이 runhidden 을 거치지 않는다: ${action[0]?.trim().slice(0, 80)}`)
@@ -184,9 +184,9 @@ test('🔴 콘솔 프로그램을 띄우는 곳은 -WindowStyle Hidden 만 믿�
   // 그 플래그를 쓰는 줄이 있어도 되지만, 반드시 runhidden 대안이 함께 있어야 한다.
   for (const f of ['tray.ps1', 'shortcut.ps1']) {
     const src = readFileSync(join(ROOT, 'scripts', f), 'utf8')
-    const 코드 = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
-    if (!/WindowStyle Hidden|WindowStyle', 'Hidden/.test(코드)) continue
-    assert.ok(/runhidden\.exe/.test(코드),
+    const code = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+    if (!/WindowStyle Hidden|WindowStyle', 'Hidden/.test(code)) continue
+    assert.ok(/runhidden\.exe/.test(code),
       `scripts/${f} 가 -WindowStyle Hidden 에만 기대고 있다 — runhidden.exe 경로를 함께 둬라`)
   }
   const start = readFileSync(join(ROOT, 'start.ps1'), 'utf8')

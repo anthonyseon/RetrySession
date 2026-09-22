@@ -13,8 +13,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { prepareRender, 정상, ROOT } from './_ui-harness.mjs'
-import { pcVerdict, 선택지, 쓸수있는키 } from '../src/lib/pc.mjs'
+import { prepareRender, healthy, ROOT } from './_ui-harness.mjs'
+import { pcVerdict, choices, editableKeys } from '../src/lib/pc.mjs'
 import { styleSource } from './_ui-files.mjs'
 
 /**
@@ -32,44 +32,44 @@ const raw = (over = {}) => ({
 /** 서버가 /api/status 에 담아 보내는 모양 그대로 (선택지·쓸수있는키는 lib 에서 온다) */
 const sample = (over) => ({
   ...pcVerdict(raw(over)),
-  선택지, 쓸수있는키,
-  백업: { 있음: false },
-  안내: ['제어판 > 전원 옵션'],
+  choices, editableKeys,
+  backup: { exists: false },
+  guide: ['제어판 > 전원 옵션'],
 })
 
 const openAndDraw = (pc) => {
   const h = prepareRender()
-  h.S.상태 = { pc }
-  h.설정.openSettings()
+  h.S.state = { pc }
+  h.config.openSettings()
   return h
 }
 const selects = (h) => h.cell.get('setupBody').querySelectorAll('select.pcsel')
-const findCell = (h, 키) => selects(h).find((s) => s.dataset.key === 키) || null
+const findCell = (h, key) => selects(h).find((s) => s.dataset.key === key) || null
 
 /* ── 원값 — 화면이 "지금 무엇이 골라져 있나"를 말할 수 있어야 한다 ── */
 
 test('🔴 판정이 원시 값을 함께 준다 (없으면 드롭다운이 현재 값을 표시할 수 없다)', () => {
   const p = pcVerdict(raw({ standbyAc: 900, standbyDc: 1800, lidAc: 1, hibernateAvailable: true, hibernateAc: 0 }))
-  const 값 = Object.fromEntries(p.목록.map((x) => [x.키, x.원값]))
-  assert.equal(값.standbyAc, 900)
-  assert.equal(값.hibernateAc, 0)
-  assert.equal(값.lidAc, 1)
-  assert.equal(값.standbyDc, 1800)
+  const value = Object.fromEntries(p.items.map((x) => [x.key, x.raw]))
+  assert.equal(value.standbyAc, 900)
+  assert.equal(value.hibernateAc, 0)
+  assert.equal(value.lidAc, 1)
+  assert.equal(value.standbyDc, 1800)
 })
 
 test('🔴 못 읽은 값은 원값이 없다 (0 과 "모름"을 섞으면 안 함으로 보인다)', () => {
   const p = pcVerdict(raw())      // lidAc: null · 최대 절전 사용 불가
-  const 값 = Object.fromEntries(p.목록.map((x) => [x.키, x.원값]))
-  assert.equal(값.lidAc, null, '읽지 못한 덮개 값이 0 으로 둔갑하면 안 된다')
-  assert.equal(값.hibernateAc, null, '사용 불가인 설정에 값을 만들어 주면 안 된다')
-  assert.equal(값.standbyAc, 0)
+  const value = Object.fromEntries(p.items.map((x) => [x.key, x.raw]))
+  assert.equal(value.lidAc, null, '읽지 못한 덮개 값이 0 으로 둔갑하면 안 된다')
+  assert.equal(value.hibernateAc, null, '사용 불가인 설정에 값을 만들어 주면 안 된다')
+  assert.equal(value.standbyAc, 0)
 })
 
 /* ── 그려본다 ────────────────────────────────────────────────── */
 
 test('🔴 고칠 것이 0개인 PC 에서도 고르는 칸이 있다 (읽기 전용 설정 창이 실제 결함이었다)', () => {
   const pc = sample()
-  assert.equal(pc.고칠것.length, 0, '표본 자체가 "이미 권장값" 상태여야 의미가 있다')
+  assert.equal(pc.fixable.length, 0, '표본 자체가 "이미 권장값" 상태여야 의미가 있다')
   const h = openAndDraw(pc)
   try {
     const keys = selects(h).map((s) => s.dataset.key)
@@ -120,7 +120,7 @@ test('🔴 보기에 없는 현재 값도 그대로 보여준다 (첫 보기로 
     const selectedOpts = sel.children.filter((o) => o.selected)
     assert.equal(selectedOpts.length, 1)
     assert.match(selectedOpts[0].textContent, /20분 뒤 \(현재 값\)/)
-    assert.equal(h.설정.chosenValues().changed.length, 0, '아무것도 안 골랐으면 바뀐 것도 없어야 한다')
+    assert.equal(h.config.chosenValues().changed.length, 0, '아무것도 안 골랐으면 바뀐 것도 없어야 한다')
   } finally { h.restored() }
 })
 
@@ -129,7 +129,7 @@ test('🔴 보기에 없는 현재 값도 그대로 보여준다 (첫 보기로 
 test('🔴 손대지 않은 항목은 보내지 않는다', () => {
   const h = openAndDraw(sample())
   try {
-    assert.deepEqual(h.설정.chosenValues(), { values: {}, changed: [] })
+    assert.deepEqual(h.config.chosenValues(), { values: {}, changed: [] })
   } finally { h.restored() }
 })
 
@@ -140,11 +140,11 @@ test('🔴 고른 것만 보낸다 · 감시가 멎을 수 있으면 그 사실�
     sel.value = '600'
     sel.fire('change')
 
-    const { values, changed } = h.설정.chosenValues()
+    const { values, changed } = h.config.chosenValues()
     assert.deepEqual(values, { standbyAc: 600 }, '배터리 항목까지 함께 덮어쓰면 안 된다')
     assert.equal(changed.length, 1)
     assert.equal(changed[0].prev, '안 함')
-    assert.equal(changed[0].후, '10분 뒤')
+    assert.equal(changed[0].after, '10분 뒤')
     assert.match(changed[0].warnText, /잠들어/, '잠들면 감시가 멎는다는 것을 확인 창에 적어야 한다')
   } finally { h.restored() }
 })
@@ -155,10 +155,10 @@ test('배터리도 직접 고를 수 있다 — 자동 적용은 여전히 AC �
     const sel = findCell(h, 'standbyDc')
     sel.value = '0'
     sel.fire('change')
-    assert.deepEqual(h.설정.chosenValues().values, { standbyDc: 0 })
+    assert.deepEqual(h.config.chosenValues().values, { standbyDc: 0 })
     // 자동(권장값) 경로에는 배터리가 절대 들어가지 않는다
     const p = pcVerdict(raw({ standbyAc: 900, standbyDc: 900 }))
-    assert.deepEqual(p.고칠것, ['standbyAc'])
+    assert.deepEqual(p.fixable, ['standbyAc'])
   } finally { h.restored() }
 })
 
@@ -172,16 +172,16 @@ test('🔴 다시 그려도 고른 값이 남는다 (폴링이 선택을 되돌�
     sel.fire('change')
 
     // 상태를 새로 받은 것처럼 (내용은 그대로) — app.js 가 3초마다 이렇게 부른다
-    h.S.상태 = { pc: sample() }
-    h.설정.drawSettings()
+    h.S.state = { pc: sample() }
+    h.config.drawSettings()
     assert.equal(findCell(h, 'standbyAc').value, '1800', '내용이 같으면 다시 그릴 이유가 없다')
 
     // 내용이 바뀌어 정말 다시 그려도 고른 값은 살아 있어야 한다
-    h.S.상태 = { pc: sample({ standbyDc: 3600 }) }
-    h.설정.drawSettings()
+    h.S.state = { pc: sample({ standbyDc: 3600 }) }
+    h.config.drawSettings()
     const again = findCell(h, 'standbyAc')
     assert.equal(again.value, '1800')
-    assert.deepEqual(h.설정.chosenValues().values, { standbyAc: 1800 })
+    assert.deepEqual(h.config.chosenValues().values, { standbyAc: 1800 })
   } finally { h.restored() }
 })
 
@@ -191,16 +191,16 @@ test('창을 새로 열면 고르던 값은 비워진다 (닫았다 열면 지�
     const sel = findCell(h, 'standbyAc')
     sel.value = '600'
     sel.fire('change')
-    h.설정.openSettings()
+    h.config.openSettings()
     assert.equal(findCell(h, 'standbyAc').value, '0')
-    assert.deepEqual(h.설정.chosenValues().changed, [])
+    assert.deepEqual(h.config.chosenValues().changed, [])
   } finally { h.restored() }
 })
 
 /* ── 순수 판정 ───────────────────────────────────────────────── */
 
 test('mayStopWatching — 0(안 함)만 안전하다', () => {
-  const { mayStopWatching } = prepareRender().설정
+  const { mayStopWatching } = prepareRender().config
   assert.equal(mayStopWatching('standbyAc', 0), '')
   assert.equal(mayStopWatching('lidAc', 0), '')
   assert.match(mayStopWatching('standbyAc', 600), /잠들어/)
@@ -216,7 +216,7 @@ test('🔴 화면은 고른 값을 /api/pc 에 보내고, 무엇이 바뀌는지
   const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
   assert.match(app, /action: 'set', values/, "고른 값은 action:'set' 으로 나가야 한다")
   assert.match(app, /confirm\(\[/, '남의 PC 설정이다 — 확인을 받아야 한다')
-  assert.match(app, /x\.이름}: \$\{x\.prev} → \$\{x\.후}/,
+  assert.match(app, /x\.name}: \$\{x\.prev} → \$\{x\.after}/,
     '무엇이 무엇으로 바뀌는지 줄 단위로 적어야 한다 (뭉뚱그린 물음은 읽히지 않는다)')
   assert.match(app, /감시를 멎게 할 수 있습니다/, '감시가 멎을 수 있으면 말해야 한다')
 })
@@ -259,7 +259,7 @@ test('고르는 칸에 CSS 가 있다 (스타일 없는 select 는 배경과 구
 test('🔴 요약의 PC 묶음이 실제 응답 모양으로 그려진다 (죽은 코드가 목록을 지웠다)', () => {
   const h = prepareRender()
   try {
-    h.drawTiles({ ...정상(), pc: sample() })      // 던지면 여기서 실패한다
+    h.drawTiles({ ...healthy(), pc: sample() })      // 던지면 여기서 실패한다
     const t = h.cell.get('tiles').textContent
     assert.match(t, /PC 설정/, 'PC 묶음이 있어야 한다')
     assert.match(t, /절전 \(전원 연결\)/, '판정 줄이 그려져야 한다')
@@ -272,9 +272,9 @@ test('🔴 요약의 PC 묶음이 실제 응답 모양으로 그려진다 (죽�
 test('PC 설정을 못 읽어도 요약이 그려진다 (모를 때가 가장 자주 그려지는 모양이다)', () => {
   const h = prepareRender()
   try {
-    for (const pc of [pcVerdict(null), pcVerdict({ ok: false, 오류: 'powershell 없음' }), { 목록: [] }, {}]) {
+    for (const pc of [pcVerdict(null), pcVerdict({ ok: false, error: 'powershell 없음' }), { items: [] }, {}]) {
       h.cell.clear()
-      h.drawTiles({ ...정상(), pc })
+      h.drawTiles({ ...healthy(), pc })
     }
   } finally { h.restored() }
 })
