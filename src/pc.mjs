@@ -13,34 +13,17 @@
  *   원자적으로 저장해 --restore 로 언제든 되돌릴 수 있게 한다.
  *   되돌릴 수 없는 변경은 하지 않는다.
  */
-import { execFileSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { RS_HOME } from './lib/config.mjs'
 import { 원자JSON쓰기 } from './lib/io.mjs'
-import { pc판정, 적용인자, 복원인자, 수동안내 } from './lib/pc.mjs'
+import { pc판정, 적용인자, 복원인자, 수동안내, 읽기 } from './lib/pc.mjs'
 import { localStamp } from './lib/stamp.mjs'
 
 const argv = process.argv.slice(2)
 const flag = (n) => argv.includes(n)
 const 백업경로 = join(RS_HOME, 'state', 'pc-backup.json')
-const 스크립트 = join(RS_HOME, 'scripts', 'pc-settings.ps1')
 
-/**
- * pc-settings.ps1 을 부른다.
- * 🔴 창이 뜨지 않게 windowsHide 로 띄우고 셸을 거치지 않는다(저장소 규칙).
- */
-export function 읽기(추가인자 = []) {
-  try {
-    const out = execFileSync('powershell', [
-      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 스크립트, '-Json', ...추가인자,
-    ], { encoding: 'utf8', timeout: 30000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    return JSON.parse(out.trim().split('\n').pop())
-  } catch (e) {
-    // 🔴 못 읽었으면 괜찮다고 하지 않는다 — 판정이 unknown 으로 받는다
-    return { ok: false, 오류: (e.stderr || e.message || String(e)).toString().slice(0, 300) }
-  }
-}
 
 const 아이콘 = { ok: '✅', warn: '⚠', crit: '✖', unknown: '?', info: 'ℹ' }
 

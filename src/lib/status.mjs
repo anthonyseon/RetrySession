@@ -27,6 +27,7 @@ import { 전체락상태 } from './single.mjs'
 import { 현재경보, 최근경보 } from './alerts.mjs'
 import { paths as repoPaths } from './config.mjs'
 import { 총비용 } from './pricing.mjs'
+import { pc상태 } from './pc.mjs'
 // 보기 변환은 view.mjs 로 옮겼다. tail 은 바깥(server.mjs)에서도 쓰므로 다시 내보낸다.
 import { tail, 할당량보기 } from './view.mjs'
 export { tail, 할당량보기 }
@@ -251,6 +252,9 @@ export function fullStatus() {
     계정: acct,
     cli: { 버전: cliVersion(), agents조회: { ok: run.ok, 오류: run.오류 } },
     할당량: 할당량보기(scan.할당량),
+    // PC 전원 설정 — 잠든 PC 는 아무것도 돌리지 않는다. 읽기가 느려서(474ms 실측)
+    // 60초 캐시를 쓴다(lib/pc.mjs). 사람이 바꾸기 전에는 그대로이므로 무해하다.
+    pc: pc상태(),
     작업: 작업상태(),
     ide: {
       창: ide.창,

@@ -141,6 +141,7 @@ test('🔴 복원은 백업에 있는 값만 되돌린다 (없는 값을 0 으�
 /* ── 안전 규칙이 코드에 남아 있는가 ─────────────────────────── */
 
 const pcmjs = readFileSync(join(ROOT, 'src', 'pc.mjs'), 'utf8')
+const libpc = readFileSync(join(ROOT, 'src', 'lib', 'pc.mjs'), 'utf8')
 const ps1 = readFileSync(join(ROOT, 'scripts', 'pc-settings.ps1'), 'utf8')
 
 test('🔴 기본 동작은 점검이다 — 묻지도 않고 바꾸지 않는다', () => {
@@ -177,8 +178,8 @@ test('🔴 별칭이 아니라 GUID 를 쓴다 (별칭은 PC 마다 없을 수 �
   assert.match(ps1, /29f6c1db-86da-48c5-9fdb-f2b67b1f44da/, 'STANDBYIDLE GUID')
 })
 
-test('창을 띄우지 않고 부른다', () => {
-  assert.match(pcmjs, /windowsHide: true/)
+test('창을 띄우지 않고 부른다 (읽기는 lib 에 있다)', () => {
+  assert.match(libpc, /windowsHide: true/)
 })
 
 test('수동 안내가 실제 경로를 짚는다', () => {
@@ -186,4 +187,126 @@ test('수동 안내가 실제 경로를 짚는다', () => {
   assert.match(t, /전원 옵션/)
   assert.match(t, /덮개/)
   assert.match(t, /로그오프/, '잠금과 로그오프의 차이를 말해야 한다')
+})
+
+/* ── 화면에서 바꿀 수 있는가 ────────────────────────────────── */
+
+const 화면 = ['app.js', 'summary.js'].map((f) => readFileSync(join(ROOT, 'src', 'ui', f), 'utf8')).join('\n')
+const 서버 = readFileSync(join(ROOT, 'src', 'ui', 'server.mjs'), 'utf8')
+
+/**
+ * 🔴 문제를 보는 자리와 고치는 자리가 같아야 한다.
+ *   고치는 법이 CLI 에만 있으면, 화면만 보는 사람은 "감시 정상"을 보면서
+ *   자리를 비우는 순간 멎을 PC 를 그대로 쓴다.
+ */
+test('🔴 화면에 PC 설정 묶음이 있다', () => {
+  assert.match(화면, /묶음\('PC 설정'\)/, 'PC 설정 묶음을 그려야 한다')
+  assert.match(화면, /pc\.목록/, '판정 목록을 줄로 그려야 한다')
+})
+
+test('🔴 자동 설정·되돌리기·수동 안내 단추가 있다', () => {
+  assert.match(화면, /dataset\.pc = act/, '단추가 동작을 달아야 한다')
+  for (const act of ['apply', 'restore', 'manual']) {
+    assert.ok(화면.includes(`'${act}'`), `${act} 단추가 없다`)
+  }
+  assert.match(화면, /자동 설정/)
+  assert.match(화면, /되돌리기/)
+  assert.match(화면, /수동 설정 방법/)
+})
+
+test('🔴 보관된 이전 값을 화면이 보여준다 (되돌릴 길을 모르면 누르지 못한다)', () => {
+  assert.match(화면, /백업\.있음/, '보관 여부를 봐야 한다')
+  assert.match(화면, /보관됨/, '보관됐다는 것을 글로도 적어야 한다')
+  assert.match(화면, /보관 파일 손상/, '깨진 백업을 "있음"이라 하면 되돌리기가 헛돈다')
+})
+
+test('🔴 되돌리기 단추는 보관된 값이 있을 때만 나온다', () => {
+  const i = 화면.indexOf("만들기('되돌리기'")
+  assert.ok(i > 0)
+  const 앞 = 화면.slice(Math.max(0, i - 200), i)
+  assert.match(앞, /백업\.있음/, '보관이 없으면 되돌리기를 보여주면 안 된다')
+})
+
+test('🔴 바꾸기 전에 확인을 받고, 되돌릴 수 있다고 말한다', () => {
+  const i = 화면.indexOf('async function pc동작')
+  const 구간 = 화면.slice(i, i + 1200)
+  assert.match(구간, /confirm\(물음\)/, '묻지 않고 바꾸면 안 된다')
+  assert.match(구간, /되돌릴 수 있습니다/, '되돌릴 수 있다는 것을 알려야 누를 수 있다')
+  assert.match(구간, /배터리 설정은 건드리지 않습니다/, '무엇을 건드리지 않는지도 말해야 한다')
+})
+
+test('수동 안내는 서버를 부르지 않는다 (이미 받아 둔 문구다)', () => {
+  const i = 화면.indexOf('async function pc동작')
+  const 구간 = 화면.slice(i, i + 500)
+  assert.match(구간, /action === 'manual'/)
+  assert.match(구간, /S\.상태\?\.pc\?\.안내/, '상태에 실려 온 안내를 쓰면 된다')
+})
+
+/* ── 서버 쪽 ─────────────────────────────────────────────────── */
+
+test('🔴 서버는 규칙을 두 벌로 만들지 않는다 — src/pc.mjs 를 부른다', () => {
+  const i = 서버.indexOf("p === '/api/pc'")
+  assert.ok(i > 0, '/api/pc 가 있어야 한다')
+  const 구간 = 서버.slice(i, i + 900)
+  assert.match(구간, /'src', 'pc\.mjs'/, '백업·재확인 규칙이 있는 그 스크립트를 불러야 한다')
+  assert.ok(!/powercfg/.test(서버), '서버가 직접 powercfg 를 부르면 안전장치를 건너뛴다')
+})
+
+test('🔴 action 은 apply·restore 만 받는다', () => {
+  const i = 서버.indexOf("p === '/api/pc'")
+  const 구간 = 서버.slice(i, i + 900)
+  assert.match(구간, /b\.action === 'restore' \? '--restore' : b\.action === 'apply' \? '--apply' : null/)
+  assert.match(구간, /400/, '다른 값은 거절해야 한다')
+})
+
+test('🔴 바꾼 뒤 캐시를 버린다 (안 버리면 화면이 옛 값을 보여준다)', () => {
+  const i = 서버.indexOf("p === '/api/pc'")
+  const 구간 = 서버.slice(i, i + 900)
+  assert.match(구간, /캐시비우기\(\)/)
+  assert.match(구간, /pc상태\(\{ 강제: true \}\)/, '응답에는 새로 읽은 값을 담아야 한다')
+})
+
+test('🔴 창을 띄우지 않고 부른다', () => {
+  const i = 서버.indexOf("p === '/api/pc'")
+  assert.match(서버.slice(i, i + 900), /windowsHide: true/)
+})
+
+/* ── 잠들도록 설정돼 있으면 경보 ────────────────────────────── */
+
+test('🔴 PC 가 잠들도록 설정돼 있으면 경보를 낸다', async () => {
+  const { 현재경보 } = await import('../src/lib/alerts.mjs')
+  const d = {
+    세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: true },
+    pc: { 수준: 'crit', 목록: [{ 이름: '절전 (전원 연결)', 현재: '10분 뒤', 수준: 'crit' }] },
+  }
+  const hit = 현재경보(d).find((x) => x.코드 === 'PC절전')
+  assert.ok(hit, '지금 기록이 멀쩡해도 자리를 비우면 멎는다 — 알려야 한다')
+  assert.equal(hit.수준, 'critical')
+  assert.match(hit.설명, /10분 뒤/, '무엇이 문제인지 값으로 말해야 한다')
+  assert.match(hit.설명, /-Pc -Apply|PC 설정/, '고치는 법을 적어야 한다')
+})
+
+test('PC 설정이 괜찮으면 그 경보는 없다', async () => {
+  const { 현재경보 } = await import('../src/lib/alerts.mjs')
+  const d = { 세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: true }, pc: { 수준: 'ok', 목록: [] } }
+  assert.equal(현재경보(d).find((x) => x.코드 === 'PC절전'), undefined)
+})
+
+test('🔴 읽지 못한 경우(unknown)로는 경보를 내지 않는다 (끝없는 경보 금지)', async () => {
+  const { 현재경보 } = await import('../src/lib/alerts.mjs')
+  const d = { 세션: [], 작업: {}, 락: {}, 합계: { 실행여부앎: true }, pc: { 수준: 'unknown', 목록: [] } }
+  assert.equal(현재경보(d).find((x) => x.코드 === 'PC절전'), undefined,
+    '이 PC 는 덮개 항목이 없어 영원히 unknown 이다 — 매번 경보면 진짜 문제가 묻힌다')
+})
+
+test('🔴 캐시 경로에서도 백업·안내가 실려온다 (빠뜨려 단추가 빈 채로 떴다 — 실측)', async () => {
+  const { pc상태 } = await import('../src/lib/pc.mjs')
+  const 첫 = pc상태({ 강제: true })
+  const 둘째 = pc상태()          // 캐시 경로
+  assert.equal(둘째.캐시됨, true, '두 번째는 캐시를 타야 한다')
+  for (const k of ['백업', '안내']) {
+    assert.ok(첫[k], `강제 경로에 ${k} 가 없다`)
+    assert.ok(둘째[k], `캐시 경로에 ${k} 가 없다 — 화면 단추가 빈 채로 뜬다`)
+  }
+  assert.ok(둘째.안내.length > 0, '안내가 비어 있으면 수동 설명 단추가 아무것도 못 보여준다')
 })

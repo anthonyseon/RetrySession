@@ -167,6 +167,43 @@ $('#btnTop').addEventListener('click', () => {
 // 기억해 둔 상태로 시작한다
 try { 요약적용(localStorage.getItem(접힘키) === '1', { 저장: false }) }
 catch { 요약적용(false, { 저장: false }) }
+/* ── PC 설정 바꾸기 ─────────────────────────────────────────── */
+/**
+ * 🔴 남의 PC 설정을 바꾸는 일이라 반드시 확인을 받는다. 되돌릴 수 있다는 것도
+ *   함께 말한다 — 되돌릴 길을 모르면 사람은 누르지 못한다.
+ *   규칙(백업 먼저·배터리 제외·바꾼 뒤 재확인)은 서버가 src/pc.mjs 를 불러 지킨다.
+ */
+async function pc동작(action) {
+  // 수동 안내는 서버를 부를 일이 없다 — 이미 받아 둔 문구를 보여주기만 한다
+  if (action === 'manual') {
+    const 안내 = S.상태?.pc?.안내
+    alert(Array.isArray(안내) ? 안내.join('\n') : '안내를 아직 받지 못했습니다. 잠시 뒤 다시 누르세요.')
+    return
+  }
+
+  const 물음 = action === 'apply'
+    ? [
+      'PC 전원 설정을 바꿉니다.',
+      '',
+      '· 전원이 연결된 상태에서 잠들지 않도록 합니다.',
+      '· 배터리 설정은 건드리지 않습니다 (배터리를 태우지 않기 위해).',
+      '· 바꾸기 전 값을 저장하므로 언제든 되돌릴 수 있습니다.',
+      '',
+      '계속할까요?',
+    ].join('\n')
+    : 'PC 전원 설정을 바꾸기 전 값으로 되돌립니다.\n\n계속할까요?'
+  if (!confirm(물음)) return
+
+  const r = await 보내기('/api/pc', { action })
+  // 결과를 그대로 보여준다 — "바꿨다"만 말하고 실제로 안 바뀌면 그게 최악이다
+  if (r && r.출력) alert(r.출력)
+}
+
+document.addEventListener('click', (e) => {
+  const act = e.target?.dataset?.pc
+  if (act) pc동작(act)
+})
+
 $('#onlyReg').addEventListener('change', (e) => { S.등록만 = e.target.checked; 그리기() })
 
 /**

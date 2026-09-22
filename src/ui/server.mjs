@@ -18,7 +18,7 @@ import { createServer } from 'node:http'
 import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { RS_HOME } from '../lib/config.mjs'
 import { fullStatus, trayStatus, tail } from '../lib/status.mjs'
 import { sessionDetail } from '../lib/detail.mjs'
@@ -28,6 +28,7 @@ import { readTracker } from '../lib/tracker.mjs'
 import { localStamp } from '../lib/stamp.mjs'
 import { 단일실행 } from '../lib/single.mjs'
 import { 로컬인가, 출처괜찮나 } from '../lib/http.mjs'
+import { pc상태, 캐시비우기 } from '../lib/pc.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
@@ -261,6 +262,33 @@ const server = createServer(async (req, res) => {
         saveRunState(P.재개상태, rearm(loadRunState(P.재개상태)))
       }
       return json(res, 200, { ok: true, 해제: ids.length })
+    }
+
+    /**
+     * PC 전원 설정을 바꾼다.
+     *
+     * 🔴 왜 화면에서도 할 수 있어야 하나
+     *   잠든 PC 는 아무것도 돌리지 않는다 — 이 도구가 성립하는 전제다. 그런데
+     *   고치는 법이 CLI 에만 있으면, 화면만 보는 사람은 "감시 정상"을 보면서
+     *   자리를 비우는 순간 멎는 PC 를 쓰게 된다.
+     *
+     * 🔴 남의 PC 설정을 바꾸는 일이므로, 여기서도 CLI 와 **같은 안전장치**를 거친다:
+     *   바꾸기 전 값을 저장하고(되돌릴 수 없으면 바꾸지 않는다), 바꾼 뒤 다시 읽어
+     *   확인하고, 배터리 설정은 건드리지 않는다. 그 전부가 src/pc.mjs 안에 있으므로
+     *   여기서는 **그 스크립트를 부르기만** 한다 — 규칙을 두 벌로 만들지 않는다.
+     */
+    if (req.method === 'POST' && p === '/api/pc') {
+      const b = await 본문읽기(req)
+      const 동작 = b.action === 'restore' ? '--restore' : b.action === 'apply' ? '--apply' : null
+      if (!동작) return json(res, 400, { 오류: "action 은 'apply' 또는 'restore' 여야 한다" })
+
+      const r = spawnSync(process.execPath, [join(RS_HOME, 'src', 'pc.mjs'), 동작], {
+        cwd: RS_HOME, encoding: 'utf8', timeout: 60000, windowsHide: true,
+      })
+      // 바꿨으면 캐시가 거짓말을 한다 — 다음 조회가 새로 읽게 한다
+      캐시비우기()
+      const 출력 = `${r.stdout || ''}${r.stderr || ''}`.trim()
+      return json(res, 200, { ok: r.status === 0, 동작: b.action, exit: r.status, 출력, 지금: pc상태({ 강제: true }) })
     }
 
     if (req.method === 'POST' && p === '/api/run') {

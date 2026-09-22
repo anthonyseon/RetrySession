@@ -7,13 +7,18 @@
  *   실측(이 PC): 나흘 밤 각 84회(7시간 × 12) 기록, 공백 0 — 절전이 꺼져 있어서다.
  *   절전이 **켜진** PC 에서는 그 중 아무것도 일어나지 않는다.
  *
- * 🔴 판정만 여기 둔다. 값을 읽고 쓰는 것은 scripts/pc-settings.ps1 이다.
+ * 🔴 판정은 순수 함수다. 값을 읽고 쓰는 것은 scripts/pc-settings.ps1 이다.
  *   스케줄러와 같은 분리다 — .ps1 은 출처, .mjs 는 판정. 그래야 시험할 수 있다.
+ *   읽기(IO)는 아래에 캐시와 함께 둔다(lib/scheduler.mjs 와 같은 모양).
  *
  * 🔴 배터리(DC)는 건드리지 않는다.
  *   배터리에서 절전을 끄면 배터리를 태운다. 그건 사용자의 PC 이지 우리 것이 아니다.
  *   전원이 연결된 상태(AC)만 권장하고, 배터리는 **보여주기만** 한다.
  */
+import { execFileSync } from 'node:child_process'
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { RS_HOME } from './config.mjs'
 
 /** 못 읽은 값. 0 과 구별해야 한다 — 0 은 "안 함"이고 null 은 "모른다"다 */
 export const 모름 = null
@@ -133,6 +138,71 @@ export function 복원인자(백업) {
   넣기('-LidAc', 백업?.lidAc)
   return args
 }
+
+/* ── 읽기·쓰기 (IO) ──────────────────────────────────────────── */
+
+const 스크립트 = () => join(RS_HOME, 'scripts', 'pc-settings.ps1')
+
+/**
+ * pc-settings.ps1 을 부른다.
+ * 🔴 창을 띄우지 않고(windowsHide) 셸을 거치지 않는다 — 저장소 규칙.
+ * 🔴 못 읽었으면 `ok:false` 다. 괜찮다고 하지 않는다(판정이 unknown 으로 받는다).
+ */
+export function 읽기(추가인자 = []) {
+  try {
+    const out = execFileSync('powershell', [
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 스크립트(), '-Json', ...추가인자,
+    ], { encoding: 'utf8', timeout: 30000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    return JSON.parse(out.trim().split('\n').pop())
+  } catch (e) {
+    return { ok: false, 오류: (e.stderr || e.message || String(e)).toString().slice(0, 300) }
+  }
+}
+
+/**
+ * 화면용 — 캐시해서 돌려준다.
+ *
+ * 🔴 왜 캐시인가 (실측)
+ *   powercfg 를 세 번 부르는 데 **474~483ms** 걸린다. 화면은 3초마다, 트레이는
+ *   2.5초마다 상태를 묻는다. 캐시 없이 끼워 넣으면 모든 조회가 0.5초씩 느려진다.
+ *   전원 설정은 사람이 바꾸기 전에는 그대로이므로 1분은 낡아도 무해하다.
+ */
+const _캐시 = { at: 0, v: null }
+export function pc상태({ ttlMs = 60000, 강제 = false } = {}) {
+  // 🔴 백업과 안내는 **두 갈래 모두**에 담는다.
+  //   캐시 경로에서 빠뜨려 화면의 "수동 설정 방법" 단추가 빈 채로 떴다(실측).
+  //   안내는 고정 문구라 캐시할 것도 없고, 백업은 방금 적용했는지를 바로 알아야 한다.
+  const 덧붙일것 = () => ({ 백업: 백업정보(), 안내: 수동안내() })
+
+  if (!강제 && _캐시.v && Date.now() - _캐시.at < ttlMs) {
+    return { ..._캐시.v, ...덧붙일것(), 캐시됨: true, 나이초: Math.round((Date.now() - _캐시.at) / 1000) }
+  }
+  const v = pc판정(읽기())
+  _캐시.at = Date.now()
+  _캐시.v = v
+  return { ...v, ...덧붙일것(), 캐시됨: false, 나이초: 0 }
+}
+
+/**
+ * 보관해 둔 이전 값.
+ *
+ * 🔴 되돌릴 수 있다는 것을 **화면이 보여줘야** 한다. 되돌릴 길을 모르면 사람은
+ *   버튼을 누르지 못한다 — 그러면 고칠 수 있는 문제가 그대로 남는다.
+ */
+export function 백업정보() {
+  const p = join(RS_HOME, 'state', 'pc-backup.json')
+  if (!existsSync(p)) return { 있음: false }
+  try {
+    const j = JSON.parse(readFileSync(p, 'utf8'))
+    return { 있음: true, at: j.at || null, 바꾼것: j.바꾼것 || [], 이전: j.이전 || {} }
+  } catch (e) {
+    // 깨진 백업을 "있음"이라 하면 되돌리기 단추가 헛돈다
+    return { 있음: false, 오류: `보관된 값이 깨졌다: ${e.message}` }
+  }
+}
+
+/** 설정을 바꾼 뒤에는 캐시가 거짓말을 한다 — 버린다 */
+export const 캐시비우기 = () => { _캐시.at = 0; _캐시.v = null }
 
 /** 자동으로 못 고치는 것들의 수동 안내 */
 export const 수동안내 = () => ([
