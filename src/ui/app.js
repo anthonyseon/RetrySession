@@ -20,8 +20,23 @@ import { 상세다시그리기 } from './detail.js'
 import { 설정열기, 설정닫기, 설정그리기, 열렸나, 고른값, 고른값비우기 } from './setup.js'
 
 /* ── 통신 ────────────────────────────────────────────────────── */
+/**
+ * 🔴 보내다 실패하면 **말해준다.**
+ *
+ *   실측 (2026-09-22): 서버가 바쁠 때 POST 가 ECONNRESET 으로 끊겼다. 이 함수에는
+ *   try 가 없어서 그 예외가 클릭 처리기 밖으로 빠져나갔고 — 화면에는 아무 일도
+ *   일어나지 않는다. 사람은 단추가 안 먹었다고 생각하고 다시 누른다.
+ *   누른 것이 먹었는지 아닌지는 반드시 보여야 한다.
+ */
 async function 보내기(path, body) {
-  const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  let r
+  try {
+    r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  } catch (e) {
+    alert(`보내지 못했습니다 — ${e.message}\n\n서버가 바쁘거나 멈췄을 수 있습니다. 잠시 뒤 다시 눌러 주세요.`)
+    await 상태읽기()
+    return null
+  }
   const j = await r.json().catch(() => ({}))
   if (!r.ok) alert('실패: ' + (j.오류 || r.status))
   await 상태읽기()
@@ -312,11 +327,32 @@ $('#onlyReg').addEventListener('change', (e) => { S.등록만 = e.target.checked
 Object.assign(동작, { 그리기, 상태읽기, 상세읽기, 보내기, 메타 })
 
 /* ── 시작 ────────────────────────────────────────────────────── */
+/**
+ * 🔴 폴링은 **겹치지 않게** 한다.
+ *
+ *   실측 (2026-09-22): /api/status 한 번이 0.9초(캐시가 더울 때)에서 11초(식었을 때)
+ *   걸린다. 서버는 한 스레드이고 그동안 이벤트 루프가 막힌다. 그런데 화면은
+ *   `setInterval(3000)` 으로 **앞 요청이 끝났는지 보지 않고** 계속 새로 보냈다 —
+ *   느려질수록 요청이 쌓이고 쌓일수록 더 느려진다. 실제로 그 상태에서 POST 가
+ *   ECONNRESET 으로 끊겼다.
+ *
+ *   끝난 뒤에 다음을 잡는다. 실패해도 멈추지 않는다 — 멈추면 화면이 그대로 굳는다.
+ */
+function pollLoop(fn, ms, shouldRun = () => true) {
+  const tick = async () => {
+    if (shouldRun()) {
+      try { await fn() } catch (e) { console.error('[폴링] 실패', e) }
+    }
+    setTimeout(tick, ms)
+  }
+  setTimeout(tick, ms)
+}
+
 상태읽기()
 기동확인()
-setInterval(() => { if (S.자동) 상태읽기() }, 3000)
+pollLoop(상태읽기, 3000, () => S.자동)
 // 서버가 다시 떴는지 5초마다 — 고친 코드가 화면에 반영되지 않는 것이 이 저장소의 상습 함정이다
-setInterval(기동확인, 5000)
-setInterval(() => { if (S.자동 && S.열린세션) 상세읽기() }, 2000)
+pollLoop(기동확인, 5000)
+pollLoop(상세읽기, 2000, () => S.자동 && Boolean(S.열린세션))
 // 신선도만 1초마다 — 화면이 멈췄는지 사람이 바로 안다 (전체를 다시 그리지 않는다)
 setInterval(신선도갱신, 1000)

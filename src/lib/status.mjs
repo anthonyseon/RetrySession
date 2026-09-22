@@ -197,7 +197,18 @@ function 세션상태(s, 등록, 실행중맵, ide창 = [], 프로세스맵 = ne
 export function fullStatus() {
   const 등록 = loadTargets()
   const scan = scanSessions()
-  const run = runningSessions()
+  /**
+   * 🔴 여기는 **보여주기용**이다. 판정용과 캐시 수명을 다르게 잡는다.
+   *
+   *   실측 (2026-09-22): 이 호출 하나가 1.0초이고 동기다 — 그동안 서버의 이벤트
+   *   루프가 멈춘다. 화면이 3초마다 부르면 1분에 12초를 그렇게 쓴다. 그 사이
+   *   아무것도 계산하지 않는 /api/ping 까지 같이 느려진다(.ps1 들이 5초로 판정한다).
+   *   화면에 "N초 전 갱신"이 적혀 있으므로 15초 묵은 값은 거짓말이 아니다.
+   *
+   *   판정(resume.mjs)은 `ttlMs: 0` 으로 **매번 새로** 읽는다. 사람이 쓰는 대화에
+   *   끼어들지 않으려면 그쪽은 묵은 값을 쓰면 안 된다.
+   */
+  const run = runningSessions({ ttlMs: 15000 })
   const 실행중맵 = new Map(run.sessions.map((s) => [s.sessionId, s]))
 
   // CLI 가 아는데 트랜스크립트에 아직 없는 세션(방금 시작)도 목록에 넣는다
@@ -214,7 +225,8 @@ export function fullStatus() {
     }))
 
   const ide = ideWindows()
-  const procs = claudeProcesses()
+  // 같은 이유로 프로세스 목록도 보여주기용 수명을 쓴다 (실측 0.7초, 동기)
+  const procs = claudeProcesses({ ttlMs: 15000 })
   const 프로세스맵 = new Map(procs.목록.map((p) => [p.pid, p]))
   const 세션 = [...scan.sessions, ...추가]
     .map((s) => 세션상태(s, 등록, 실행중맵, ide.창, 프로세스맵, run.ok))

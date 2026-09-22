@@ -21,13 +21,12 @@ import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 import { RS_HOME } from '../lib/config.mjs'
 import { fullStatus, trayStatus, tail } from '../lib/status.mjs'
-import { sessionDetail } from '../lib/detail.mjs'
-import { loadTargets, setMany, removeTarget, statePaths, resolveRepo, trackerPath, 세션id인가 } from '../lib/targets.mjs'
-import { loadRunState, saveRunState, budgetVerdict, rearm } from '../lib/guard.mjs'
-import { readTracker } from '../lib/tracker.mjs'
+import { setMany, removeTarget, statePaths, 세션id인가 } from '../lib/targets.mjs'
+import { loadRunState, saveRunState, rearm } from '../lib/guard.mjs'
 import { localStamp } from '../lib/stamp.mjs'
 import { 단일실행 } from '../lib/single.mjs'
 import { 로컬인가, 출처괜찮나 } from '../lib/http.mjs'
+import { 지금실행, 상세 } from './actions.mjs'
 import { pc상태, 캐시비우기, 값검증 } from '../lib/pc.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -82,54 +81,6 @@ function 본문읽기(req) {
 /* 접근 판정은 lib/http.mjs 의 순수 함수다 — 왜 그렇게 막는지는 거기에 적혀 있다 */
 const 로컬요청인가 = (req) => 로컬인가({ remoteAddress: req.socket.remoteAddress, host: req.headers.host })
 const 출처통과 = (req) => 출처괜찮나(req.headers.origin, HOST, PORT)
-
-/* ── 지금 실행 (하트비트·재시작 수동 발동) ───────────────────── */
-
-/**
- * 🔴 떼어내서 띄운다(detached). 재시작은 최대 30분 돌 수 있으므로 HTTP 응답을
- *   붙잡고 있으면 화면이 멈춘 것처럼 보인다. 진행은 로그로 본다.
- */
-function 지금실행(kind, sessionId) {
-  const script = kind === 'resume' ? 'src/resume.mjs' : 'src/heartbeat.mjs'
-  const args = [join(RS_HOME, script)]
-  if (kind === 'resume' && sessionId) args.push('--session', sessionId)
-  const child = spawn(process.execPath, args, {
-    cwd: RS_HOME, detached: true, stdio: 'ignore', windowsHide: true,
-  })
-  child.unref()
-  return { 시작됨: true, kind, pid: child.pid, at: localStamp() }
-}
-
-/* ── 세션 상세 (감시·재시작 상태와 로그를 함께) ──────────────── */
-
-function 상세(sessionId, { turns = 40 } = {}) {
-  const d = sessionDetail(sessionId, { turns })
-  const 등록 = loadTargets()
-  const 대상 = 등록.targets[sessionId] || null
-
-  let 감시로그 = [], 재시작로그 = [], 재시작 = null, 하트비트 = null, 추적기 = null
-  if (대상) {
-    const P = statePaths(sessionId)
-    감시로그 = tail(P.하트비트로그, 60)
-    재시작로그 = tail(P.재개로그, 120)
-    try { 하트비트 = JSON.parse(readFileSync(P.하트비트, 'utf8')) } catch { 하트비트 = null }
-
-    const 짝 = 대상.주작업cwd || 대상.실행cwd
-    const { project } = 짝 ? resolveRepo(짝) : { project: null }
-    if (project) {
-      const st = loadRunState(P.재개상태)
-      const b = budgetVerdict(st, project.재개)
-      재시작 = {
-        상태: st, 예산: b, 설정: project.재개, 저장소id: project.id,
-        추적기경로: project.tracker || null,
-      }
-      // 상세 화면에서 재개 지점을 그대로 보여준다
-      const tp = trackerPath(project)
-      if (tp) 추적기 = readTracker(tp)
-    }
-  }
-  return { ...d, 대상, 하트비트, 감시로그, 재시작로그, 재시작, 추적기 }
-}
 
 /* ── 라우팅 ──────────────────────────────────────────────────── */
 
@@ -270,16 +221,32 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { ok: true, 결과 })
     }
 
+    /**
+     * 🔴 걸러낸 것을 **말없이 버리지 않는다.**
+     *
+     *   실측 (2026-09-22, 전수 점검): 잘못된 sessionId 를 보내면 `{ok:true, 지움:0}` 을
+     *   돌려줬다. 부른 쪽은 성공으로 읽는데 실제로는 아무 일도 없었다 — 같은 입력에
+     *   /api/targets 는 400 을 준다. 같은 잘못에 다른 답을 주면 어느 쪽이 맞는지
+     *   알 수 없고, "해제했다"고 믿은 채로 차단이 남는다.
+     */
+    const 아이디확인 = (b) => {
+      const all = Array.isArray(b.sessionIds) ? b.sessionIds : []
+      const 나쁜 = all.filter((x) => !세션id인가(x))
+      return { ids: all.filter(세션id인가), 나쁜 }
+    }
+
     if (req.method === 'POST' && p === '/api/targets/remove') {
       const b = await 본문읽기(req)
-      const ids = (b.sessionIds || []).filter(세션id인가)
+      const { ids, 나쁜 } = 아이디확인(b)
+      if (나쁜.length) return json(res, 400, { 오류: 'sessionId 형태가 아니다', 자세히: 나쁜.map(String) })
       for (const id of ids) removeTarget(id)
       return json(res, 200, { ok: true, 지움: ids.length })
     }
 
     if (req.method === 'POST' && p === '/api/rearm') {
       const b = await 본문읽기(req)
-      const ids = (b.sessionIds || []).filter(세션id인가)
+      const { ids, 나쁜 } = 아이디확인(b)
+      if (나쁜.length) return json(res, 400, { 오류: 'sessionId 형태가 아니다', 자세히: 나쁜.map(String) })
       for (const id of ids) {
         const P = statePaths(id)
         saveRunState(P.재개상태, rearm(loadRunState(P.재개상태)))
@@ -349,7 +316,15 @@ const server = createServer(async (req, res) => {
 
     return json(res, 404, { 오류: `없는 경로: ${p}` })
   } catch (e) {
-    return json(res, 500, { 오류: e.message })
+    /**
+     * 🔴 **누구의 잘못인지** 상태 코드로 구별한다.
+     *
+     *   보낸 쪽이 깨진 JSON 을 줬는데 500 으로 답하면 "서버가 고장났다"는 뜻이 된다.
+     *   그러면 사람은 서버를 들여다보고, 진짜 원인(보낸 본문)은 끝까지 안 보인다.
+     *   이 저장소가 반복해서 고쳐 온 것과 같은 부류다 — 고칠 수 있는 이유를 감추지 않는다.
+     */
+    const 보낸쪽잘못 = /JSON 이 아니다|본문이 너무 크다/.test(e.message || '')
+    return json(res, 보낸쪽잘못 ? 400 : 500, { 오류: e.message })
   }
 })
 

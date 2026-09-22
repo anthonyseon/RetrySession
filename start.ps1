@@ -68,6 +68,12 @@ function Get-Node {
   return $n
 }
 
+# Timeout is 10s, not 5s. A DEAD server is refused immediately (connection
+# refused) - it does not time out. A timeout only means BUSY: /api/status does
+# synchronous work (CLI + scheduler queries) and blocks the single node thread,
+# so /api/ping was measured at up to 3.7s even after the async fix (7.9s before).
+# Calling a busy-but-alive server "not answering" is the exact mistake that once
+# left the tray unstarted. Slow is not dead.
 # Liveness goes to /api/ping, which computes nothing.
 #
 # MEASURED BUG (2026-09-22): this asked /api/tray with a 3 second timeout.
@@ -80,7 +86,7 @@ function Get-Node {
 # Liveness must never ride on the heavy aggregation - that is the whole lesson.
 function Test-Server {
   try {
-    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/ping" -TimeoutSec 5 -UseBasicParsing
+    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/ping" -TimeoutSec 10 -UseBasicParsing
     return ($r.StatusCode -eq 200)
   } catch { return $false }
 }

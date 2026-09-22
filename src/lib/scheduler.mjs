@@ -14,7 +14,7 @@
  *   `Get-ScheduledTask` 의 **속성 이름은 로케일과 무관하게 영어**다. 그래서 그쪽을 쓴다.
  *   한 번의 호출로 세 작업을 다 읽어 프로세스 기동 비용을 한 번만 낸다.
  */
-import { execSync } from 'node:child_process'
+import { execSync, spawn } from 'node:child_process'
 
 export const 작업이름 = {
   하트비트: 'EasyAI-RetrySession-Heartbeat',
@@ -72,7 +72,8 @@ const 돌고있나 = (state) => /^running$/i.test(String(state || '').trim())
 
 const _cache = new Map()
 
-function query() {
+/** PowerShell 한 줄. 동기·비동기 두 길이 **같은 명령**을 쓴다 (두 벌로 만들지 않는다) */
+function ps명령() {
   const names = Object.values(작업이름)
   const list = names.map((n) => `'${n}'`).join(',')
   // 날짜는 고정 형식으로 찍는다 — 로케일 날짜 문자열은 파싱도 표시도 불안정하다
@@ -90,27 +91,89 @@ function query() {
     `};`,
     `ConvertTo-Json -InputObject @($out) -Compress -Depth 3`,
   ].join(' ')
+  return ps
+}
 
+const 해석 = (out) => {
+  const parsed = JSON.parse(out)
+  return { ok: true, rows: Array.isArray(parsed) ? parsed : [parsed], 오류: null }
+}
+const 오류로 = (e) => ({
+  ok: false, rows: [],
+  오류: (e.stderr || e.message || '').toString().trim().slice(0, 300) || '조회 실패',
+})
+
+function query() {
+  const ps = ps명령()
   try {
     const out = execSync(`powershell -NoProfile -NonInteractive -Command "${ps.replace(/"/g, '\\"')}"`, {
       encoding: 'utf8', timeout: 30000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     })
-    const parsed = JSON.parse(out)
-    return { ok: true, rows: Array.isArray(parsed) ? parsed : [parsed], 오류: null }
+    return 해석(out)
   } catch (e) {
-    return { ok: false, rows: [], 오류: (e.stderr || e.message || '').toString().trim().slice(0, 300) || '조회 실패' }
+    return 오류로(e)
   }
 }
 
 /**
- * 세 작업의 상태. 30초 캐시 — UI 가 몇 초마다 물어봐도 PowerShell 을 그만큼 띄우지 않게.
- * @returns {{하트비트:object, 재시작:object, UI:object, 캐시됨:boolean}}
+ * 같은 조회를 **막지 않고** 한다. 결과는 캐시에만 넣는다 — 부르는 쪽은 기다리지 않는다.
+ * 한 번에 하나만 돈다(겹쳐 띄우면 PowerShell 이 쌓인다).
+ */
+let _갱신중 = false
+function 비동기갱신() {
+  if (_갱신중) return
+  _갱신중 = true
+  const ps = ps명령()
+  const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+    windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let out = ''
+  child.stdout.on('data', (d) => { out += d })
+  child.on('error', () => { _갱신중 = false })
+  child.on('close', () => {
+    _갱신중 = false
+    try { _cache.set('tasks', { at: Date.now(), v: 표만들기(해석(out)) }) } catch { /* 다음 회차에 다시 */ }
+  })
+  // 응답을 붙잡지 않는다 — 서버 종료를 막아서도 안 된다
+  child.unref?.()
+}
+
+/**
+ * 네 작업의 상태. 30초 캐시 — UI 가 몇 초마다 물어봐도 PowerShell 을 그만큼 띄우지 않는다.
+ * @returns {{하트비트:object, 재시작:object, UI:object, 트레이:object, 캐시됨:boolean}}
+ *
+ * 🔴 낡았으면 **낡은 값을 먼저 주고 뒤에서 새로 읽는다.**
+ *
+ *   실측 (2026-09-22): 이 조회 한 번이 **7.0초**다. PowerShell 기동 + ScheduledTasks
+ *   모듈 적재가 대부분이고, 네 작업을 한 번에 물어도 줄지 않는다. 그런데 이 함수는
+ *   동기다 — 그동안 node 의 이벤트 루프가 통째로 멈춘다. 그래서 아무것도 계산하지
+ *   않는 `/api/ping` 이 최대 **7.9초**가 걸렸다(실측 분포: 평소 17~20ms).
+ *
+ *   /api/ping 은 start.ps1·register-ui.ps1·open-app.ps1 이 **5초 제한**으로 살아있음을
+ *   판정하는 자리다. 멀쩡한 서버가 "응답 없음"이 되고, 그 판정 때문에 트레이가 아예
+ *   안 뜬 적이 있다(이 저장소가 이미 한 번 겪은 사고다).
+ *
+ *   그래서 캐시가 있으면 그것을 즉시 돌려주고, 갱신은 자식 프로세스를 **비동기로**
+ *   띄워 받아둔다. 값이 아예 없을 때만(=서버가 막 떴을 때) 동기로 기다린다.
+ *   낡음은 `나이ms` 로 정직하게 알린다 — 조용히 오래된 값을 주지 않는다.
  */
 export function 작업상태({ ttlMs = 30000 } = {}) {
   const hit = _cache.get('tasks')
-  if (hit && Date.now() - hit.at < ttlMs) return { ...hit.v, 캐시됨: true }
+  if (hit && Date.now() - hit.at < ttlMs) {
+    return { ...hit.v, 캐시됨: true, 나이ms: Date.now() - hit.at }
+  }
+  if (hit) {
+    비동기갱신()
+    return { ...hit.v, 캐시됨: true, 낡음: true, 나이ms: Date.now() - hit.at }
+  }
 
-  const r = query()
+  const v = 표만들기(query())
+  _cache.set('tasks', { at: Date.now(), v })
+  return { ...v, 캐시됨: false, 나이ms: 0 }
+}
+
+/** 조회 결과 → 작업별 판정. 순수 함수 (동기·비동기 두 길이 함께 쓴다) */
+function 표만들기(r) {
   const byName = new Map(r.rows.map((x) => [x.name, x]))
   const v = {}
   for (const [키, name] of Object.entries(작업이름)) {
@@ -152,8 +215,7 @@ export function 작업상태({ ttlMs = 30000 } = {}) {
       오류: null,
     }
   }
-  _cache.set('tasks', { at: Date.now(), v })
-  return { ...v, 캐시됨: false }
+  return v
 }
 
 export function 캐시비우기() { _cache.clear() }

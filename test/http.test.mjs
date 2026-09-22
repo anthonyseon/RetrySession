@@ -130,7 +130,26 @@ test('🔴 경로가 되는 값을 받는 엔드포인트는 전부 형태를 �
     const i = src.indexOf(`p === '${조각}'`) >= 0 ? src.indexOf(`p === '${조각}'`) : src.indexOf(조각)
     assert.ok(i > 0, `${조각} 핸들러를 찾을 수 없다`)
     const 구간 = src.slice(i, i + 900)
-    assert.ok(구간.includes('세션id인가'), `${조각} 가 세션 id 형태를 확인하지 않는다`)
+    // 직접 부르든 공용 확인(아이디확인)을 거치든, 확인은 반드시 있어야 한다
+    assert.ok(구간.includes('세션id인가') || 구간.includes('아이디확인'),
+      `${조각} 가 세션 id 형태를 확인하지 않는다`)
+  }
+})
+
+/**
+ * 🔴 걸러낸 것을 말없이 버리지 않는다.
+ *   실측 (2026-09-22): 잘못된 id 에 remove·rearm 이 {ok:true, 지움:0} 을 돌려줬다.
+ *   같은 입력에 /api/targets 는 400 을 준다 — 같은 잘못에 다른 답을 주면
+ *   "해제했다"고 믿은 채로 차단이 남는다.
+ */
+test('🔴 잘못된 sessionId 는 조용히 무시하지 않고 거절한다', () => {
+  const src = readFileSync(join(ROOT, 'src', 'ui', 'server.mjs'), 'utf8')
+  assert.match(src, /const 아이디확인 = /, '한 곳에서 판단해야 한다')
+  for (const 조각 of ['/api/targets/remove', '/api/rearm']) {
+    const i = src.indexOf(`p === '${조각}'`)
+    const 구간 = src.slice(i, i + 400)
+    assert.ok(구간.includes('나쁜.length) return json(res, 400'),
+      `${조각} 가 400 으로 거절해야 한다`)
   }
 })
 

@@ -112,3 +112,46 @@ test('화면이 멈춤과 실패를 다른 배지로 그린다', () => {
   const app = UI소스()
   assert.match(app, /w\.중지됨.*멈춰 있음/s, '멈춤 배지가 있어야 한다')
 })
+
+/* ── 낡은 값을 먼저 주고 뒤에서 새로 읽는다 ─────────────────── */
+
+/**
+ * 🔴 실측 (2026-09-22, 전수 검증): 작업 조회 한 번이 **7.0초**다(PowerShell 기동 +
+ *   ScheduledTasks 모듈 적재). 이 함수는 동기라 그동안 node 의 이벤트 루프가 멈춘다.
+ *   그래서 아무것도 계산하지 않는 /api/ping 이 최대 **7.9초** 걸렸다(평소 17~20ms).
+ *   /api/ping 은 .ps1 들이 **5초 제한**으로 살아있음을 판정하는 자리다 —
+ *   멀쩡한 서버를 "응답 없음"으로 보고, 그 판정 때문에 트레이가 안 뜬 적이 있다.
+ */
+test('🔴 캐시가 낡아도 요청을 막지 않는다 (동기 7초를 요청 안에서 치르지 않는다)', () => {
+  const src = readFileSync(join(ROOT, 'src', 'lib', 'scheduler.mjs'), 'utf8')
+  assert.match(src, /function 비동기갱신/, '뒤에서 새로 읽는 길이 있어야 한다')
+  assert.match(src, /spawn\(/, '비동기여야 한다 — execSync 면 그대로 막힌다')
+  const i = src.indexOf('export function 작업상태')
+  const 구간 = src.slice(i, i + 700)
+  assert.match(구간, /if \(hit\) \{\s*\n\s*비동기갱신\(\)/,
+    '캐시가 있으면 낡았어도 즉시 돌려주고 갱신은 뒤로 미뤄야 한다')
+  assert.match(구간, /낡음: true/, '낡은 값을 줬으면 낡았다고 말해야 한다')
+  assert.match(구간, /나이ms/, '얼마나 낡았는지 알려야 한다')
+  // 값이 아예 없을 때(서버 기동 직후)만 동기로 기다린다
+  assert.match(src.slice(i, i + 900), /const v = 표만들기\(query\(\)\)/)
+})
+
+test('🔴 갱신을 겹쳐 띄우지 않는다 (PowerShell 이 쌓인다)', () => {
+  const src = readFileSync(join(ROOT, 'src', 'lib', 'scheduler.mjs'), 'utf8')
+  assert.match(src, /let _갱신중 = false/)
+  assert.match(src, /if \(_갱신중\) return/)
+})
+
+/**
+ * 🔴 보여주기용 조회와 판정용 조회는 캐시 수명이 다르다.
+ *   화면은 15초 묵은 값을 써도 되지만("N초 전 갱신"이 적혀 있다), 재개 판정은
+ *   매번 새로 읽어야 한다 — 묵은 값으로 사람이 쓰는 대화에 끼어들면 안 된다.
+ */
+test('🔴 화면용은 캐시를 길게, 판정용은 캐시 없이', () => {
+  const status = readFileSync(join(ROOT, 'src', 'lib', 'status.mjs'), 'utf8')
+  assert.match(status, /runningSessions\(\{ ttlMs: 15000 \}\)/, '화면용은 길게')
+  assert.match(status, /claudeProcesses\(\{ ttlMs: 15000 \}\)/, '프로세스 목록도 마찬가지')
+
+  const resume = readFileSync(join(ROOT, 'src', 'resume.mjs'), 'utf8')
+  assert.match(resume, /runningSessions\(\{ ttlMs: 0 \}\)/, '판정용은 캐시를 쓰면 안 된다')
+})

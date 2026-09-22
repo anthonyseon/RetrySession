@@ -216,3 +216,45 @@ test('조각이 쓰는 동작은 등록소에 다 있다', () => {
   }
 })
 
+
+/**
+ * 🔴 실측 결함 (2026-09-22, 전수 검증 중 발견)
+ *
+ *   detail.js 가 `n(...)`(숫자 서식)을 쓰면서 common.js 에서 **import 하지 않았다.**
+ *   app.js 를 조각으로 나눌 때 한 파일 안에 있던 이름이 목록에서 빠진 것이다.
+ *   결과: 세션을 눌러도 상세 패널이 그려지지 않는다 — 탭 여섯 개가 전부
+ *   `ReferenceError: n is not defined` 로 죽었다. 파일을 열어봐서는 안 보이고,
+ *   import 이름이 **존재하는지**만 보던 기존 검사도 못 잡는다(빠진 것이 문제니까).
+ *
+ *   그려보는 시험이 가장 확실하지만, 이 정적 검사는 조각이 늘어나도 공짜로 돈다.
+ */
+const 주석뺀 = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '')
+const 정규탈출 = (s) => s.replace(/[.*+?^${}()|[\]\\$]/g, (c) => '\\' + c)
+
+test('🔴 조각이 쓰는 common.js 이름은 반드시 import 되어 있다', () => {
+  const common = 읽기('common.js')
+  const 내보냄 = new Set()
+  for (const m of common.matchAll(/export\s+(?:const|function|let)\s+([^\s(=]+)/g)) 내보냄.add(m[1])
+  for (const m of common.matchAll(/^export\s*\{([^}]*)\}/gm)) {
+    for (const x of m[1].split(',')) 내보냄.add(x.trim())
+  }
+  내보냄.delete('')
+  assert.ok(내보냄.size >= 8, `common.js 의 export 를 못 읽었다 (${[...내보냄].join(',')})`)
+
+  for (const f of 모듈들.filter((x) => x !== 'common.js')) {
+    const src = 주석뺀(읽기(f))
+    const 가져온 = new Set()
+    for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/common\.js'/g)) {
+      for (const x of m[1].split(',')) 가져온.add(x.trim().split(/\s+as\s+/)[0])
+    }
+    for (const 이름 of 내보냄) {
+      if (가져온.has(이름)) continue
+      // 스스로 선언했으면 제 것이다
+      if (new RegExp('(const|let|var|function|class)\\s+' + 정규탈출(이름) + '[\\s(=]').test(src)) continue
+      // 이름 뒤에 ( . [ 가 오면 실제로 쓰는 것이다
+      const 씀 = new RegExp('(^|[^\\w$가-힣.])' + 정규탈출(이름) + '\\s*[(.[]', 'm')
+      assert.ok(!씀.test(src),
+        `${f} 가 common.js 의 '${이름}' 을 import 없이 쓴다 — 브라우저에서 ReferenceError 다`)
+    }
+  }
+})

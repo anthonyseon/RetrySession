@@ -94,11 +94,17 @@ $ok = $false
 foreach ($i in 1..20) {
   Start-Sleep -Milliseconds 700
   try {
+# Timeout is 10s, not 5s. A DEAD server is refused immediately (connection
+# refused) - it does not time out. A timeout only means BUSY: /api/status does
+# synchronous work (CLI + scheduler queries) and blocks the single node thread,
+# so /api/ping was measured at up to 3.7s even after the async fix (7.9s before).
+# Calling a busy-but-alive server "not answering" is the exact mistake that once
+# left the tray unstarted. Slow is not dead.
     # /api/ping computes nothing. /api/tray builds the whole status (11.7s cold,
     # measured) and would time out here on a server that is perfectly fine -
     # the same false reading that once reported a healthy server as down and,
     # in start.ps1, took the tray with it.
-    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/ping" -TimeoutSec 5 -UseBasicParsing
+    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/ping" -TimeoutSec 10 -UseBasicParsing
     if ($r.StatusCode -eq 200) { $ok = $true; break }
   } catch { }
 }

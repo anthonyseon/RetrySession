@@ -138,5 +138,35 @@ test('🔴 서버가 새로 떴으면 화면이 스스로 다시 읽는다', () 
   const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
   assert.match(app, /location\.reload\(\)/, '값이 바뀌면 다시 읽어야 한다')
   assert.match(app, /if \(서버기동 === null\)/, '첫 응답을 기준으로 삼아야 한다 (바로 새로고침하면 무한 반복이다)')
-  assert.match(app, /setInterval\(기동확인/, '주기적으로 확인해야 한다')
+  assert.match(app, /pollLoop\(기동확인/, '주기적으로 확인해야 한다 (겹치지 않게)')
+})
+
+/* ── 보내다 실패하면 말해준다 ───────────────────────────────── */
+
+/**
+ * 🔴 실측 (2026-09-22): 서버가 바쁠 때 POST 가 ECONNRESET 으로 끊겼다. 보내기()에
+ *   try 가 없어서 예외가 클릭 처리기 밖으로 빠져나갔고 — 화면에는 아무 일도
+ *   일어나지 않는다. 사람은 단추가 안 먹었다고 생각하고 다시 누른다.
+ */
+test('🔴 POST 가 끊기면 조용히 넘기지 않는다', () => {
+  const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
+  const i = app.indexOf('async function 보내기')
+  const 구간 = app.slice(i, i + 800)
+  assert.match(구간, /try \{/, 'fetch 를 감싸야 한다')
+  assert.match(구간, /보내지 못했습니다/, '무엇이 안 됐는지 말해야 한다')
+  assert.match(구간, /catch \(e\)/)
+})
+
+/**
+ * 🔴 폴링이 겹치면 느린 서버가 더 느려진다. 앞 요청이 끝난 뒤에 다음을 잡는다.
+ */
+test('🔴 폴링은 겹치지 않는다 (setInterval 로 상태를 다시 읽지 않는다)', () => {
+  const app = readFileSync(join(ROOT, 'src', 'ui', 'app.js'), 'utf8')
+  assert.match(app, /function pollLoop/, '끝난 뒤 다음을 잡는 고리가 있어야 한다')
+  assert.match(app, /pollLoop\(상태읽기, 3000/)
+  assert.match(app, /pollLoop\(상세읽기, 2000/)
+  assert.ok(!/setInterval\(\(\) => \{ if \(S\.자동\)/.test(app),
+    '겹치는 폴링이 남아 있으면 안 된다')
+  // 신선도 갱신은 로컬 계산이라 겹칠 일이 없다 — 그것만 setInterval 로 둔다
+  assert.match(app, /setInterval\(신선도갱신, 1000\)/)
 })

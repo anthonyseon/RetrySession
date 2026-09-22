@@ -157,13 +157,19 @@ if ($existing.Count -ge 1) {
 }
 
 # ---- make sure the server is up (the UI task may still be starting) ----
+# Timeout is 10s, not 5s. A DEAD server is refused immediately (connection
+# refused) - it does not time out. A timeout only means BUSY: /api/status does
+# synchronous work (CLI + scheduler queries) and blocks the single node thread,
+# so /api/ping was measured at up to 3.7s even after the async fix (7.9s before).
+# Calling a busy-but-alive server "not answering" is the exact mistake that once
+# left the tray unstarted. Slow is not dead.
 # Liveness asks /api/ping, which computes nothing. /api/tray builds the whole
 # status (11.7s cold, measured) and would time out on a healthy server.
 if (-not $NoWait) {
   $ok = $false
   foreach ($i in 1..20) {
     try {
-      $r = Invoke-WebRequest -Uri "$Url/api/ping" -TimeoutSec 5 -UseBasicParsing
+      $r = Invoke-WebRequest -Uri "$Url/api/ping" -TimeoutSec 10 -UseBasicParsing
       if ($r.StatusCode -eq 200) { $ok = $true; break }
     } catch { Start-Sleep -Milliseconds 500 }
   }
@@ -172,7 +178,7 @@ if (-not $NoWait) {
     Start-ScheduledTask -TaskName 'EasyAI-RetrySession-UI' -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 3
     try {
-      $null = Invoke-WebRequest -Uri "$Url/api/ping" -TimeoutSec 5 -UseBasicParsing
+      $null = Invoke-WebRequest -Uri "$Url/api/ping" -TimeoutSec 10 -UseBasicParsing
     } catch {
       Write-Host 'still not answering. Start it by hand:' -ForegroundColor Red
       Write-Host "  node `"$Root\src\ui\server.mjs`""

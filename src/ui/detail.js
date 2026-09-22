@@ -2,7 +2,9 @@
  * detail.js — 오른쪽 상세 패널. 처리 상황·대화·로그·설정·알림 탭.
  */
 'use strict'
-import { $, el, 압축, 짧은경로, S, badge, 스크롤유지, 동작 } from './common.js'
+// 🔴 n(숫자 서식)을 빠뜨려 상세 탭이 전부 ReferenceError 로 죽었다 (2026-09-22 실측).
+//   app.js 를 조각으로 나눌 때 한 파일 안에 있던 이름이 import 목록에서 누락됐다.
+import { $, el, n, 압축, 짧은경로, S, badge, 스크롤유지, 동작 } from './common.js'
 
 /** 상세를 다시 그린다. 보고 있던 세션·탭이 바뀌었으면 맨 위에서 시작한다 */
 function 상세다시그리기() {

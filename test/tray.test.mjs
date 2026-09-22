@@ -154,3 +154,26 @@ test('🔴 거짓 "응답 없음" 하나가 트레이까지 죽이지 않게 한
   assert.match(구간, /api\/ping/, 'Test-Server 는 /api/ping 을 써야 한다')
   assert.ok(!/api\/tray/.test(구간), 'Test-Server 에 /api/tray 가 남아 있으면 안 된다')
 })
+
+/**
+ * 🔴 느린 것과 죽은 것을 가른다.
+ *
+ *   실측 (2026-09-22): /api/status 는 동기 작업(CLI·스케줄러 조회)으로 한 스레드를
+ *   막는다. 그래서 아무것도 계산하지 않는 /api/ping 이 최대 7.9초까지 걸렸고,
+ *   비동기 갱신으로 고친 뒤에도 여러 캐시가 함께 식으면 3.7초가 나온다.
+ *
+ *   **죽은 서버는 타임아웃이 아니라 즉시 연결 거부**다. 그러니 타임아웃을 짧게
+ *   잡아서 얻는 것은 없고, 바쁜 서버를 "응답 없음"으로 오인할 위험만 커진다 —
+ *   그 오인 때문에 트레이가 아예 안 뜬 적이 있다.
+ */
+test('🔴 살아있음 타임아웃에 여유가 있다 (바쁜 서버를 죽었다고 하지 않는다)', () => {
+  for (const f of ['start.ps1', 'scripts/status.ps1', 'scripts/register-ui.ps1', 'scripts/open-app.ps1']) {
+    const src = readFileSync(join(ROOT, ...f.split('/')), 'utf8')
+    for (const l of src.split('\n')) {
+      if (!/api\/ping/.test(l) || !/TimeoutSec/.test(l)) continue
+      const m = /-TimeoutSec (\d+)/.exec(l)
+      assert.ok(m && Number(m[1]) >= 10,
+        `${f} 의 살아있음 타임아웃이 ${m ? m[1] : '?'}초다 — 바쁜 서버를 죽었다고 하게 된다: ${l.trim().slice(0, 80)}`)
+    }
+  }
+})
