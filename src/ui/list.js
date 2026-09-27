@@ -19,16 +19,17 @@ import { $, el, n, compact, shortPath, S, badge, actions } from './common.js'
 const watchBadge = (s) => {
   if (!s.watch.on) return badge('off', '○', '감시 꺼짐')
   const v = s.watch.verdict
-  if (!v) return badge('warn', '◔', '감시 켬 · 기록 대기')
+  if (!v) return badge('warn', '◔', '감시 켬 · 대기', '감시를 켰고 첫 기록을 기다리는 중입니다.')
   // 🔴 첫 기록을 기다리는 중은 끊긴 것이 아니다 — 빨강으로 말하지 않는다
-  if (v.waiting) return badge('warn', '◔', `감시 켬 · ${v.why}`)
+  if (v.waiting) return badge('warn', '◔', '감시 켬 · 대기', v.why)
   return v.alive
-    ? badge('good', '●', `감시 켬 · 정상 (${v.ageMin}분 전 기록)`)
-    : badge('crit', '▲', `감시 켬 · 끊김 — ${v.why}`)
+    ? badge('good', '●', `감시 켬 · 정상 (${v.ageMin}분)`, `${v.ageMin}분 전에 기록했습니다.`)
+    : badge('crit', '▲', '감시 켬 · 끊김', v.why)
 }
 /** 제한에 잘려 멈춰 있나 — 재개가 이어받을 수 있는 상태다 */
 const limitBadge = (s) => (s.stoppedByLimit
-  ? badge('warn', '◔', '사용량 제한으로 중단됨' + (s.limitNoticeTime ? ' · ' + s.limitNoticeTime : ''))
+  ? badge('warn', '◔', '제한 중단',
+    `사용량 제한에 걸려 중단됐습니다${s.limitNoticeTime ? ` (${s.limitNoticeTime})` : ''}. 풀리면 재개가 이어받습니다.`)
   : null)
 
 /**
@@ -36,7 +37,8 @@ const limitBadge = (s) => (s.stoppedByLimit
  * 사람이 "왜 여기서 멈췄지"를 묻는 바로 그 상태다 — 말해주지 않으면 원인을 못 찾는다.
  */
 const interruptBadge = (s) => (s.stoppedByInterrupt
-  ? badge('warn', '◔', '응답이 끊김' + (s.interruptNoticeTime ? ' · ' + s.interruptNoticeTime : ''))
+  ? badge('warn', '◔', '응답 끊김',
+    `응답이 끝까지 오지 못했습니다${s.interruptNoticeTime ? ` (${s.interruptNoticeTime})` : ''} — 절전이나 연결 문제입니다.`)
   : null)
 
 /**
@@ -48,23 +50,42 @@ const interruptBadge = (s) => (s.stoppedByInterrupt
  *   **없는 것을 있다고 말하는 것은 있는 것을 없다고 하는 것만큼 나쁘다.**
  *   판정은 lib/resume-gate.mjs 하나이고 재개도 같은 것을 쓴다.
  */
+/**
+ * 막는 자리 → **한 단어.** 문장은 상세의 판정 패널이 맡는다.
+ *
+ * 🔴 왜 단어인가 — 목록은 세션 열세 줄을 **훑는** 자리다. 배지에 문장을 넣으면
+ *   (`지금은 대기 — 세션이 실행 중이다 (pid 26184) — 사람이 쓰는 중이므로…`)
+ *   한 줄이 배지 하나로 가득 차고, 옆의 다른 배지가 밀려나 안 읽힌다.
+ *   단어는 훑히고, 문장은 눌러서 읽는다.
+ */
+const GATE_WORD = {
+  running: '실행중', active: '활동중', limited: '사용량제한', quiet: '조용시간',
+  budget: '상한도달', point: '지시없음', tracker: '할일없음', repo: '저장소잠금',
+  gone: '세션없음', blocked: '연속실패', repeated: '반복끊김', off: '꺼짐',
+}
+
 const resumeBadge = (s) => {
   const r = s.restart
   // 🔴 꺼짐/켬이 **먼저** 온다 — 누른 것이 먹혔는지가 이 배지의 첫 임무다
   if (!r.on) return badge('off', '○', '재시작 꺼짐')
-  if (r.corrupt) return badge('crit', '▲', '재시작 켬 · 상태 파일 손상')
+  if (r.corrupt) return badge('crit', '▲', '재시작 켬 · 상태손상', r.corrupt)
   const g = r.gate
-  if (!g) return badge('warn', '◔', '재시작 켬 · 판정할 수 없다 (저장소를 못 찾았다)')
-  if (g.go) return badge('good', '●', `재시작 켬 · 재개 가능 (${g.point})`)
-  // 차단은 사람이 풀어야 한다 — 기다리면 되는 것들과 색을 달리한다
+  if (!g) return badge('warn', '◔', '재시작 켬 · 판정불가', '저장소를 찾지 못해 판정할 수 없습니다.')
+  if (g.go) return badge('good', '●', `재시작 켬 · 가능 (${g.point})`, g.why)
+  // 차단은 사람이 풀어야 한다 — 기다리면 되는 것들과 아이콘을 달리한다
   const crit = g.stage === 'blocked' || g.stage === 'repeated'
-  return badge(crit ? 'crit' : 'warn', crit ? '▲' : '◔', `재시작 켬 · 지금은 대기 — ${g.why}`)
+  const word = GATE_WORD[g.stage] || '대기'
+  return badge(crit ? 'crit' : 'warn', crit ? '▲' : '◔',
+    crit ? `재시작 켬 · 차단 (${word})` : `재시작 켬 · 대기 (${word})`, g.why)
 }
 
 /** 오늘 과부하로 막힌 횟수 — 차단하지 않으므로 여기서라도 보여야 한다 */
 const overloadBadge = (s) => {
   const nth = s.restart?.overloadToday || 0
-  return nth ? badge(nth >= 3 ? 'warn' : 'off', '⇅', `API 과부하로 막힘 · 오늘 ${nth}회`) : null
+  return nth
+    ? badge(nth >= 3 ? 'warn' : 'off', '⇅', `과부하 ${nth}회`,
+      `오늘 API 과부하(529·5xx)로 ${nth}회 막혔습니다. 저쪽 문제라 연속실패로 세지 않습니다.`)
+    : null
 }
 
 
@@ -204,9 +225,14 @@ function items(d) {
     }
     if (s.tracker.doingViolations) bb.append(badge('warn', '▲', `doing ${s.tracker.doingViolations.length}개`))
     // 프로세스에서만 알 수 있는 것 — 사람이 알아야 하는 쪽부터
-    if (s.processes?.riskyPerm) bb.append(badge('warn', '▲', '권한 우회로 실행 중'))
+    // 🔴 이것도 단어로 — 설정 배지와 같은 줄에 있어서 길면 설정 상태를 밀어낸다.
+    //   다만 **경고 아이콘은 지키다** — 권한 우회는 사람이 알아야 하는 사실이다.
+    if (s.processes?.riskyPerm) {
+      bb.append(badge('warn', '▲', '권한우회', '권한 확인을 우회하는 모드로 실행 중입니다 (bypassPermissions).'))
+    }
     if (s.processes?.addDirs?.length) {
-      bb.append(badge('off', '+', `추가 폴더 ${s.processes.addDirs.map((x) => x.split('/').pop()).join(', ')}`))
+      const names = s.processes.addDirs.map((x) => x.split('/').pop())
+      bb.append(badge('off', '+', `폴더 ${names.length}`, `--add-dir 로 붙은 폴더: ${names.join(', ')}`))
     }
     body.append(bb)
 

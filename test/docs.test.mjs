@@ -96,7 +96,7 @@ test('🔴 설명서의 배지 문구가 화면이 실제로 그리는 말과 �
   const list = read('src/ui/list.js')
   const manual = read('Manual.md')
   // 스위치 상태는 어느 경우에도 배지 맨 앞에 온다 — 양쪽에 다 있어야 한다
-  for (const stem of ['재시작 꺼짐', '재시작 켬', '감시 꺼짐', '감시 켬', '지금은 대기', '재개 가능']) {
+  for (const stem of ['재시작 꺼짐', '재시작 켬', '감시 꺼짐', '감시 켬', '대기', '가능', '차단']) {
     assert.ok(list.includes(stem), `list.js 가 '${stem}' 를 더는 그리지 않는다`)
     assert.ok(manual.includes(stem), `설명서에 '${stem}' 가 없다 — 화면과 설명이 갈라졌다`)
   }

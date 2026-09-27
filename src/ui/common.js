@@ -35,9 +35,17 @@ const S = {
 
 
 /* ── 배지 ────────────────────────────────────────────────────── */
-function badge(kind, icon, label) {
+/**
+ * @param label 🔴 **단어**로 쓴다 — 목록은 훑는 자리다. 문장은 줄을 밀어내고,
+ *   밀린 줄은 읽히지 않는다. 자세한 사정은 상세의 판정 패널이 문장으로 말한다.
+ * @param why   길게 적을 근거(hover). 🔴 **여기에만** 두면 안 된다 —
+ *   hover 는 마우스가 있어야 보이고 인쇄도 안 된다. 보이는 곳에 이미 있는 것을
+ *   한 번 더 놓는 자리다(상세의 판정 패널·재시작 로그).
+ */
+function badge(kind, icon, label, why) {
   const b = el('span', 'badge ' + kind)
   b.append(el('i', 'ic', icon), el('span', null, label))
+  if (why) b.title = why
   return b
 }
 

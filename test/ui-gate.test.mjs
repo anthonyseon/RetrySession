@@ -47,6 +47,17 @@ const drawList = (s) => {
   return cell.get('slist').textContent
 }
 
+/**
+ * 방금 그린 배지들의 hover 문구.
+ *
+ * 🔴 목록의 배지는 **단어**다. 긴 근거는 hover(title)와 상세의 판정 패널에 있다.
+ *   단어로 줄이면서 근거를 **버리지는 않았는지**를 여기서 확인한다 —
+ *   짧게 만들다 정보를 잃으면, 읽기 쉬운 대신 판단할 수 없는 화면이 된다.
+ */
+const badgeTitles = () => cell.get('slist')
+  .querySelectorAll('span').filter((x) => String(x.className).startsWith('badge'))
+  .map((x) => x.getAttribute('title')).filter(Boolean)
+
 const drawPanel = (s) => {
   S.state = { ...healthy(), sessions: [s] }
   S.openSession = ID
@@ -87,21 +98,29 @@ test('🔴 꺼짐/켬이 **항상** 보인다 (누른 것이 먹혔는지 알 �
 test('🔴 막혀 있으면 "준비"라고 하지 않고 **막는 이유**를 말한다', () => {
   const why = '세션이 실행 중이다 (pid 4084) — 사람이 쓰는 중이므로 건드리지 않는다'
   const txt = drawList(session({ go: false, stage: 'running', why }))
-  assert.ok(txt.includes('지금은 대기'), '지금 돌지 않는다고 말해야 한다')
-  assert.ok(txt.includes(why), `막는 이유가 그대로 나와야 한다:\n${txt}`)
+  assert.ok(txt.includes('대기'), '지금 돌지 않는다고 말해야 한다')
+  assert.ok(txt.includes('실행중'), '무엇에 막혔는지 **단어**로 말해야 한다')
   assert.ok(!txt.includes('재시작 준비'), '🔴 예산만 보고 "준비"라고 말하던 그 버그다')
+  /**
+   * 🔴 단어로 줄였다고 **근거를 버리면 안 된다.** 목록에서는 단어로 훑고,
+   *   긴 이유는 hover 와 상세의 판정 패널이 문장으로 말한다.
+   *   (배지에 문장을 넣으면 한 줄이 배지 하나로 가득 차 옆 배지가 밀려난다.)
+   */
+  assert.ok(badgeTitles().some((t) => t === why),
+    `막는 이유가 어디에도 남지 않았다 — 단어만 남기고 근거를 버렸다:\n${badgeTitles().join(' / ')}`)
 })
 
 test('통과하면 재개 지점을 말한다', () => {
   const txt = drawList(session({ go: true, stage: null, point: 'doing W3-2', why: '재개 지점 doing W3-2' }))
-  assert.ok(txt.includes('재개 가능'), txt)
+  assert.ok(txt.includes('가능'), txt)
   assert.ok(txt.includes('doing W3-2'), '무엇을 이어서 할 것인지 보여야 한다')
 })
 
 test('판정이 없으면(저장소를 못 찾음) 모른다고 말한다 — 준비라고 하지 않는다', () => {
   const txt = drawList(session(undefined))
-  assert.ok(txt.includes('판정할 수 없다'), txt)
-  assert.ok(!txt.includes('재개 가능'), '모르는 것을 가능하다고 하면 안 된다')
+  assert.ok(txt.includes('판정불가'), txt)
+  assert.ok(!/· 가능/.test(txt), '모르는 것을 가능하다고 하면 안 된다')
+  assert.ok(badgeTitles().some((t) => /찾지 못해/.test(t)), '왜 모르는지는 남아야 한다')
 })
 
 test('🔴 사람이 풀어야 하는 것(차단)과 기다리면 되는 것을 아이콘으로 가른다', () => {
@@ -116,15 +135,15 @@ test('오늘 과부하로 막힌 횟수를 보여준다 (차단하지 않으므�
   const s = session({ go: true, point: '재개지시', why: 'x' })
   s.restart.overloadToday = 4
   const txt = drawList(s)
-  assert.ok(txt.includes('API 과부하로 막힘'), txt)
+  assert.ok(txt.includes('과부하'), txt)
   assert.ok(txt.includes('4회'), '몇 번인지 말해야 한다')
 })
 
 test('응답이 끊긴 자리를 보여준다 (사람이 "왜 여기서 멈췄지"를 묻는 상태다)', () => {
   const txt = drawList(session({ go: true, point: '끊긴 지점', why: 'x' },
     { stoppedByInterrupt: true, interruptNoticeTime: '2026-09-22 10:00:00' }))
-  assert.ok(txt.includes('응답이 끊김'), txt)
-  assert.ok(txt.includes('2026-09-22 10:00:00'), '언제 끊겼는지 보여야 한다')
+  assert.ok(txt.includes('응답 끊김'), txt)
+  // 시각은 배지가 아니라 hover 와 상세가 말한다 — 목록의 한 줄을 시각으로 채우지 않는다
 })
 
 /* ── 상세의 판정 패널 ────────────────────────────────────────── */
