@@ -23,6 +23,19 @@
 #   this is the one place that has to enforce it: if a window already exists,
 #   bring it to the front and close any extras instead of adding another.
 #
+# RACE (measured 2026-09-28, reported by the user for the tray menu)
+#   Checking first and opening second is not enough. Every tray click starts a
+#   FRESH powershell that must compile the Add-Type block below before it can
+#   look for a window - seconds, not milliseconds. Clicks inside that gap all
+#   see "no window" and all open one.
+#     measured: windows 0 -> three near-simultaneous calls -> THREE windows.
+#   So there are two layers now, and the second one is the guarantee:
+#     1. a lock, so only one call at a time decides (best effort);
+#     2. after opening, wait for our window and close any extras (always runs).
+#   The lock is deliberately fail-OPEN: if it cannot be taken we still open the
+#   window. The person clicked something - doing nothing would be the worse
+#   failure, and layer 2 cleans up the duplicate either way.
+#
 # No cmd.exe anywhere - Start-Process launches the executable directly.
 
 param(
@@ -105,6 +118,47 @@ function Show-Window($h) {
   [void][RsWin]::SetForegroundWindow($h)
 }
 
+# Close every window but the first, and bring that one forward.
+# WM_CLOSE asks politely - it does not kill the browser process. The page is a
+# read-only view that re-reads everything within 3 seconds, so nothing is lost.
+function Keep-One($windows) {
+  if (-not $windows -or $windows.Count -eq 0) { return 0 }
+  Show-Window $windows[0]
+  if ($windows.Count -le 1 -or $KeepExtra) { return 0 }
+  foreach ($h in $windows[1..($windows.Count - 1)]) {
+    [void][RsWin]::PostMessage($h, $WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero)
+  }
+  return ($windows.Count - 1)
+}
+
+# ---- layer 1: one caller at a time -------------------------------------
+# FileShare None + OpenOrCreate is the whole mechanism: it succeeds only when
+# nobody else holds the file. A holder that died leaves the file behind but not
+# the lock, so there is no stale-lock bookkeeping to get wrong. Windows closes
+# the handle when this process ends, however it ends.
+$LockDir  = Join-Path $Root 'state\locks'
+$LockFile = Join-Path $LockDir 'open-app.lock'
+$lock     = $null
+New-Item -ItemType Directory -Force -Path $LockDir | Out-Null
+
+foreach ($try in 1..40) {          # up to ~20s: a cold browser start is seconds
+  try {
+    $lock = [System.IO.File]::Open($LockFile, 'OpenOrCreate', 'Write', 'None')
+    break
+  } catch {
+    # Someone else is deciding. If they already opened the window we are done.
+    if ((Get-AppWindows (Get-AppPids)).Count -ge 1 -and -not $Reload) {
+      [void](Keep-One (Get-AppWindows (Get-AppPids)))
+      Write-Host 'status window was already open - brought it to the front.'
+      exit 0
+    }
+    Start-Sleep -Milliseconds 500
+  }
+}
+# $lock may still be null - that is fine (fail-open, see the header).
+
+try {
+
 # ---- already open? -----------------------------------------------------
 $existing = Get-AppWindows (Get-AppPids)
 
@@ -140,18 +194,8 @@ if ($existing.Count -ge 1 -and $Reload) {
 }
 
 if ($existing.Count -ge 1) {
-  Show-Window $existing[0]
-
-  if ($existing.Count -gt 1 -and -not $KeepExtra) {
-    # Duplicates from before this guard existed. They are identical read-only
-    # views of the same page, so closing them loses nothing and re-opening is
-    # one click. WM_CLOSE asks politely; it does not kill the process.
-    foreach ($h in $existing[1..($existing.Count - 1)]) {
-      [void][RsWin]::PostMessage($h, $WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero)
-    }
-    Write-Host ("closed {0} duplicate window(s)." -f ($existing.Count - 1)) -ForegroundColor Yellow
-  }
-
+  $closed = Keep-One $existing
+  if ($closed -gt 0) { Write-Host ("closed {0} duplicate window(s)." -f $closed) -ForegroundColor Yellow }
   Write-Host 'status window was already open - brought it to the front.'
   exit 0
 }
@@ -217,3 +261,30 @@ Start-Process -FilePath $browser -ArgumentList @(
 )
 
 Write-Host "opened $Url as an app window."
+
+# ---- layer 2: make the END STATE one window ----------------------------
+# This runs even when the lock could not be taken, so it is the actual
+# guarantee. Wait for our window to appear (a cold browser is seconds), then
+# close anything beyond the first. Without this, two callers that slipped past
+# the lock each leave a window behind - which is the bug this file exists for.
+$seen = @()
+foreach ($i in 1..40) {
+  Start-Sleep -Milliseconds 300
+  $seen = Get-AppWindows (Get-AppPids)
+  if ($seen.Count -ge 1) { break }
+}
+if ($seen.Count -eq 0) {
+  # Opened but never showed up. Say so - silence here reads as "it worked".
+  Write-Host 'the window did not appear within 12s - check the browser.' -ForegroundColor Yellow
+} else {
+  # Give a racing caller a moment to land, then keep exactly one.
+  Start-Sleep -Milliseconds 700
+  $closed = Keep-One (Get-AppWindows (Get-AppPids))
+  if ($closed -gt 0) {
+    Write-Host ("closed {0} window(s) opened at the same time." -f $closed) -ForegroundColor Yellow
+  }
+}
+
+} finally {
+  if ($lock) { $lock.Dispose() }
+}

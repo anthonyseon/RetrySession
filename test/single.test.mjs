@@ -126,8 +126,10 @@ test('🔴 이미 있으면 앞으로 가져오고 거기서 끝낸다 (새 창�
   const s = openApp()
   const m = /if \(\$existing\.Count -ge 1\) \{([\s\S]*?)\n\}/.exec(s)
   assert.ok(m, '기존 창 분기가 있어야 한다')
-  assert.match(m[1], /SetForegroundWindow|Show-Window/, '앞으로 가져와야 한다')
+  assert.match(m[1], /Keep-One|SetForegroundWindow|Show-Window/, '앞으로 가져와야 한다')
   assert.match(m[1], /exit 0/, '분기 안에서 끝내야 새 창이 안 뜬다')
+  // 한 겹 미룬 것이지 사라진 것이 아니어야 한다
+  assert.match(s, /function Keep-One[\s\S]{0,400}?Show-Window/, 'Keep-One 이 앞으로 가져와야 한다')
 })
 
 test('🔴 프로세스가 아니라 창을 센다 (같은 프로세스가 창을 여럿 가진다)', () => {
@@ -183,4 +185,56 @@ test('🔴 -Restart 는 창도 다시 띄운다 (페이지는 열 때의 코드�
   assert.match(start, /open-app\.ps1'\) -Port \$Port -NoWait -Reload/,
     '-Restart 가 -Reload 를 넘겨야 한다')
   assert.match(start, /if \(\$Restart\) \{/, '재시작일 때만 다시 띄워야 한다')
+})
+
+/* ── 상태 창: 동시에 눌러도 하나 ──────────────────────────────── */
+
+/**
+ * 🔴 실측 결함 (2026-09-28, 사용자 보고): 트레이의 '상태 창 열기' 를 누르면 창이
+ *   이미 떠 있어도 하나 더 열렸다.
+ *
+ *   원인은 "먼저 찾고 나중에 띄운다" 만으로는 부족하다는 것이다. 트레이 클릭마다
+ *   **새 powershell** 이 뜨고, 그 프로세스는 창을 찾기 전에 Add-Type(C# 컴파일)을
+ *   끝내야 한다 — 밀리초가 아니라 초 단위다. 그 틈에 들어온 클릭은 전부 "창 없음"을
+ *   보고 각자 하나씩 띄운다.
+ *     실측: 창 0개 → 거의 동시에 3번 호출 → **창 3개.**
+ *
+ *   그래서 두 겹이다. 두 번째가 실제 보증이다:
+ *     1. 락 — 한 번에 하나만 판단한다 (best effort)
+ *     2. 띄운 뒤 우리 창을 기다려 **남는 것을 닫는다** (항상 돈다)
+ */
+test('🔴 락으로 한 번에 하나만 판단한다 (클릭 사이의 틈을 막는다)', () => {
+  const s = openApp()
+  assert.match(s, /open-app\.lock/, '락 파일이 있어야 한다')
+  // FileShare None — 죽은 주인이 남긴 파일은 락이 아니다(낡은 락 회수 로직이 필요 없다)
+  assert.match(s, /\[System\.IO\.File\]::Open\([^)]*'OpenOrCreate',\s*'Write',\s*'None'\)/,
+    '배타 열기로 잡아야 한다 — 파일 존재만 보면 주인이 죽었을 때 영원히 막힌다')
+  const lockAt = s.indexOf('open-app.lock')
+  const findAt = s.indexOf('$existing = Get-AppWindows')
+  assert.ok(lockAt > 0 && lockAt < findAt, '락은 찾기보다 먼저여야 한다')
+})
+
+test('🔴 락을 못 잡아도 창은 뜬다 (fail-open — 눌렀는데 아무 일도 없는 것이 더 나쁘다)', () => {
+  const s = openApp()
+  assert.match(s, /\$lock may still be null/, '못 잡았을 때를 정상 경로로 다뤄야 한다')
+  assert.ok(!/exit 1[\s\S]{0,200}open-app\.lock/.test(s), '락 실패로 끝내면 안 된다')
+})
+
+test('🔴 띄운 뒤에 남는 창을 닫는다 — 이것이 실제 보증이다', () => {
+  const s = openApp()
+  const spawnAt = s.indexOf('--app=$Url')
+  const reconcileAt = s.lastIndexOf('Keep-One')
+  assert.ok(reconcileAt > spawnAt,
+    '띄운 뒤에도 한 번 더 세어 정리해야 한다 — 락을 빠져나간 경합이 남긴 창을 치운다')
+  assert.match(s.slice(spawnAt), /Get-AppWindows/, '띄운 뒤 다시 세어야 한다')
+})
+
+test('락은 끝날 때 반드시 놓는다', () => {
+  const s = openApp()
+  assert.match(s, /finally \{[\s\S]*?\$lock\.Dispose\(\)/, 'finally 에서 놓아야 한다')
+})
+
+test('진단용으로 정리를 끌 수 있다 (-KeepExtra)', () => {
+  const s = openApp()
+  assert.match(s, /\$KeepExtra/, '중복을 남겨 두고 들여다볼 수단이 있어야 한다')
 })
