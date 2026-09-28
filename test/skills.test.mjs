@@ -149,6 +149,27 @@ test('🔴 스킬이 가리키는 config 파일이 실재한다', () => {
   assert.deepEqual([...new Set(missing)], [], `없는 설정 파일을 가리킨다:\n  ${missing.join('\n  ')}`)
 })
 
+/**
+ * 🔴 스킬이 적은 **뮤텍스 이름**이 실제 이름과 같아야 한다.
+ *
+ *   진단 스킬은 "트레이가 살아 있는지는 명령줄이 아니라 뮤텍스로 봐라"고 시키고,
+ *   변경 스킬은 그 이름을 그대로 적어 준다(명령줄 매칭이 자기 자신을 세는 함정 때문).
+ *   이름이 어긋나면 `TryOpenExisting` 은 조용히 `False` 를 돌려주고, 읽는 쪽은
+ *   **살아 있는 트레이를 죽었다고** 판정한다 — 진단 도구가 거짓 음성을 내는 것이라
+ *   없느니만 못하다. 이름은 `scripts/tray.ps1` 이 정본이다.
+ */
+test('🔴 스킬이 적은 트레이 뮤텍스 이름이 tray.ps1 의 것과 같다', () => {
+  const tray = readFileSync(join(ROOT, 'scripts', 'tray.ps1'), 'utf8')
+  const real = /New-Object\s+System\.Threading\.Mutex\([^,]+,\s*'([^']+)'/.exec(tray)
+  assert.ok(real, 'tray.ps1 에서 뮤텍스 이름을 읽지 못했다 — 검사기가 헛돈다')
+  for (const s of skills()) {
+    for (const hit of readFileSync(s.path, 'utf8').matchAll(/Global\\[A-Za-z0-9._-]+/g)) {
+      assert.equal(hit[0], real[1],
+        `${s.name}: 스킬이 '${hit[0]}' 를 적었는데 tray.ps1 은 '${real[1]}' 다`)
+    }
+  }
+})
+
 test('🔴 검사기가 헛돌지 않는다 (없는 파일을 넣으면 잡아야 한다)', () => {
   assert.equal(existsSync(join(ROOT, 'src', 'lib', 'nosuch-gate.mjs')), false)
   assert.equal(existsSync(join(ROOT, 'config', 'nosuch.json')), false)

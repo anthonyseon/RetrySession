@@ -73,6 +73,28 @@ test('🔴 설명서의 상세 탭 이름이 화면의 탭과 같다', () => {
   }
 })
 
+/**
+ * 🔴 경보 제목이 설명서의 경보표에 **그대로** 있어야 한다.
+ *
+ *   실측 (2026-09-28): 경보 두 가지(로그인끊김·인증실패)를 새로 넣으면서 설명서 §7 은
+ *   **손으로** 고쳐야 했다. 잊었다면 화면에는 «로그인이 끊겼습니다» 가 뜨는데 설명서에는
+ *   그 말이 없는 상태가 된다 — 급한 사람이 찾는 자리에 없는 것이다.
+ *   배지 문구·단추·탭에 이미 같은 규칙을 걸어 뒀으니 경보도 같은 대접을 받는다.
+ *
+ *   **제목을 그대로** 비교한다(뜻이 같은 다른 말이 아니라). 사람은 화면에 뜬 문장을
+ *   그대로 찾기 때문이다.
+ */
+test('🔴 경보 제목이 설명서의 경보표에 있다', () => {
+  const src = read('src/lib/alerts.mjs')
+  const manual = read('Manual.md')
+  const titles = [...src.matchAll(/push\(\s*'[^']+',\s*'(?:critical|warning|info)',\s*'([^']+)'/g)]
+    .map((m) => m[1])
+  assert.ok(titles.length >= 12, `경보 제목을 못 읽었다 (${titles.length}개) — 정규식이 헛돌고 있다`)
+  const missing = titles.filter((t) => !manual.includes(t))
+  assert.deepEqual(missing, [],
+    `설명서 §7 에 없는 경보가 있다 — 뜬 문장을 그대로 찾을 수 없다:\n  ${missing.join('\n  ')}`)
+})
+
 test('🔴 설명서가 말하는 재시작 결과가 코드가 내는 것과 같다', () => {
   // 결과 이름을 정하는 자리는 classify.classifyRun 하나다(resume.mjs 는 그것을 부른다)
   const src = read('src/lib/classify.mjs')
