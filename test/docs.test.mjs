@@ -122,6 +122,27 @@ test('🔴 "조용해야 하는 시간"이 설정·판정·설명서·화면에�
  *   화면에 넣었다 — 그런데 설명과 판정이 갈라지면 **틀린 설명이 화면에 붙어 있는** 것이라
  *   없느니만 못하다. 조건에 쓰이는 이름이 판정 코드에 실제로 있는지 기계가 잰다.
  */
+/**
+ * 🔴 접힌 제목의 **조건 단어**가 표의 첫 칸과 같아야 한다 (사용자 지시 2026-09-28).
+ *
+ *   접힌 줄은 «재시작 켬 · 일 없음 · 3분 조용 …» 처럼 단어만 늘어놓고, 펴면 그 단어에
+ *   배지와 뜻이 붙는다. 둘이 어긋나면 접힌 줄에서 본 말을 표에서 못 찾는다 —
+ *   단어로 쓰는 이유가 «훑고 나서 그 자리를 찾는 것» 인데 그걸 잃는다.
+ */
+test('🔴 접힌 제목의 조건 단어가 표의 첫 칸과 같다', () => {
+  const html = read('src/ui/index.html')
+  const summary = /<span class="cond">([^<]+)<\/span>/.exec(html)
+  assert.ok(summary, '접힌 줄의 조건 단어 목록을 찾지 못했다')
+  const words = summary[1].split('·').map((s) => s.trim()).filter(Boolean)
+  assert.ok(words.length >= 6, `조건 단어가 ${words.length}개뿐이다`)
+
+  const table = /<table>[\s\S]*?<\/table>/.exec(html)
+  assert.ok(table, '조건 표를 찾지 못했다')
+  const firstCells = [...table[0].matchAll(/<tr><td><b>([^<]+)<\/b><\/td>/g)].map((m) => m[1].trim())
+  assert.deepEqual(words, firstCells,
+    `접힌 줄과 표의 첫 칸이 다르다 — 훑은 말을 표에서 찾을 수 없다\n  접힌 줄: ${words.join(' / ')}\n  표: ${firstCells.join(' / ')}`)
+})
+
 test('🔴 화면의 "언제 이어받는가" 설명이 판정과 같은 것을 가리킨다', () => {
   const html = read('src/ui/index.html')
   const gate = read('src/lib/resume-gate.mjs')

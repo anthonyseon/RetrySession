@@ -53,9 +53,12 @@
         없으면 로그를 열어야 알 수 있기 때문이다.
      접힌 채로도 요지가 보이고(summary), 펴면 조건 전부가 나온다. JS 를 쓰지 않는다. -->
 <details class="howto" id="howto">
+  <!-- 🔴 제목도 **단어**다. 접힌 채로도 조건 일곱 개가 그대로 보이고, 펴면 그 단어에
+       배지·뜻이 붙는다 — 접힌 줄과 표의 첫 칸이 **같은 말**이어야 눈이 이어진다. -->
   <summary>
-    <b>그 세션에 지시하고 있지 않으면</b> 자동으로 이어받습니다 — 사용량 제한이 풀린 뒤에도
-    <span class="muted">— 조건 보기</span>
+    <b>자동 이어받기 조건</b>
+    <span class="cond">재시작 켬 · 일 없음 · 3분 조용 · 제한 해제 · 이어갈 지점 · 조용시간 아님 · 예산 남음</span>
+    <span class="muted">— 표 보기</span>
   </summary>
   <!-- 🔴 조건을 **단어**로 세우고, 그 조건이 아닐 때 세션 줄에 뜨는 **배지 단어**를 나란히 둔다.
        화면에서 본 단어로 표를 찾을 수 있어야 한다 — 문장으로 적으면 읽고 나서 다시 찾아야 한다. -->
@@ -66,14 +69,16 @@
         <td>목록에서 고르고 <code>재시작 시작</code> — 감시만 켜면 기록만 남습니다</td></tr>
       <tr><td><b>일 없음</b></td><td><code>작업중</code></td>
         <td>결과를 기다리는 도구가 없고, 물어본 답이 이미 나왔다</td></tr>
-      <tr><td><b>3분 이상 조용</b></td><td><code>활동중</code></td>
-        <td>사람도 모델도 그 사이 아무 줄도 남기지 않았다 (<code>sessionActiveMin</code>)</td></tr>
+      <tr><td><b>3분 조용</b></td><td><code>활동중</code></td>
+        <td>사람도 모델도 <b>3분 이상</b> 아무 줄도 남기지 않았다 (<code>sessionActiveMin</code>)</td></tr>
       <tr><td><b>제한 해제</b></td><td><code>사용량제한</code></td>
         <td>걸려 있으면 <b>풀리는 시점에</b> 이어받습니다 (남은 시간을 배지에 적습니다)</td></tr>
       <tr><td><b>이어갈 지점</b></td><td><code>지시없음</code> <code>할일없음</code></td>
         <td>추적기의 할 일 · 재개지시 · 잘린 자리(잘린 자리가 "전부 done" 보다 우선)</td></tr>
-      <tr><td><b>예산·시간</b></td><td><code>상한도달</code> <code>조용시간</code> <code>연속실패</code></td>
-        <td>하루 횟수·최소 간격이 남았고, 조용한 시간이 아니고, 차단되지 않았다</td></tr>
+      <tr><td><b>조용시간 아님</b></td><td><code>조용시간</code></td>
+        <td>설정한 조용한 시간대가 아니다 (<code>quietHours</code>, 기본 끔)</td></tr>
+      <tr><td><b>예산 남음</b></td><td><code>상한도달</code> <code>연속실패</code></td>
+        <td>하루 횟수·최소 간격이 남았고 차단되지 않았다 (비용은 막지 않습니다 — 통계)</td></tr>
     </tbody>
   </table>
   <p class="muted">
