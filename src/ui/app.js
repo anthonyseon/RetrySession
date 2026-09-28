@@ -308,7 +308,9 @@ $('#onlyReg').addEventListener('change', (e) => { S.onlyRegistered = e.target.ch
  * 🔴 조각들이 쓸 동작을 등록한다. 이것을 빠뜨리면 클릭이 조용히 아무 일도 하지 않는다
  *   (오류도 안 난다 — common.js 의 기본값이 빈 함수라서). 시험이 이 등록을 확인한다.
  */
-Object.assign(actions, { draw, loadStatus, loadDetail, post, meta })
+/** 동작줄에 한 줄 적는다. 조각(detail.js 등)이 누른 결과를 말할 때 쓴다 */
+const say = (text) => { const b = $('#actMsg'); if (b) b.textContent = text }
+Object.assign(actions, { draw, loadStatus, loadDetail, post, meta, say })
 
 /* ── 시작 ────────────────────────────────────────────────────── */
 

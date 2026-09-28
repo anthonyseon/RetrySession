@@ -44,13 +44,31 @@ test('🔴 pid 조회를 판정 경로에 되살리지 않았다', () => {
   }
 })
 
-test('🔴 한 대상을 민 뒤에는 집계를 다시 읽는다 (한 회차가 최대 30분이다)', () => {
-  // 실측 결함: 집계를 루프 밖에서 한 번만 만들었다. 앞 세션을 30분 미는 동안
-  // 사람이 다음 세션에 입력해도 알 수 없었다.
+/**
+ * 🔴 **최신 정보로 판정한다** — 두 자리에서.
+ *   ① 대상마다 판정 직전(10초 이상 묵었으면 다시 읽는다)
+ *   ② **락을 잡은 뒤, 띄우기 직전에 한 번 더** — 판정과 실행 사이에도 시간이 흐른다.
+ *   ②가 없으면 "조용하다"가 이미 거짓이 된 뒤에 밀어 넣을 수 있다(사람이 막 입력한 순간).
+ */
+test('🔴 대상마다 판정 직전에 집계를 다시 읽는다 (한 회차가 최대 30분이다)', () => {
   const loopBody = code.slice(code.indexOf('for (const target of items)'))
-  assert.ok(loopBody.includes('readAt'), '루프 안에서 집계의 나이를 봐야 한다')
-  assert.ok(/ctx\.sessionMap\s*=/.test(loopBody), '루프 안에서 세션 집계를 다시 읽어야 한다')
-  assert.ok(/scanSessions\(\)/.test(loopBody), '다시 읽는 것은 증분 스캔이다')
+  assert.match(loopBody, /refreshCtx\(ctx, 10_000\)/, '판정 전에 집계의 나이를 보고 다시 읽어야 한다')
+  // 다시 읽는 일은 한 함수에 모았다 — 그 함수가 실제로 증분 스캔을 부르는지 본다
+  const helper = code.slice(code.indexOf('function refreshCtx'))
+  assert.match(helper.slice(0, 400), /scanSessions\(\)/, '다시 읽는 것은 증분 스캔이다')
+  assert.match(helper.slice(0, 400), /ctx\.sessionMap\s*=/, '집계를 갈아끼워야 한다')
+})
+
+test('🔴 락을 잡은 뒤 띄우기 직전에 다시 판정한다 (판정과 실행 사이에도 시간이 흐른다)', () => {
+  const i = code.indexOf('acquireLock(')
+  assert.ok(i > 0)
+  const afterLock = code.slice(i, code.indexOf('runClaude(', i))
+  assert.match(afterLock, /refreshCtx\(ctx\)/, '락을 잡은 뒤 무조건 다시 읽어야 한다')
+  assert.match(afterLock, /verdict\(target, ctx\)/, '같은 판정 함수로 다시 판정해야 한다')
+  assert.match(afterLock, /if \(!again\.go\)/, '뒤집혔으면 띄우지 않아야 한다')
+  assert.match(afterLock, /logSkip/, '왜 안 띄웠는지 기록해야 한다')
+  // 지시문도 최신 판정으로 다시 만들어야 한다 — 지점이 바뀌었으면 옛 지시문은 거짓이다
+  assert.match(afterLock, /buildPrompt\(target, again\.project/, '지시문을 최신 판정으로 다시 만들어야 한다')
 })
 
 test('🔴 "일하는 중" 확인은 --force 로도 건너뛰지 않는다', () => {

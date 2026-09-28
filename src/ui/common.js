@@ -108,6 +108,8 @@ export const actions = {
   loadDetail: async () => { },
   post: async () => { },
   meta: () => ({}),
+  /** 누른 결과를 동작줄에 적는다 — 반응 없는 화면은 고장난 화면과 구별되지 않는다 */
+  say: () => { },
 }
 
 /**

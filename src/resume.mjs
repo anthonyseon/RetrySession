@@ -154,13 +154,21 @@ if (!items.length) {
  *   그래서 CLI 조회가 흔들려도 판정이 멎지 않는다 — 흔들리는 그 조회가 판정에서 빠졌다.
  *   (실행 여부는 화면·경보에서 여전히 보여준다. 거기서는 "모른다"를 말해야 한다.)
  */
-const firstScan = scanSessions()
-const ctx = {
-  sessionMap: new Map(firstScan.sessions.map((s) => [s.sessionId, s])),
-  // 세션별 기록이 없을 때 쓰는 전체 할당량(가장 최근 것)
-  quota: firstScan.quota,
-  readAt: Date.now(),
+/**
+ * 집계를 **다시 읽는다.** 증분 스캔이라 싸다(실측 0.4초 · 캐시가 따뜻하면 그 이하).
+ * @param maxAgeMs 이보다 묵었을 때만 읽는다. 0 이면 무조건 읽는다.
+ */
+function refreshCtx(ctx, maxAgeMs = 0) {
+  if (maxAgeMs > 0 && Date.now() - ctx.readAt <= maxAgeMs) return false
+  const scan = scanSessions()
+  ctx.sessionMap = new Map(scan.sessions.map((s) => [s.sessionId, s]))
+  ctx.quota = scan.quota
+  ctx.readAt = Date.now()
+  return true
 }
+
+const ctx = { sessionMap: new Map(), quota: null, readAt: 0 }
+refreshCtx(ctx)
 
 let exitCode = 0
 
@@ -171,14 +179,11 @@ for (const target of items) {
    *   결함이었다: 집계를 루프 **밖에서 한 번만** 만들었다. 한 회차는 최대 30분이라
    *   (타임아웃분 기본값), 앞 세션을 미는 동안 사람이 다음 세션에 무언가 입력했을 수 있다.
    *   그러면 30분 묵은 집계를 보고 "조용하다"고 판정해 --resume 을 밀어넣는다.
-   *   한 대상이 끝날 때마다 시간이 흘렀으면 다시 읽는다 — 증분 스캔이라 싸다(실측 0.4초).
+   *
+   *   창을 **10초**로 좁혔다(예전 60초). 판정의 재료는 "지금 사람이 쓰고 있나"이므로
+   *   1분 묵은 값으로 답하면 안 된다 — 그 1분이 사람이 막 입력한 순간일 수 있다.
    */
-  if (Date.now() - ctx.readAt > 60_000) {
-    const rescan = scanSessions()
-    ctx.sessionMap = new Map(rescan.sessions.map((s) => [s.sessionId, s]))
-    ctx.quota = rescan.quota
-    ctx.readAt = Date.now()
-  }
+  refreshCtx(ctx, 10_000)
 
   const v = verdict(target, ctx)
   const short = target.sessionId.slice(0, 8)
@@ -218,24 +223,45 @@ for (const target of items) {
 
   try {
     /**
+     * 🔴 **띄우기 직전에 한 번 더 판정한다** — 최신 정보로.
+     *
+     *   판정과 실행 사이에도 시간이 흐른다: 집계를 읽고 → 지시문을 만들고 → 락을 잡고 →
+     *   띄운다. 그 사이(보통 1초 안쪽, 락을 기다리면 더 길다)에 사람이 그 세션에 한 줄
+     *   입력했을 수 있다. 그러면 "조용하다"는 이미 거짓인데 우리는 밀어 넣는다.
+     *
+     *   락을 잡은 **뒤에** 다시 본다 — 락 밖에서 보면 그 사이 다른 재개가 들어올 수 있다.
+     *   판정은 같은 함수를 다시 부른다(규칙을 두 벌 만들지 않는다). 뒤집혔으면 띄우지
+     *   않고 이유를 남긴다 — 사람이 쓰는 대화에 끼어들지 않는 것이 예산보다 먼저다.
+     */
+    refreshCtx(ctx)
+    const again = verdict(target, ctx)
+    if (!again.go) {
+      logSkip(v.P, `${again.why} (락을 잡은 뒤 다시 판정했다 — 그 사이 상황이 바뀌었다)`)
+      console.log(`⛔ ${short} 건너뜀 — ${again.why} (실행 직전 재판정)`)
+      continue
+    }
+
+    /**
      * 🔴 뿌리는 **추적기를 소유한 저장소**다(launchRoots). 예전에는 등록부의 `runCwd` 를
      *   먼저 썼는데, 그러면 지시문이 가리키는 파일이 작업 폴더 밖에 있어 쓰기가 전부
      *   승인 대기로 떨어졌다 — 실측: `ok · 턴 22 · 권한거부 11건`, 디스크 변경 0건.
      *   쓸 수 있어야 하는 곳(세션이 일해 온 폴더)은 --add-dir 로 함께 넘어간다.
      */
-    const { cwd, addDirs } = launchRoots(target, v.project)
+    // 지시문도 **최신 판정으로** 다시 만든다 — 지점이 바뀌었으면 옛 지시문은 거짓이다
+    const prompt2 = buildPrompt(target, again.project, { limitStopped: again.limitStopped, interrupted: again.interrupted })
+    const { cwd, addDirs } = launchRoots(target, again.project)
     log(v.P, [
       '', '═'.repeat(70),
-      `${localStamp()} · RUN 시작 · ${v.why}`,
+      `${localStamp()} · RUN 시작 · ${again.why}`,
       `  --resume ${target.sessionId} · 권한 ${cfg.permissionMode} · 타임아웃 ${cfg.timeoutMin}분`,
       `  cwd ${cwd}`,
       // 무엇을 쓸 수 있었는지 남긴다 — 권한거부가 나면 여기부터 본다
       addDirs.length ? `  --add-dir ${addDirs.join(' · ')}` : '  --add-dir (없음)',
     ].join('\n'))
-    console.log(`▶ ${short} 재개 — ${v.why}`)
+    console.log(`▶ ${short} 재개 — ${again.why}`)
 
     const r = await runClaude({
-      sessionId: target.sessionId, cwd, prompt, cfg, addDirs,
+      sessionId: target.sessionId, cwd, prompt: prompt2, cfg, addDirs,
     })
     const p = parseResult(r.stdout)
     /**
@@ -251,7 +277,7 @@ for (const target of items) {
       result, summary: p.summary, tookSec: r.tookSec, costUSD: p.costUSD,
       turns: p.turns, sid: p.sid, permDenied: p.permDenied, exit: r.code,
       // 같은 자리를 두 번 이어 밀지 않으려면 **무엇을 이어서** 띄웠는지 남아야 한다
-      point: v.point,
+      point: again.point,
     }, cfg)
     saveRunState(v.P.resumeState, next)
 

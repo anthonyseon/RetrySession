@@ -146,7 +146,8 @@ test('추적기에 할 일이 있으면 그것을 지점으로 쓴다 (가장 �
 
 test('잘린 자리가 없으면 추적기의 "할 일 없음"은 그대로 막는다', () => {
   const tracker = { exists: true, allDone: true, doneMark: '9/9', doing: null, nextTodo: null }
-  const g = resumeGate(base({ session: { ...base().session, stoppedByLimit: false }, tracker }))
+  // 🔴 사람의 지시가 없을 때다 — 재개지시가 있으면 그것이 낡은 장부를 넘어선다(아래 시험)
+  const g = resumeGate(base({ target: { restart: true }, session: { ...base().session, stoppedByLimit: false }, tracker }))
   assert.equal(g.go, false)
   assert.equal(g.stage, GATE.tracker)
   assert.match(g.why, /할 일이 없다/)
@@ -274,14 +275,35 @@ test('추적기가 있으면 그쪽이 재개 지점이다', () => {
 })
 
 test('🔴 추적기가 전부 done 이면 막는다 — 할 일 없이 일을 만들지 않는다', () => {
-  const g = resumeGate(base({ tracker: { exists: true, allDone: true, doneMark: '9/9' } }))
+  const g = resumeGate(base({ target: { restart: true }, tracker: { exists: true, allDone: true, doneMark: '9/9' } }))
   assert.equal(g.go, false)
   assert.equal(g.stage, GATE.tracker)
   assert.match(g.why, /9\/9/)
 })
 
+/**
+ * 🔴 **사람이 적은 재개지시는 낡은 추적기를 넘어선다.**
+ *
+ *   실측 (2026-09-28): 추적기가 9월 22일에 끝난 프로그램의 것이라 `9/9 전부 done` 인데
+ *   그 세션에는 실제로 남은 일이 많았다(상태 정본이 JSON 에서 계획서 본문으로 옮겨갔다).
+ *   화면은 "설정 탭에서 재개지시를 넣어라"라고 안내하는데, 예전에는 **그렇게 해도 막혔다** —
+ *   안내대로 해도 안 되는 화면은 고장난 화면과 같다.
+ *   계획표는 기계의 장부이고 재개지시는 사람이 직접 내린 지시다.
+ */
+test('🔴 추적기가 전부 done 이어도 재개지시가 있으면 이어받는다', () => {
+  const tracker = { exists: true, allDone: true, doneMark: '9/9', doing: null, nextTodo: null }
+  const g = resumeGate(base({ tracker, session: { ...base().session, stoppedByLimit: false } }))
+  assert.equal(g.go, true, `사람이 적은 지시가 낡은 장부에 막히면 안 된다: ${g.why}`)
+  assert.equal(g.point, '재개지시', '지점은 사람의 지시다')
+})
+
+test('추적기에 할 일이 있으면 재개지시보다 그쪽이 구체적이다', () => {
+  const tracker = { exists: true, allDone: false, doneMark: '3/9', doing: { id: 'W3-2' }, nextTodo: null }
+  assert.equal(resumeGate(base({ tracker })).point, 'doing W3-2')
+})
+
 test('추적기를 못 읽으면 막는다 (모르면 안 민다)', () => {
-  assert.equal(resumeGate(base({ tracker: { exists: true, error: '깨졌다' } })).stage, GATE.tracker)
+  assert.equal(resumeGate(base({ target: { restart: true }, tracker: { exists: true, error: '깨졌다' } })).stage, GATE.tracker)
 })
 
 /* ── 모를 때 ─────────────────────────────────────────────────── */

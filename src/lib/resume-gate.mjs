@@ -129,16 +129,32 @@ export function resumeGate({ target, project, state = {}, session, tracker = nul
    *   그리고 한 번 이어받으면 트랜스크립트가 자라 `stoppedByLimit` 이 꺼지므로
    *   같은 자리를 반복해서 밀지 않는다.
    */
-  const cutPoint = limitStopped || interrupted
+  /**
+   * 🔴 **사람이 적은 재개지시도 추적기의 "할 일 없음"을 넘어선다.**
+   *
+   *   실측 (2026-09-28): 추적기 `_plan/_resume/07-실행추적.json` 은 9월 22일에 끝난
+   *   프로그램의 것이고 10건 전부 `applied` 였다(`doneMark 9/9`). 그런데 그 세션에는
+   *   실제로 남은 일이 많았다 — 상태의 정본이 JSON 에서 **계획서 본문**으로 옮겨갔고
+   *   설정은 옛 JSON 을 가리키고 있었다. 게이트는 정직하게 `할 일이 없다` 라고 답했다.
+   *
+   *   그때 화면은 "설정 탭에서 재개지시를 넣어라"라고 안내하는데, 예전에는 **그렇게 해도
+   *   막혔다** — 추적기가 있으면 잘린 자리만 그 규칙을 넘었기 때문이다. 안내대로 해도
+   *   안 되는 화면은 고장난 화면과 같다.
+   *
+   *   계획표는 **기계의 장부**이고 재개지시는 **사람이 직접 내린 지시**다. 사람이 적어 넣은
+   *   것이 낡은 장부보다 우선한다 — 장부가 정본이 아니게 된 경우가 바로 이것이다.
+   */
+  const humanPoint = !!target.resumePrompt
+  const cutPoint = limitStopped || interrupted || humanPoint
 
   if (hasTracker) {
     if (tracker.error && !cutPoint) return no(GATE.tracker, `추적기를 읽을 수 없다 — ${tracker.error}`)
     if (!tracker.error && !tracker.doing && !tracker.nextTodo && !cutPoint) {
       return no(GATE.tracker, tracker.allDone
-        ? `할 일이 없다 (${tracker.doneMark} 전부 done)`
+        ? `할 일이 없다 (${tracker.doneMark} 전부 done) — 이어서 할 것이 있으면 설정 탭에 재개지시를 넣어라`
         : '추적기에 doing 도 todo 도 없다 — 재개 지점을 말해주지 않는다')
     }
-  } else if (!target.resumePrompt && !cutPoint) {
+  } else if (!cutPoint) {
     return no(GATE.point, '추적기도 재개지시도 없다 — 무엇을 이어서 할지 정해지지 않았다 (설정 탭에서 재개지시를 넣어라)')
   }
 

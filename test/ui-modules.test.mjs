@@ -207,7 +207,16 @@ test('🔴 app.js 가 동작 등록소를 채운다 (빠뜨리면 클릭이 조�
 })
 
 test('조각이 쓰는 동작은 등록소에 다 있다', () => {
-  const registry = new Set(['draw', 'loadStatus', 'loadDetail', 'post', 'meta'])
+  /**
+   * 🔴 목록을 손으로 적지 않는다 — `common.js` 의 등록소가 정본이다.
+   *   두 벌이면 등록소에 하나를 더할 때 시험만 뒤처지고(실측: `say` 를 더했을 때 그랬다),
+   *   그 시험은 "등록됐는가"가 아니라 "내 목록에 있는가"를 검사하게 된다.
+   */
+  const common = readFileSync(join(ROOT, 'src', 'ui', 'common.js'), 'utf8')
+  const block = /export const actions = \{([\s\S]*?)\n\}/.exec(common)
+  assert.ok(block, 'common.js 에서 동작 등록소를 찾지 못했다')
+  const registry = new Set([...block[1].matchAll(/^\s{2}([a-zA-Z]\w*)\s*:/gm)].map((m) => m[1]))
+  assert.ok(registry.size >= 5, `등록소를 제대로 읽지 못했다 (${registry.size}개)`)
   for (const f of drawingPieces) {
     const src = readFileSync(join(ROOT, 'src', 'ui', f), 'utf8')
     for (const m of src.matchAll(/actions\.([^\s(.,)]+)/g)) {

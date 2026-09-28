@@ -202,9 +202,31 @@ function drawDetail() {
   const b1 = el('button', 'sm', '지금 감시 실행')
   b1.addEventListener('click', () => actions.post('/api/run', { kind: 'heartbeat' }).then(() => setTimeout(actions.loadDetail, 2500)))
   const b2 = el('button', 'sm', '지금 재시작 실행')
-  b2.addEventListener('click', () => {
+  b2.addEventListener('click', async () => {
     if (!confirm('이 세션을 지금 재시작합니다. 사람이 보지 않는 상태로 토큰을 쓰고 파일을 고칠 수 있습니다. 계속할까요?')) return
-    actions.post('/api/run', { kind: 'resume', sessionId: S.openSession }).then(() => setTimeout(actions.loadDetail, 3000))
+    /**
+     * 🔴 화면이 보여주던 판정과 **실행 직전의 최신 판정**을 견준다.
+     *
+     *   화면의 값은 몇 초(자동갱신을 끄면 몇 분) 전에 받은 것이다. 그 사이 사람이 그 세션에
+     *   입력하거나 도구가 끝나거나 제한이 풀릴 수 있다. 서버는 띄우기 전에 `--dry-run` 으로
+     *   다시 판정하고 그 답을 돌려주므로, 둘이 다르면 **다르다고 말한다** — 사람이 낡은
+     *   화면을 근거로 판단하지 않게. 실측(2026-09-28): 화면과 로그가 달라 보이는 일을 겪었다.
+     */
+    const seen = S.state?.sessions?.find((x) => x.sessionId === S.openSession)?.restart?.gate || null
+    b2.disabled = true
+    const r = await actions.post('/api/run', { kind: 'resume', sessionId: S.openSession })
+    b2.disabled = false
+    const v = r && r.verdict
+    if (v) {
+      const same = seen ? (!!seen.go === !!v.go) : true
+      const head = v.go ? '최신 기준으로도 가능 — 띄웠습니다' : '최신 기준으로는 돌지 않습니다'
+      actions.say(`${head}: ${v.why}` + (same ? '' : ' · 🔴 화면이 보여주던 판정과 달랐습니다(화면을 새로 읽었습니다)'))
+    } else if (r && r.error) {
+      actions.say(`✖ ${r.error}`)
+    }
+    // 어느 쪽이든 화면을 최신으로 맞춘다 — 낡은 값을 그대로 두지 않는다
+    actions.loadStatus()
+    setTimeout(actions.loadDetail, 3000)
   })
   row.append(b1, b2)
   cfg.append(row)
