@@ -37,11 +37,10 @@ import { readTracker } from './lib/tracker.mjs'
 import { buildPrompt } from './lib/prompt.mjs'
 import {
   loadRunState, saveRunState, budgetVerdict, recordRun,
-  acquireLock, releaseLock, quietNow, sessionRunning, limitState,
+  acquireLock, releaseLock, quietNow, limitState,
 } from './lib/guard.mjs'
 import { classifyRun } from './lib/classify.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath, isSessionId } from './lib/targets.mjs'
-import { runningSessions, isAlive } from './lib/cli.mjs'
 import { runClaude, parseResult, launchRoots } from './lib/claude-run.mjs'
 import { resumeGate } from './lib/resume-gate.mjs'
 import { printStatus, doRearm } from './lib/resume-report.mjs'
@@ -109,9 +108,13 @@ function verdict(target, ctx) {
    *   말했고, 실제로는 여덟 가지가 더 막아 15분마다 조용히 건너뛰었다.
    *   규칙을 두 벌 만들면 창구마다 다른 말을 한다.
    */
+  /**
+   * 🔴 `running`(pid) 은 더 이상 판정에 넘기지 않는다. "프로세스가 살아 있다"는
+   *   "사람이 그 세션을 쓰고 있다"가 아니었고, 그 오해가 560회 연속 건너뜀을 만들었다.
+   *   판정은 세션 집계(미완결 도구·마지막 차례·조용한 시간)로 한다 — resume-gate 참고.
+   */
   const g = resumeGate({
     target, project, state, session: s, quota: ctx.quota, force: FORCE,
-    running: sessionRunning(ctx.running, target.sessionId, isAlive),
     tracker: tp ? { exists: true, ...readTracker(tp) } : { exists: false },
   })
   return { ...g, P, project, state, limitStopped: !!s?.stoppedByLimit, interrupted: !!s?.stoppedByInterrupt }
@@ -140,30 +143,19 @@ if (!items.length) {
 }
 
 /**
- * 🔴 "실행 중인가"를 **모르면 재개하지 않는다.**
+ * 🔴 판정의 재료는 **트랜스크립트**다 — `claude agents --json` 의 pid 가 아니다.
  *
- *   결함이었다: 예전에는 `runningSessions()` 의 `ok` 를 보지 않고 `sessions` 만 썼다.
- *   CLI 호출이 실패하면(claude 가 없거나·타임아웃·JSON 이 아님) 그 목록은 **빈 배열**이
- *   되고, 그러면 모든 세션이 "안 돌고 있다"로 보여 판정 ③번 관문이 통째로 열린다.
- *   사람이 쓰고 있는 대화에 `--resume` 을 밀어넣게 되는데, 그 관문은 이 파일이
- *   `--force` 로도 못 건너뛴다고 못박은 바로 그 관문이다.
- *   목록이 없는 것과 "아무도 안 돈다"는 다르다. 모르면 멈춘다.
+ *   예전에는 여기서 실행 목록을 먼저 읽고, 조회가 실패하면 회차를 통째로 건너뛰었다
+ *   (모르면 멈춘다). 그 관문이 있던 이유는 "사람이 쓰는 대화에 끼어들지 않는다"였는데,
+ *   pid 는 그 질문에 답하지 못한다 — 창을 열어 둔 채 다른 세션에서 일하면 pid 는 계속
+ *   살아 있다. 실측으로 **560회 연속** 그 이유로 건너뛰었다(2026-09-22~09-28).
+ *
+ *   지금은 세션 집계가 답한다: 미완결 도구 · 마지막 차례 · 조용한 시간(resume-gate).
+ *   그래서 CLI 조회가 흔들려도 판정이 멎지 않는다 — 흔들리는 그 조회가 판정에서 빠졌다.
+ *   (실행 여부는 화면·경보에서 여전히 보여준다. 거기서는 "모른다"를 말해야 한다.)
  */
-const readRunning = () => runningSessions({ ttlMs: 0 })   // 판정용이라 캐시를 쓰지 않는다
-
-const firstRead = readRunning()
-if (!firstRead.ok) {
-  console.error(`⛔ 실행 중 세션을 확인할 수 없다 — ${firstRead.error}`)
-  console.error('   모르는 채로 밀면 사람이 쓰는 대화에 끼어든다. 이번 회차는 건너뛴다.')
-  for (const target of items) {
-    log(statePaths(target.sessionId), `${localStamp()} · SKIP · 실행 중 여부를 확인할 수 없다 (claude agents --json 실패: ${firstRead.error})`)
-  }
-  process.exit(0)
-}
-
 const firstScan = scanSessions()
 const ctx = {
-  running: firstRead,
   sessionMap: new Map(firstScan.sessions.map((s) => [s.sessionId, s])),
   // 세션별 기록이 없을 때 쓰는 전체 할당량(가장 최근 것)
   quota: firstScan.quota,
@@ -176,19 +168,16 @@ for (const target of items) {
   /**
    * 🔴 판정 직전에 다시 읽는다.
    *
-   *   결함이었다: 두 맵을 루프 **밖에서 한 번만** 만들었다. 한 회차는 최대 30분이라
-   *   (타임아웃분 기본값), 앞 세션을 미는 동안 사람이 다음 세션을 열었을 수 있다.
-   *   그러면 30분 묵은 목록을 보고 "안 돌고 있다"고 판정해 --resume 을 밀어넣는다.
-   *   한 대상이 끝날 때마다 시간이 흘렀으면 다시 읽는다 — 이 확인은 싸고(~0.7초),
-   *   틀렸을 때의 대가는 사람과 같은 대화에 동시에 쓰는 것이다.
+   *   결함이었다: 집계를 루프 **밖에서 한 번만** 만들었다. 한 회차는 최대 30분이라
+   *   (타임아웃분 기본값), 앞 세션을 미는 동안 사람이 다음 세션에 무언가 입력했을 수 있다.
+   *   그러면 30분 묵은 집계를 보고 "조용하다"고 판정해 --resume 을 밀어넣는다.
+   *   한 대상이 끝날 때마다 시간이 흘렀으면 다시 읽는다 — 증분 스캔이라 싸다(실측 0.4초).
    */
   if (Date.now() - ctx.readAt > 60_000) {
-    ctx.running = readRunning()
     const rescan = scanSessions()
     ctx.sessionMap = new Map(rescan.sessions.map((s) => [s.sessionId, s]))
     ctx.quota = rescan.quota
     ctx.readAt = Date.now()
-    // 다시 읽다 실패하면 판정이 fail-closed 로 막는다(세션실행중) — 여기서 따로 뚫지 않는다
   }
 
   const v = verdict(target, ctx)

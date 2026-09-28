@@ -19,48 +19,48 @@ const SRC = readFileSync(join(ROOT, 'src', 'resume.mjs'), 'utf8')
 const code = SRC.split('\n')
   .filter((l) => { const t = l.trim(); return t && !t.startsWith('*') && !t.startsWith('/*') && !t.startsWith('//') && !t.startsWith('*/') })
   .join('\n')
-
-test('🔴 실행 중 판정을 직접 하지 않고 guard 의 것을 쓴다 (판정은 한 곳이다)', () => {
-  assert.ok(code.includes('sessionRunning'), 'resume.mjs 가 sessionRunning 판정을 써야 한다')
+test('🔴 판정을 직접 하지 않고 resume-gate 의 것을 쓴다 (판정은 한 곳이다)', () => {
+  assert.ok(code.includes('resumeGate('), 'resume.mjs 가 판정 함수를 불러야 한다')
+  // 판정을 여기서 다시 짜면 화면과 답이 갈린다 — 그 사고를 이미 겪었다
+  assert.ok(!/openTools|lastKind/.test(code),
+    '재개가 자기 나름대로 "쓰는 중"을 판정하면 안 된다 — 재료는 판정 함수에만 넘긴다')
 })
 
-test('🔴 목록의 sessions 만 꺼내 쓰지 않는다 — ok 를 보지 않으면 조회 실패가 관문을 연다', () => {
-  // 실측 결함: `new Map(run.sessions.map(...))` 로 맵만 만들고 ok 는 버렸다.
-  // 조회가 실패하면 sessions 가 빈 배열이라 전부 "안 돌고 있다"가 됐다.
-  assert.ok(!/new Map\(\s*run\.sessions/.test(code),
-    'runningSessions() 의 ok 를 버리고 sessions 만 쓰면 fail-open 이다')
-  assert.ok(/firstRead\.ok/.test(code), '첫 조회의 ok 를 확인해야 한다')
+/**
+ * 🔴 **pid 를 판정에 쓰지 않는다** (2026-09-28 에 걷어냈다).
+ *
+ *   예전에는 `claude agents --json` 으로 실행 중인지 보고, 살아 있으면 무조건 막았다.
+ *   그런데 "프로세스가 살아 있다"는 "사람이 그 세션을 쓰고 있다"가 아니다 — 창을 열어 둔
+ *   채 다른 세션에서 일하는 것이 보통이다. 그 오해로 등록된 세션이 **560회 연속**
+ *   `세션이 실행 중이다 (pid 4084)` 로 건너뛰어졌다(2026-09-22~09-28).
+ *   게다가 그 조회는 자주 흔들리는데, 실패하면 회차를 통째로 버렸다.
+ *
+ *   지금은 그 세션의 **기록**이 답한다(미완결 도구·마지막 차례·조용한 시간).
+ *   되살리지 마라 — 되살리면 이 도구는 다시 아무 일도 하지 않는다.
+ */
+test('🔴 pid 조회를 판정 경로에 되살리지 않았다', () => {
+  for (const gone of ['runningSessions', 'sessionRunning', 'isAlive', 'firstRead']) {
+    assert.ok(!code.includes(gone), `${gone} 가 판정 경로에 돌아왔다 — pid 는 "쓰는 중"을 말하지 못한다`)
+  }
 })
 
-test('🔴 첫 조회가 실패하면 아무것도 밀지 않고 끝낸다', () => {
-  const i = code.indexOf('firstRead.ok')
-  assert.ok(i > 0)
-  const section = code.slice(i, i + 700)
-  assert.ok(section.includes('process.exit(0)'),
-    '조회 실패 시 그대로 끝내야 한다 — 그냥 진행하면 사람이 쓰는 세션을 민다')
-  assert.ok(section.includes('log('), '왜 건너뛰었는지 기록해야 한다 — 조용히 멈추면 감시가 아니다')
-})
-
-test('🔴 한 대상을 민 뒤에는 목록을 다시 읽는다 (한 회차가 최대 30분이다)', () => {
-  // 실측 결함: 두 맵을 루프 밖에서 한 번만 만들었다. 앞 세션을 30분 미는 동안
-  // 사람이 다음 세션을 열어도 알 수 없었다.
+test('🔴 한 대상을 민 뒤에는 집계를 다시 읽는다 (한 회차가 최대 30분이다)', () => {
+  // 실측 결함: 집계를 루프 밖에서 한 번만 만들었다. 앞 세션을 30분 미는 동안
+  // 사람이 다음 세션에 입력해도 알 수 없었다.
   const loopBody = code.slice(code.indexOf('for (const target of items)'))
-  assert.ok(loopBody.includes('readAt'), '루프 안에서 목록의 나이를 봐야 한다')
-  assert.ok(/ctx\.running\s*=\s*readRunning\(\)/.test(loopBody), '루프 안에서 실행 중 목록을 다시 읽어야 한다')
-  assert.ok(/ctx\.sessionMap\s*=/.test(loopBody), '세션 스캔(활성분 판정의 근거)도 함께 갱신해야 한다')
+  assert.ok(loopBody.includes('readAt'), '루프 안에서 집계의 나이를 봐야 한다')
+  assert.ok(/ctx\.sessionMap\s*=/.test(loopBody), '루프 안에서 세션 집계를 다시 읽어야 한다')
+  assert.ok(/scanSessions\(\)/.test(loopBody), '다시 읽는 것은 증분 스캔이다')
 })
 
-test('다시 읽을 때 캐시를 쓰지 않는다 — 캐시된 값이면 다시 읽는 의미가 없다', () => {
-  assert.ok(/runningSessions\(\{\s*ttlMs:\s*0\s*\}\)/.test(code),
-    '판정용 조회는 ttlMs 0 이어야 한다')
-})
-
-test('🔴 실행 중 확인은 --force 로도 건너뛰지 않는다', () => {
-  const i = code.indexOf('sessionRunning')
-  const before = code.slice(Math.max(0, i - 400), i)
-  // 바로 앞에 FORCE 분기가 열려 있으면 --force 로 뚫린다
-  assert.ok(!/if \(!FORCE\) \{\s*$/.test(before.trimEnd()),
-    '실행 중 확인이 !FORCE 블록 안에 들어가면 안 된다')
+test('🔴 "일하는 중" 확인은 --force 로도 건너뛰지 않는다', () => {
+  const gate = readFileSync(join(ROOT, 'src', 'lib', 'resume-gate.mjs'), 'utf8')
+  const i = gate.indexOf('GATE.busy')
+  assert.ok(i > 0, '판정에 busy 관문이 있어야 한다')
+  // busy 검사 앞에서 !force 블록이 열린 채로 남아 있으면 --force 로 뚫린다
+  const before = gate.slice(0, i)
+  assert.ok(before.lastIndexOf('if (!force) {') < before.lastIndexOf('\n  }'),
+    'busy 검사가 !force 블록 안에 있다 — 일하는 세션은 force 로도 건드리지 않는다')
 })
 
 test('세션 id 형태가 아닌 등록 항목은 건너뛰되, 나머지 대상은 계속 돈다', () => {

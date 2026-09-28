@@ -18,13 +18,12 @@ const project = (over = {}) => ({
   id: 'P', repo: 'c:\\r',
   resume: { enabled: true, maxPerDay: 12, maxCostUSDPerDay: 5, failStreakMax: 3, sessionActiveMin: 10, quietHours: null, ...over },
 })
-const notRunning = { running: false, isCertain: true, why: null }
 const base = (over = {}) => ({
   target: { restart: true, resumePrompt: '이어서 해라' },
   project: project(),
   state: { byDay: {}, costByDay: {}, failStreak: 0, blocked: null },
-  session: { activeMin: 60, stoppedByLimit: false, stoppedByInterrupt: false, quota: null },
-  running: notRunning,
+  // 🔴 '쓰는 중'의 재료: 조용한 시간 · 미완결 도구 · 마지막 차례 (pid 는 넘기지 않는다)
+  session: { activeMin: 60, openTools: 0, lastKind: 'assistant', stoppedByLimit: false, stoppedByInterrupt: false, quota: null },
   tracker: { exists: false },
   ...over,
 })
@@ -38,14 +37,45 @@ test('전부 통과하면 재개 지점을 알려준다', () => {
 
 /* ── force 로 뚫리면 안 되는 것들 ────────────────────────────── */
 
-test('🔴 실행 중이면 막는다 — force 로도 못 뚫는다', () => {
-  const running = { running: true, isCertain: true, why: '세션이 실행 중이다 (pid 7)' }
+/**
+ * 🔴 막는 것은 "프로세스가 살아 있다"가 아니라 **"그 세션이 일하는 중이다"** 다.
+ *
+ *   창을 열어 둔 채 다른 세션에서 일하는 것이 보통인데, pid 로 막으면 그 세션은 영원히
+ *   "사용 중"이다 — 실측 560회 연속 건너뜀(2026-09-22~09-28). 그래서 판정 재료를 pid 에서
+ *   그 세션의 기록으로 옮겼다. 두 가지가 "일하는 중"이다:
+ *     · 결과를 기다리는 도구가 있다        (긴 빌드가 도는 동안 파일은 조용하다)
+ *     · 마지막 차례가 사람이다             (답이 아직 안 나왔다 — 도구 없이 오래 생각하는 답)
+ */
+test('🔴 도구가 결과를 기다리는 중이면 막는다 — force 로도 못 뚫는다', () => {
   for (const force of [false, true]) {
-    const g = resumeGate(base({ running, force }))
+    // 조용한 시간이 타임아웃보다 짧아야 '도는 중'이다 (그보다 길면 낡은 것으로 본다)
+    const g = resumeGate(base({ session: { ...base().session, openTools: 2, activeMin: 5 }, force }))
     assert.equal(g.go, false, `force=${force} 인데 통과했다`)
-    assert.equal(g.stage, GATE.running)
-    assert.match(g.why, /실행 중/)
+    assert.equal(g.stage, GATE.busy)
+    assert.match(g.why, /도구 2개/)
   }
+})
+
+test('🔴 마지막 차례가 사람이면 막는다 (답이 아직 안 나왔다) — force 로도 못 뚫는다', () => {
+  for (const force of [false, true]) {
+    const g = resumeGate(base({ session: { ...base().session, lastKind: 'user', activeMin: 5 }, force }))
+    assert.equal(g.go, false, `force=${force} 인데 통과했다`)
+    assert.equal(g.stage, GATE.busy)
+    assert.match(g.why, /마지막 차례가 사람/)
+  }
+})
+
+test('🔴 답을 마치고 사람을 기다리는 세션은 통과한다 (창이 열려 있어도)', () => {
+  // 이것이 사용자가 말한 그 경우다 — 다른 세션에서 일하는 동안 이 세션은 멈춰 서 있다
+  const g = resumeGate(base())
+  assert.equal(g.go, true, `멈춰 선 세션을 막으면 이 도구는 아무 일도 하지 않는다: ${g.why}`)
+})
+
+test('🔴 일하는 중 판정에도 끝이 있다 (도구 도중에 죽은 세션이 영구히 막으면 안 된다)', () => {
+  // 한 회차 타임아웃(30분)보다 오래 조용하면 그 도구는 끝났거나 세션이 죽은 것이다
+  const dead = { ...base().session, openTools: 3, lastKind: 'user', activeMin: 200 }
+  const g = resumeGate(base({ session: dead }))
+  assert.equal(g.go, true, `끝 없는 차단은 fail-open 만큼 나쁘다: ${g.stage} · ${g.why}`)
 })
 
 /* ── 제한이 풀린 순간, 살아 있지만 멈춰 선 세션 ─────────────── */
@@ -66,48 +96,50 @@ const runningNow = { running: true, isCertain: true, why: '세션이 실행 중�
 const parked = (over = {}) => ({ activeMin: 38.7, stoppedByLimit: true, stoppedByInterrupt: false, quota: lifted, ...over })
 
 test('🔴 제한에 잘린 채 멈춰 있고 제한이 풀렸으면 — 실행 중이어도 이어받는다', () => {
-  const g = resumeGate(base({ running: runningNow, session: parked(), target: { restart: true } }))
+  const g = resumeGate(base({ session: parked(), target: { restart: true } }))
   assert.equal(g.go, true, `539번 건너뛴 그 상황이다: ${g.why}`)
   assert.equal(g.point, '제한으로 잘린 지점')
-  assert.match(g.why, /프로세스는 살아 있지만/, '로그가 사실을 말해야 한다')
+  assert.match(g.why, /사람을 기다리는 상태/, '로그가 사실을 말해야 한다')
 })
 
 test('🔴 제한이 아직 안 풀렸으면 막는다 (예외는 해제 뒤에만이다)', () => {
-  const g = resumeGate(base({ running: runningNow, session: parked({ quota: stillLimited }) }))
+  const g = resumeGate(base({ session: parked({ quota: stillLimited }) }))
   assert.equal(g.go, false)
   assert.equal(g.stage, GATE.limited, `실행 중보다 제한을 먼저 말해야 한다: ${g.stage}`)
 })
 
-test('🔴 제한 잘림이 아닌 이유로는 살아 있는 세션에 들어가지 않는다', () => {
-  // 끊김·재개지시·추적기만으로는 여전히 running 에서 멈춘다 — 예외가 새면 안 된다
+test('🔴 일하는 중이면 재개 지점이 무엇이든 막는다 (지점이 관문을 열지 않는다)', () => {
+  // 제한 잘림·끊김·재개지시·추적기 — 어느 지점이든 "일하는 중"을 이기지 못한다
+  const working = { openTools: 1, lastKind: 'assistant', activeMin: 5 }
   const cases = {
-    끊김: { session: parked({ stoppedByLimit: false, stoppedByInterrupt: true }) },
-    재개지시: { session: parked({ stoppedByLimit: false }), target: { restart: true, resumePrompt: '이어라' } },
-    추적기: { session: parked({ stoppedByLimit: false }), tracker: { exists: true, doing: { id: 'W1' }, doneMark: '1/2' } },
+    제한잘림: { session: parked({ ...working }) },
+    끊김: { session: parked({ ...working, stoppedByLimit: false, stoppedByInterrupt: true }) },
+    재개지시: { session: parked({ ...working, stoppedByLimit: false }), target: { restart: true, resumePrompt: '이어라' } },
+    추적기: { session: parked({ ...working, stoppedByLimit: false }), tracker: { exists: true, doing: { id: 'W1' }, doneMark: '1/2' } },
   }
   for (const [name, over] of Object.entries(cases)) {
-    const g = resumeGate(base({ running: runningNow, ...over }))
-    assert.equal(g.go, false, `${name}: 살아 있는 세션에 들어갔다`)
-    assert.equal(g.stage, GATE.running, `${name}: ${g.stage}`)
+    const g = resumeGate(base({ ...over }))
+    assert.equal(g.go, false, `${name}: 일하는 세션에 들어갔다`)
+    assert.equal(g.stage, GATE.busy, `${name}: ${g.stage}`)
   }
 })
 
 test('🔴 제한 알림 직후(사람이 아직 붙어 있을 수 있다)에는 기다린다', () => {
-  const g = resumeGate(base({ running: runningNow, session: parked({ activeMin: 3 }) }))
+  const g = resumeGate(base({ session: parked({ activeMin: 3 }) }))
   assert.equal(g.go, false, '제한 알림 뒤 3분은 조용한 것이 아니다')
   assert.equal(g.stage, GATE.active)
 })
 
 test('🔴 잘린 자리는 추적기의 "할 일 없음"보다 우선한다 (실측: 9/9 done 으로 건너뛰었다)', () => {
   const tracker = { exists: true, allDone: true, doneMark: '9/9', doing: null, nextTodo: null }
-  const g = resumeGate(base({ running: runningNow, session: parked(), tracker, target: { restart: true } }))
+  const g = resumeGate(base({ session: parked(), tracker, target: { restart: true } }))
   assert.equal(g.go, true, '추적기가 다 done 이라고 끊긴 일이 끊기지 않은 게 되지 않는다')
   assert.equal(g.point, '제한으로 잘린 지점')
 })
 
 test('추적기에 할 일이 있으면 그것을 지점으로 쓴다 (가장 구체적이다)', () => {
   const tracker = { exists: true, allDone: false, doneMark: '3/9', doing: { id: 'W3-2' }, nextTodo: null }
-  const g = resumeGate(base({ running: runningNow, session: parked(), tracker }))
+  const g = resumeGate(base({ session: parked(), tracker }))
   assert.equal(g.go, true)
   assert.equal(g.point, 'doing W3-2')
 })
@@ -120,9 +152,26 @@ test('잘린 자리가 없으면 추적기의 "할 일 없음"은 그대로 막�
   assert.match(g.why, /할 일이 없다/)
 })
 
-test('🔴 실행 여부를 **모르면** 막는다 (fail-closed)', () => {
-  const unknown = { running: true, isCertain: false, why: '실행 중 여부를 확인할 수 없다' }
-  assert.equal(resumeGate(base({ running: unknown, force: true })).go, false)
+/**
+ * 🔴 **모르면 막는다** — pid 대신 기록으로 판정하게 됐어도 이 원칙은 그대로다.
+ *   조용한 시간을 모르면 "그 세션을 쓰고 있나"에 답할 수 없다. 모르는 것을 "괜찮다"로
+ *   읽는 것이 이 저장소가 가장 여러 번 다친 방식이다(목록이 비었으니 아무도 안 돈다 ·
+ *   atEpoch 가 없으니 살아있다 · 조회가 실패했으니 0개).
+ */
+test('🔴 조용한지 모르면 막는다 — force 로도 못 뚫는다 (fail-closed)', () => {
+  for (const quiet of [null, undefined, NaN]) {
+    for (const force of [false, true]) {
+      const g = resumeGate(base({ session: { ...base().session, activeMin: quiet }, force }))
+      assert.equal(g.go, false, `activeMin=${quiet} · force=${force} 인데 통과했다`)
+      assert.equal(g.stage, GATE.unknown)
+    }
+  }
+})
+
+test('세션 집계 자체가 없으면 막는다 (트랜스크립트가 정리된 것이다)', () => {
+  const g = resumeGate(base({ session: null, force: true }))
+  assert.equal(g.go, false)
+  assert.equal(g.stage, GATE.gone)
 })
 
 test('🔴 사용량 제한 중이면 막는다 — force 로도 못 뚫는다 (제한이 차단기를 태운다)', () => {

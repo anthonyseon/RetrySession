@@ -183,6 +183,14 @@ test('🔴 화면용은 캐시를 길게, 판정용은 캐시 없이', () => {
   assert.match(status, /runningSessions\(\{ ttlMs: 15000 \}\)/, '화면용은 길게')
   assert.match(status, /claudeProcesses\(\{ ttlMs: 15000 \}\)/, '프로세스 목록도 마찬가지')
 
+  /**
+   * 🔴 재개는 2026-09-28 부터 이 조회를 **쓰지 않는다.**
+   *   pid 는 "사람이 그 세션을 쓰고 있나"를 말하지 못했고(창을 열어 둔 채 다른 세션에서
+   *   일하면 계속 살아 있다 — 실측 560회 연속 건너뜀), 흔들리는 조회 하나가 회차를
+   *   통째로 버렸다. 판정은 트랜스크립트 집계로 한다(resume-gate).
+   *   화면·경보에서는 여전히 보여준다 — 거기서는 "모른다"를 말해야 하기 때문이다.
+   */
   const resume = readFileSync(join(ROOT, 'src', 'resume.mjs'), 'utf8')
-  assert.match(resume, /runningSessions\(\{ ttlMs: 0 \}\)/, '판정용은 캐시를 쓰면 안 된다')
+  assert.ok(!resume.includes('runningSessions'),
+    '재개 판정에 pid 조회를 되살리지 마라 — 그 값은 "쓰는 중"을 말하지 못한다')
 })

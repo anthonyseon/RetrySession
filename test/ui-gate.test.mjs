@@ -104,10 +104,10 @@ test('🔴 꺼짐/켬이 **항상** 보인다 (누른 것이 먹혔는지 알 �
 })
 
 test('🔴 막혀 있으면 "준비"라고 하지 않고 **막는 이유**를 말한다', () => {
-  const why = '세션이 실행 중이다 (pid 4084) — 사람이 쓰는 중이므로 건드리지 않는다'
-  const txt = drawList(session({ go: false, stage: 'running', why }))
+  const why = '도구 2개가 결과를 기다리는 중이다 — 일하는 세션에 끼어들지 않는다'
+  const txt = drawList(session({ go: false, stage: 'busy', why }))
   assert.ok(txt.includes('대기'), '지금 돌지 않는다고 말해야 한다')
-  assert.ok(txt.includes('실행중'), '무엇에 막혔는지 **단어**로 말해야 한다')
+  assert.ok(txt.includes('작업중'), '무엇에 막혔는지 **단어**로 말해야 한다')
   assert.ok(!txt.includes('재시작 준비'), '🔴 예산만 보고 "준비"라고 말하던 그 버그다')
   /**
    * 🔴 단어로 줄였다고 **근거를 버리면 안 된다.** 목록에서는 단어로 훑고,
@@ -277,9 +277,11 @@ test('🔴 차단됐으면 [차단 해제] 단추가 실제로 요청을 보낸�
   } finally { actions.post = real }
 })
 
-test('실행 중이면 무엇을 하면 되는지 말한다 (단추로 풀 수 있는 일이 아니다)', () => {
-  const box = drawPanel(session({ go: false, stage: 'running', why: '세션이 실행 중이다 (pid 7)' }))
-  assert.match(box.textContent, /창을 닫으면/, '사람이 할 수 있는 일을 알려줘야 한다')
+test('일하는 중이면 무엇을 기다리는지 말한다 (단추로 풀 수 있는 일이 아니다)', () => {
+  const box = drawPanel(session({ go: false, stage: 'busy', why: '도구 1개가 결과를 기다리는 중이다' }))
+  assert.match(box.textContent, /일하는 중|끝나고 조용해지면/, '왜 기다리는지 알려줘야 한다')
+  // 🔴 창이 열려 있는 것 자체는 더 이상 막는 이유가 아니다 — 그 문구가 남아 있으면 거짓이다
+  assert.ok(!/창을 닫으면 다음 회차부터 대상이 됩니다$/.test(box.textContent), '창을 닫으라고 하면 안 된다')
   assert.equal(box.querySelectorAll('button').length, 0, '누를 수 없는 단추를 주면 안 된다')
 })
 

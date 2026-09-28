@@ -29,7 +29,7 @@ const cacheFile = join(RS_HOME, 'state', 'sessions-cache.json')
  *   물려받아 "오늘 0" 으로 보였다. 판이 다르면 그 파일만 처음부터 다시 읽는다
  *   (전량 재스캔은 실측 186ms — 한 번 치를 값이다).
  */
-const ACC_VERSION = 2
+const ACC_VERSION = 3
 
 /* ── 파일 읽기 (증분) ────────────────────────────────────────── */
 
@@ -121,6 +121,10 @@ export function scanSessions({ slugs = null, useCache = true } = {}) {
         mtimeEpoch: fs_.mtimeMs,
         activeMin: +((Date.now() - fs_.mtimeMs) / 60000).toFixed(1),
         tokenSum: sumTokens(acc.byModel),
+        // 아직 결과가 안 온 도구 — 비어 있지 않으면 지금 일하는 중이다(재개 판정이 본다)
+        openTools: (acc.pendingTools || []).length,
+        // 누가 다음 차례인가 — user 면 모델이 답을 빚지고 있다(일하는 중)
+        lastKind: acc.lastKind || null,
         costUSD: cost.usd,
         costHasEstimate: cost.hasEstimate,
         /**

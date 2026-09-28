@@ -159,8 +159,9 @@ test('🔴 재개가 공용 판정을 쓴다 (자기만의 규칙을 다시 만�
 test('🔴 화면도 같은 판정을 쓴다 (예산만 보고 "준비"라고 말하던 자리다)', () => {
   const sv = readFileSync(join(ROOT, 'src', 'lib', 'session-view.mjs'), 'utf8')
   assert.match(sv, /resumeGate\(\{/, '화면이 제 나름대로 판정하면 실제와 갈라진다')
-  // 실행 중 확인은 fail-closed 로 넘겨야 한다 — 모르면 "돌고 있다"
-  assert.match(sv, /running: true, isCertain: false/, '조회 실패를 "정지"로 넘기면 안 된다')
+  // 🔴 재료가 같아야 답이 같다 — pid 가 아니라 '쓰는 중'을 말하는 값들을 넘긴다
+  assert.match(sv, /openTools: s.openTools/, '화면도 미완결 도구를 판정에 넘겨야 한다')
+  assert.match(sv, /lastKind: s.lastKind/, '화면도 마지막 차례를 판정에 넘겨야 한다')
 })
 
 test('🔴 지시문이 "제한에 끊겼다"를 세션에 알려준다', () => {
@@ -177,21 +178,21 @@ test('🔴 제한 결과는 스케줄러 이력을 빨갛게 물들이지 않는
     '제한·과부하·인증은 exit 1 이 아니다')
 })
 
-test('실행 중 확인은 그대로 남아 있다 (③ — 세션이 열려 있으면 안 민다)', () => {
-  assert.match(resumeSrc, /running: sessionRunning\(ctx\.running, target\.sessionId, isAlive\)/,
-    '실제 pid 로 확인한 결과를 판정에 넘겨야 한다')
-  /**
-   * 🔴 예전에는 판정 **소스의 모양**을 정규식으로 봤다(`if (running?.running) return …`).
-   *   제한 해제 예외를 넣자 모양이 바뀌어 깨졌는데, 그때 지키던 것은 모양이 아니라
-   *   **"실행 중이면 막는다"는 답**이었다. 순수 함수이므로 불러서 답을 본다.
-   */
-  const g = resumeGate({
+/**
+ * ③ 번 관문은 **남아 있다** — 다만 근거가 pid 에서 기록으로 바뀌었다(2026-09-28).
+ *   "세션이 열려 있으면 안 민다" 가 아니라 **"그 세션이 일하는 중이면 안 민다"** 다.
+ *   예전에는 판정 소스의 모양을 정규식으로 봤는데, 지키던 것은 모양이 아니라 **답**이었다.
+ *   순수 함수이므로 불러서 답을 본다.
+ */
+test('일하는 중인 세션에는 밀어넣지 않는다 (③ — 근거는 pid 가 아니라 기록이다)', () => {
+  const call = (session) => resumeGate({
     target: { restart: true, resumePrompt: '이어서 해라' },
     project: { id: 'P', repo: 'c:\\r', resume: { enabled: true, sessionActiveMin: 10, maxPerDay: 12, failStreakMax: 3 } },
-    state: {}, session: { activeMin: 60, stoppedByLimit: false, quota: null },
-    running: { running: true, isCertain: true, why: '세션이 실행 중이다 (pid 7)' },
-    tracker: { exists: false },
+    state: {}, tracker: { exists: false },
+    session: { activeMin: 5, openTools: 0, lastKind: 'assistant', stoppedByLimit: false, quota: null, ...session },
   })
-  assert.equal(g.go, false, '실행 중인 세션에 밀어넣으면 안 된다')
-  assert.equal(g.stage, GATE.running)
+  assert.equal(call({ openTools: 1 }).stage, GATE.busy, '도구가 도는 중이면 막는다')
+  assert.equal(call({ lastKind: 'user' }).stage, GATE.busy, '답을 빚지고 있으면 막는다')
+  assert.equal(call({ activeMin: 1 }).stage, GATE.active, '방금 무슨 줄이든 늘었으면 기다린다')
+  assert.equal(call({ activeMin: 60 }).go, true, '답을 마치고 조용하면 이어받는다')
 })

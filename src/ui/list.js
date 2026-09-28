@@ -59,7 +59,8 @@ const interruptBadge = (s) => (s.stoppedByInterrupt
  *   단어는 훑히고, 문장은 눌러서 읽는다.
  */
 const GATE_WORD = {
-  running: '실행중', active: '활동중', limited: '사용량제한', quiet: '조용시간',
+  // 🔴 '실행중'(pid) 은 더 이상 막는 이유가 아니다 — '작업중'(도구 대기·답 대기)이 그 자리다
+  busy: '작업중', unknown: '확인불가', active: '활동중', limited: '사용량제한', quiet: '조용시간',
   budget: '상한도달', point: '지시없음', tracker: '할일없음', repo: '저장소잠금',
   gone: '세션없음', blocked: '연속실패', repeated: '반복끊김', off: '꺼짐',
 }

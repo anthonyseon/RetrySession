@@ -68,7 +68,41 @@ export const emptyTotals = (sessionId, slug) => ({
   day: null,
   dayByModel: {},
   dayUserMsgs: 0, dayAssistantMsgs: 0, dayToolCalls: 0,
+
+  /**
+   * **아직 결과가 오지 않은 도구 호출 id.** 비어 있지 않으면 세션이 지금 일하는 중이다.
+   *
+   * 🔴 왜 필요한가 — "조용하다"를 마지막 기록 시각(파일 mtime)으로만 재면 **긴 도구 실행을
+   *   유휴로 오판한다.** 10분 걸리는 빌드가 도는 동안 트랜스크립트에는 아무 줄도 늘지 않으므로
+   *   "3분 넘게 조용하다"가 참이 된다. 그때 재개를 밀어넣으면 일하는 세션에 끼어드는 것이다.
+   *   호출(tool_use)에 결과(tool_result)가 붙었는지로 보면 그 구멍이 막힌다.
+   *
+   * 🔴 끝이 있어야 한다 — 세션이 도구 도중에 죽으면 이 목록이 영원히 남는다. 그래서
+   *   판정하는 쪽이 "조용한 시간이 아주 길면 낡은 것으로 본다"로 한계를 둔다(resume-gate).
+   *   여기서는 관측만 하고, 길이만 막아 둔다(아래 CAP).
+   */
+  pendingTools: [],
+
+  /**
+   * 마지막으로 온 **말차례의 주인** — `'user'` 또는 `'assistant'`.
+   *
+   * 🔴 이것이 "누가 다음 차례인가"를 말한다. `'user'` 면 모델이 **답을 빚지고 있다**
+   *   (사람이 방금 물었거나, 도구 결과가 막 돌아왔다) — 즉 세션이 일하는 중이다.
+   *   `'assistant'` 면 모델이 답을 마치고 **사람을 기다리는** 상태다. 그때가 이어받을 자리다.
+   *
+   * 🔴 왜 도구 목록만으로는 부족한가 — 도구 없이 오래 생각하는 답(긴 사고)은 완성될 때까지
+   *   트랜스크립트에 한 줄도 남지 않는다. 그 사이 미완결 도구는 0 이고 파일도 조용하다.
+   *   마지막 차례가 사람이면 "아직 답이 안 나왔다"는 뜻이라 그 구멍을 메운다.
+   */
+  lastKind: null,
 })
+
+/**
+ * 미완결 도구 목록의 상한. 넘으면 **오래된 쪽을 버린다.**
+ * 이 배열은 캐시(JSON)에 그대로 저장되므로, 결과가 영원히 안 오는 호출이 쌓이면
+ * 캐시가 커지고 판정도 흐려진다. 정상 세션은 동시에 몇 개를 넘지 않는다(실측 대부분 1~3).
+ */
+const PENDING_CAP = 40
 
 /**
  * `<synthetic>` 엔트리가 사용량 제한 알림인가. 순수 함수.
@@ -187,12 +221,27 @@ export function foldEntry(acc, j) {
   // 사람이 다시 입력했으면 잘린 자리가 아니다 — 이어서 쓰고 있다는 뜻이다
   else if (j.type === 'user') {
     acc.userMsgs++
+    acc.lastKind = 'user'
     if (inDay) acc.dayUserMsgs++
     acc.stoppedByLimit = false; acc.stoppedByInterrupt = false
+    /**
+     * 🔴 도구 결과도 `user` 엔트리로 온다. 결과가 왔으면 그 호출은 끝난 것이다.
+     *   (그래서 이 분기의 `userMsgs` 는 사람의 입력 수가 아니라 "사용자 역할 엔트리" 수다 —
+     *    옛 성질이라 그대로 두고, 여기서는 미완결 목록만 정리한다.)
+     */
+    const c = j.message?.content
+    if (Array.isArray(c) && acc.pendingTools?.length) {
+      for (const b of c) {
+        if (!b || b.type !== 'tool_result' || !b.tool_use_id) continue
+        const i = acc.pendingTools.indexOf(b.tool_use_id)
+        if (i >= 0) acc.pendingTools.splice(i, 1)
+      }
+    }
   }
 
   else if (j.type === 'assistant') {
     acc.assistantMsgs++
+    acc.lastKind = 'assistant'
     if (inDay) acc.dayAssistantMsgs++
     const m = j.message || {}
     // 마지막 엔트리가 제한 알림이면 "잘린 채 멈춰 있다"는 뜻이다(빈껍데기 주석 참조)
@@ -211,7 +260,15 @@ export function foldEntry(acc, j) {
     }
     if (Array.isArray(m.content)) {
       for (const b of m.content) {
-        if (b && b.type === 'tool_use') { acc.toolCalls++; if (inDay) acc.dayToolCalls++ }
+        if (!b || b.type !== 'tool_use') continue
+        acc.toolCalls++
+        if (inDay) acc.dayToolCalls++
+        // 결과가 오면 지운다(user 분기). 남아 있으면 "지금 그 도구가 돌고 있다"는 뜻이다.
+        if (b.id) {
+          if (!acc.pendingTools) acc.pendingTools = []
+          acc.pendingTools.push(b.id)
+          if (acc.pendingTools.length > PENDING_CAP) acc.pendingTools.splice(0, acc.pendingTools.length - PENDING_CAP)
+        }
       }
     }
     if (m.usage) {

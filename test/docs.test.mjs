@@ -103,11 +103,14 @@ test('🔴 "조용해야 하는 시간"이 설정·판정·설명서·화면에�
   assert.equal(Number(fallback[1]), cfg, `판정 기본값 ${fallback[1]} ≠ 설정 ${cfg}`)
 
   // 화면과 설명서가 같은 숫자를 말하는가
-  assert.match(read('src/ui/index.html'), new RegExp(`<b>${cfg}분 이상</b> 조용하다`),
-    `화면이 ${cfg}분이라고 말해야 한다`)
+  // 마크업은 옮겨 다닐 수 있다 — 지켜야 하는 것은 **숫자**와 "조용" 이라는 말이다
+  const html = read('src/ui/index.html')
+  assert.match(html, new RegExp(`${cfg}분 이상`), `화면이 ${cfg}분이라고 말해야 한다`)
+  assert.match(html, /조용/, '무엇이 3분인지(조용한 시간) 말해야 한다')
   const manual = read('Manual.md')
   assert.match(manual, new RegExp(`\\*\\*${cfg}분 이상\\*\\* 조용하다`), `설명서 §5-1 이 ${cfg}분이어야 한다`)
   assert.match(manual, new RegExp(`활동이 있었다 \\(${cfg}분\\)`), `설명서의 막는 조건표도 ${cfg}분이어야 한다`)
+  assert.match(read('src/lib/resume-gate.mjs'), new RegExp(`기본 ${cfg}분`), '판정 주석도 같은 숫자를 말해야 한다')
   assert.match(read('README.md'), new RegExp(`기본 ${cfg}분`), `README 가드 목록도 ${cfg}분이어야 한다`)
 })
 
@@ -131,8 +134,10 @@ test('🔴 화면의 "언제 이어받는가" 설명이 판정과 같은 것을 
   assert.match(html, /재시작 시작/, '어느 단추로 켜는지 적어야 한다')
   // 설명서에도 같은 조건이 있어야 한다 (화면을 못 보고 읽는 사람이 있다)
   const manual = read('Manual.md')
-  assert.match(manual, /제한이 풀리면|제한 해제/, '설명서에 제한 해제 재개 조건이 없다')
+  assert.match(manual, /제한이 풀리|제한 해제/, '설명서에 제한 해제 재개 조건이 없다')
   assert.match(manual, /한 글자도/, '“사람이 입력하지 않았다”가 핵심 조건이다 — 설명서에도 있어야 한다')
+  // 🔴 pid 로 막지 않는다는 것이 이 기능의 요점이다 — 설명서가 그것을 말해야 한다
+  assert.match(manual, /창이 열려 있는 것 자체는 막지 않는다/, '창이 열려 있어도 이어받는다고 적어야 한다')
 })
 
 /**

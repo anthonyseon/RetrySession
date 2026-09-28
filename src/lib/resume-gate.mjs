@@ -18,7 +18,7 @@ import { quietNow, limitState, budgetVerdict } from './guard.mjs'
 
 /** 막히는 자리의 이름 — 화면이 색과 문구를 고르는 기준 */
 export const GATE = {
-  off: 'off', repo: 'repo', quiet: 'quiet', running: 'running', gone: 'gone',
+  off: 'off', repo: 'repo', quiet: 'quiet', busy: 'busy', unknown: 'unknown', gone: 'gone',
   limited: 'limited', active: 'active', tracker: 'tracker', point: 'point',
   repeated: 'repeated', budget: 'budget', blocked: 'blocked',
 }
@@ -27,13 +27,13 @@ export const GATE = {
  * @param target   등록부 항목 {restart, resumePrompt, …}
  * @param project  resolveRepo 로 찾은 저장소 (없으면 null)
  * @param state    loadRunState 결과
- * @param session  세션 집계 {activeMin, stoppedByLimit, stoppedByInterrupt, quota}
- * @param running  {running, isCertain, why} — sessionRunning 결과와 같은 모양
+ * @param session  세션 집계 {activeMin, openTools, lastKind, stoppedByLimit, stoppedByInterrupt, quota}
+ *                 🔴 '사람이 쓰는 중인가' 는 pid 가 아니라 이 값들로 판정한다
  * @param tracker  {exists, error, allDone, doing, nextTodo, doneMark} (없으면 null)
  * @param force    --force 로 부른 것인가 (조용한시간·활동·예산만 건너뛴다)
  * @returns {{go:boolean, why:string|null, point:string|null, stage:string|null}}
  */
-export function resumeGate({ target, project, state = {}, session, running, tracker = null, quota = null, force = false, now = Date.now() }) {
+export function resumeGate({ target, project, state = {}, session, tracker = null, quota = null, force = false, now = Date.now() }) {
   const cfg = project?.resume || {}
   const no = (stage, why) => ({ go: false, why, stage, point: null })
 
@@ -50,48 +50,55 @@ export function resumeGate({ target, project, state = {}, session, running, trac
     if (qn.quiet) return no(GATE.quiet, qn.why)
   }
 
-  /**
-   * 실행 중이면 막는다 — 사람이 쓰는 대화에 끼어들지 않는다. force 로도 건너뛰지 않고,
-   * 모르면 돌고 있다고 본다(fail-closed).
-   *
-   * 🔴 **단 하나의 예외: 사용량 제한에 잘린 채 멈춰 있고 그 제한이 풀렸을 때.**
-   *
-   *   실측 (2026-09-28): 이 도구를 만든 목적이 정확히 이 경우인데 여섯 달째 한 번도
-   *   돌지 않았다. 등록된 세션의 재시작 로그:
-   *     `SKIP ×539 (처음 2026-09-22 16:18:15) · 세션이 실행 중이다 (pid 4084)`
-   *   같은 시각 실제 상태: 제한 잘림 O · 제한 해제 9분 전 · 마지막 활동 38.7분 전.
-   *   제한에 걸리면 CLI 프로세스는 **살아서 멈춰 선다.** 그래서 pid 는 계속 잡히고,
-   *   "사람이 쓰는 중"으로 읽혀 영원히 건너뛴다. 제한이 풀리는 순간 이어받는 것이
-   *   이 도구의 존재 이유인데, 그 순간이 오면 오히려 확실히 막히는 구조였다.
-   *
-   * 🔴 왜 이 예외가 안전한가 — 판단 근거를 **pid 가 아니라 트랜스크립트**로 옮긴다.
-   *   `stoppedByLimit` 은 "마지막 엔트리가 제한 알림"이라는 뜻이다. 사람이 무엇이든
-   *   입력하면 `user` 엔트리가 그 표시를 즉시 끈다(sessions 의 접기 규칙). 즉 이 값이
-   *   참인 동안은 **제한 알림 뒤로 사람이 한 글자도 넣지 않았다**는 관측이다.
-   *   pid 생존보다 이것이 "사람이 붙어 있나"를 더 정확히 말해 준다.
-   *
-   *   그리고 이 예외는 다른 관문을 열지 않는다 — 제한이 아직 안 풀렸으면 아래 `limited`
-   *   가 막고, 방금까지 활동이 있었으면 `active` 가 막는다(기본 3분: 제한 알림 뒤로
-   *   3분은 조용해야 한다). **`stoppedByLimit` 이 아닌 이유로는 살아 있는 세션에 들어가지
-   *   않는다** — 끊김·재개지시·추적기만으로는 여전히 `running` 에서 멈춘다.
-   */
-  if (running?.running) {
-    if (!session?.stoppedByLimit) return no(GATE.running, running.why)
-    /**
-     * 제한에 잘려 멈춘 세션이다. 아직 안 풀렸으면 **제한을 이유로** 말한다 —
-     * "사람이 쓰는 중"이라고 하면 거짓이고, 남은 시간을 알려주는 쪽이 쓸모 있다
-     * ("왜 안 도나"에 대한 답이 곧 "몇 분 뒤에 돈다"가 된다).
-     */
-    const li = limitState(session.quota ?? quota, now)
-    if (li.limited) return no(GATE.limited, li.why)
-  }
-
   if (!session) return no(GATE.gone, '세션을 찾을 수 없다 — 트랜스크립트가 정리된 것으로 보인다')
 
-  // 사용량 제한도 force 로 못 뚫는다 — 제한이 차단기를 태우는 것을 막는다
+  /**
+   * 🔴 **프로세스가 살아 있다 ≠ 사람이 그 세션을 쓰고 있다.**
+   *
+   *   창을 열어 둔 채 다른 세션에서 일하는 것이 보통이다. pid 만 보면 그 세션은 영원히
+   *   "사용 중"이고, 그러면 이 도구는 아무 일도 하지 않는다 — 실측(2026-09-22~09-28)으로
+   *   등록된 세션이 **560회 연속** `세션이 실행 중이다 (pid …)` 로 건너뛰어졌다.
+   *   제한이 풀리는 순간 이어받는 것이 목적인데 그 순간이 오히려 확실히 막히는 구조였다.
+   *
+   *   그래서 "쓰고 있나"를 pid 가 아니라 **그 세션의 기록**으로 판정한다. 두 가지만 본다:
+   *     ① 결과를 기다리는 도구가 있나 → 도구가 도는 중이다
+   *     ② 마지막 차례가 사람인가     → 모델이 답을 빚지고 있다(사람이 방금 물었거나 도구가 막 끝났다)
+   *   하나라도 참이면 **일하는 중**이라 건드리지 않는다. 둘 다 아니면 그 세션은 모델이
+   *   답을 마치고 **사람을 기다리는** 상태다 — 사람이 그 세션에 지시하고 있지 않다는 뜻이고,
+   *   이어받아야 하는 바로 그 자리다.
+   *
+   *   ①이 없으면 구멍이 난다: 10분 걸리는 빌드가 도는 동안 트랜스크립트는 한 줄도 늘지
+   *   않아 "조용하다"가 참이 된다. ②가 없으면 도구 없이 오래 생각하는 답이 같은 구멍이다.
+   *   그 위에 `active`(기본 3분)가 한 겹 더 있다 — 방금 무슨 줄이든 늘었으면 기다린다.
+   *
+   * 🔴 이 차단에도 **끝이 있어야 한다.** 세션이 도구 도중에 죽거나 사람의 질문에 답하지
+   *   못한 채 끊기면 위 두 신호가 영원히 참으로 남는다. 끝 없는 차단은 fail-open 만큼
+   *   나쁘다 — 한 회차 타임아웃(기본 30분)보다 오래 조용하면 낡은 것으로 보고 통과시킨다.
+   *   그만큼 조용했다면 그 도구는 끝났거나 세션이 죽은 것이다(그래서 이어받아야 한다).
+   */
   const limitInfo = limitState(session.quota ?? quota, now)
-  if (limitInfo.limited) return no(GATE.limited, limitInfo.why)
+  if (limitInfo.limited) return no(GATE.limited, limitInfo.why)   // force 로도 못 뚫는다
 
+  const quiet = session.activeMin
+  const knownQuiet = quiet !== null && quiet !== undefined && Number.isFinite(quiet)
+  /**
+   * 🔴 조용한지 **모르면 막는다.** 이 값이 없으면 "사람이 쓰고 있나"에 답할 수 없고,
+   *   모르는 것을 "괜찮다"로 읽는 것이 이 저장소가 가장 여러 번 다친 방식이다.
+   *   force 로도 뚫지 않는다 — 모르는 채로 사람의 대화에 끼어드는 것이 최악이다.
+   */
+  if (!knownQuiet) {
+    return no(GATE.unknown, '마지막 활동 시각을 알 수 없다 — 그 세션을 쓰는 중인지 판정할 수 없다')
+  }
+  const stale = quiet >= (cfg.timeoutMin ?? 30)
+  if (!stale) {
+    const open = session.openTools || 0
+    if (open > 0) {
+      return no(GATE.busy, `도구 ${open}개가 결과를 기다리는 중이다 — 일하는 세션에 끼어들지 않는다`)
+    }
+    if (session.lastKind === 'user') {
+      return no(GATE.busy, '마지막 차례가 사람이다 — 답이 아직 나오지 않았으므로 일하는 중이다')
+    }
+  }
   if (!force) {
     /**
      * 조용해야 하는 시간. 정본은 `config/projects.json` 의 `defaults.resume.sessionActiveMin`
@@ -99,7 +106,7 @@ export function resumeGate({ target, project, state = {}, session, running, trac
      * 어떤 경로에서는 옛 값으로 도니, `test/docs.test.mjs` 가 둘을 대조한다.
      */
     const limit = cfg.sessionActiveMin ?? 3
-    if (session.activeMin !== null && session.activeMin !== undefined && session.activeMin < limit) {
+    if (quiet < limit) {
       return no(GATE.active, `방금까지 활동이 있었다 (${session.activeMin}분 전, 한계 ${limit}분) — 아직 사람이 붙어 있을 수 있다`)
     }
   }
@@ -158,6 +165,7 @@ export function resumeGate({ target, project, state = {}, session, running, trac
       + (limitStopped ? ' (사용량 제한으로 중단됐고 지금은 풀렸다)' : '')
       + (interrupted && !limitStopped ? ' (응답이 끝까지 오지 못하고 끊겼다)' : '')
       // 로그가 사실을 말해야 한다 — 살아 있는 프로세스에 이어붙인 회차임을 남긴다
-      + (running?.running ? ' · 프로세스는 살아 있지만 제한 알림 뒤로 사람의 입력이 없다' : ''),
+      // 사실을 남긴다 — 프로세스가 살아 있든 아니든 '그 세션은 답을 마치고 멈춰 있었다'
+      + ' · 세션은 사람을 기다리는 상태였다(도구 0 · 마지막 차례 모델)',
   }
 }

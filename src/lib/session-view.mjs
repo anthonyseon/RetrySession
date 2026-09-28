@@ -128,11 +128,15 @@ export function sessionView(s, registry, runMap, ideWins = [], procMap = new Map
   if (target?.restart && P) {
     resumeView.gate = resumeGate({
       target, project, state: loadRunState(P.resumeState), quota: null,
-      session: { activeMin: s.activeMin, stoppedByLimit: s.stoppedByLimit, stoppedByInterrupt: s.stoppedByInterrupt, quota: s.quota },
-      // 실행 중 확인은 fail-closed — 조회가 실패했으면 "모른다"로 넘긴다
-      running: runKnown
-        ? { running: !!run?.alive, isCertain: true, why: run?.alive ? `세션이 실행 중이다 (pid ${run.pid})` : null }
-        : { running: true, isCertain: false, why: '실행 중 여부를 확인할 수 없다 — 목록을 받지 못했다' },
+      /**
+       * 🔴 화면도 재개와 **같은 재료**로 판정한다. pid 는 넘기지 않는다 —
+       *   "프로세스가 살아 있다"는 "사람이 그 세션을 쓰고 있다"가 아니었고,
+       *   그 오해가 560회 연속 건너뜀을 만들었다(resume-gate 의 주석).
+       */
+      session: {
+        activeMin: s.activeMin, openTools: s.openTools, lastKind: s.lastKind,
+        stoppedByLimit: s.stoppedByLimit, stoppedByInterrupt: s.stoppedByInterrupt, quota: s.quota,
+      },
       tracker,
     })
   }
