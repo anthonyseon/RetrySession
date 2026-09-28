@@ -42,7 +42,7 @@ import {
 import { classifyRun } from './lib/classify.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath, isSessionId } from './lib/targets.mjs'
 import { runningSessions, isAlive } from './lib/cli.mjs'
-import { runClaude, parseResult } from './lib/claude-run.mjs'
+import { runClaude, parseResult, launchRoots } from './lib/claude-run.mjs'
 import { resumeGate } from './lib/resume-gate.mjs'
 import { printStatus, doRearm } from './lib/resume-report.mjs'
 import { scanSessions } from './lib/sessions.mjs'
@@ -203,7 +203,16 @@ for (const target of items) {
   const prompt = buildPrompt(target, v.project, { limitStopped: v.limitStopped, interrupted: v.interrupted })
 
   if (DRY) {
+    /**
+     * 🔴 뿌리도 함께 보여준다 — **돈을 쓰지 않고** 확인할 수 있는 유일한 자리다.
+     *   실측(2026-09-28): 잘못된 뿌리로 띄워 $18.27 을 쓰고 디스크 변경 0건으로 끝난 뒤,
+     *   그것을 미리 볼 방법이 없었다는 것이 드러났다. 지시문은 "이 파일을 고쳐라"라고
+     *   말하는데 그 파일이 cwd 밖이면 이 두 줄만 봐도 알 수 있다.
+     */
+    const roots = launchRoots(target, v.project)
     console.log(`✅ ${short} 재개 가능 — ${v.why}`)
+    console.log(`  cwd ${roots.cwd}`)
+    console.log(`  --add-dir ${roots.addDirs.join(' · ') || '(없음)'}`)
     console.log('─── 넘길 지시문 ───')
     console.log(prompt)
     console.log('───────────────────')
@@ -219,17 +228,25 @@ for (const target of items) {
   }
 
   try {
-    const cwd = target.runCwd || v.project.repo
+    /**
+     * 🔴 뿌리는 **추적기를 소유한 저장소**다(launchRoots). 예전에는 등록부의 `runCwd` 를
+     *   먼저 썼는데, 그러면 지시문이 가리키는 파일이 작업 폴더 밖에 있어 쓰기가 전부
+     *   승인 대기로 떨어졌다 — 실측: `ok · 턴 22 · 권한거부 11건`, 디스크 변경 0건.
+     *   쓸 수 있어야 하는 곳(세션이 일해 온 폴더)은 --add-dir 로 함께 넘어간다.
+     */
+    const { cwd, addDirs } = launchRoots(target, v.project)
     log(v.P, [
       '', '═'.repeat(70),
       `${localStamp()} · RUN 시작 · ${v.why}`,
       `  --resume ${target.sessionId} · 권한 ${cfg.permissionMode} · 타임아웃 ${cfg.timeoutMin}분`,
       `  cwd ${cwd}`,
+      // 무엇을 쓸 수 있었는지 남긴다 — 권한거부가 나면 여기부터 본다
+      addDirs.length ? `  --add-dir ${addDirs.join(' · ')}` : '  --add-dir (없음)',
     ].join('\n'))
     console.log(`▶ ${short} 재개 — ${v.why}`)
 
     const r = await runClaude({
-      sessionId: target.sessionId, cwd, prompt, cfg, addDirs: cfg.addDirs,
+      sessionId: target.sessionId, cwd, prompt, cfg, addDirs,
     })
     const p = parseResult(r.stdout)
     /**

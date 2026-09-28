@@ -9,6 +9,7 @@
     },
     "_resumeNotes": {
       "enabled": "저장소 단위 잠금이다. false 면 UI 에서 재시작을 켜 두어도 띄우지 않는다 — --force 로도 못 뚫는다. 새 저장소는 기본으로 꺼져 있고, 알고 켜는 것만 돈다.",
+      "addDirs": "이 저장소(repo) **밖에** 있는데 무인 재개가 써야 하는 폴더만 적는다. repo 자체는 적지 않아도 된다 — 재개는 repo 에서 띄운다(lib/claude-run.mjs 의 launchRoots). 세션이 일해 온 폴더(runCwd·mainCwd)도 자동으로 붙으므로 여기 다시 적을 필요가 없다. 실측(2026-09-28): cwd 를 runCwd 로 잡던 시절에는 이 값이 cwd 와 같은 폴더를 가리켜, 정작 추적기가 있는 repo 가 쓰기 금지가 됐다 — 턴 22 · $18.27 를 쓰고 디스크 변경 0건.",
       "permissionMode": "acceptEdits = 파일 편집은 허용, 그 밖의 권한은 거부된다. 완전 무인 진행은 bypassPermissions 가 필요하지만 그때는 무엇이든 실행할 수 있게 된다 — 올릴 때는 그 뜻을 알고 올려라.",
       "maxCostUSDPerDay": "claude -p 1회는 아무 일 없어도 최소 ~$0.21 든다(캐시 생성 21k 토큰, 실측). 횟수 상한만으로는 지출을 못 막으므로 비용 상한을 함께 둔다.",
       "quietHours": "null 이면 끈다. {\"from\":\"23:30\",\"to\":\"07:00\"} 처럼 자정을 넘길 수 있다."

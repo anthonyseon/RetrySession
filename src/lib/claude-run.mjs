@@ -8,6 +8,53 @@
  */
 import { spawn } from 'node:child_process'
 import { claudeBin, needsShell, accountEnv } from './cli.mjs'
+import { pathKey } from './config.mjs'
+
+/**
+ * **어디서 띄우고, 어디까지 쓸 수 있게 하나.** 순수 함수.
+ *
+ * 🔴 실측 결함 (2026-09-28) — 첫 성공 재개가 **아무것도 남기지 못했다.**
+ *   `RUN 끝 · ok · 370초 · $18.271 · 턴 22 · 권한거부 11건` 인데 디스크에 변경 0건이었다.
+ *   거부 사유를 읽어 보니 권한 모드가 아니라 **경로**였다:
+ *     `Claude requested permissions to write to …\Description\_plan\_resume\07-실행추적.json`
+ *   그때의 값: cwd = `…\EasyAI.Platform`(등록부의 runCwd) · --add-dir = `…\EasyAI.Platform`
+ *   (설정의 addDirs) · 정작 추적기와 대상 파일은 `…\Description` 아래.
+ *   **같은 폴더를 두 번 허용하고, 일할 폴더는 한 번도 허용하지 않았다.**
+ *   `acceptEdits` 는 허용된 작업 폴더 안의 편집만 자동 승인하므로 전부 승인 대기가 됐다.
+ *
+ * 🔴 그래서 뿌리를 **추적기를 소유한 저장소**로 맞춘다.
+ *   지시문이 말하는 추적기 경로가 `project.repo` 기준이므로, 거기서 띄우지 않으면
+ *   "이 파일을 고쳐라"와 "그 파일을 못 고친다"가 같은 실행 안에서 동시에 참이 된다.
+ *
+ * 🔴 그러면서 세션이 실제로 일해 온 폴더를 잃지 않는다 — `runCwd`·`mainCwd` 를
+ *   `--add-dir` 로 함께 넘긴다. 이 둘은 그 세션의 트랜스크립트에서 관측된 값이고,
+ *   무인 재개가 쓸 수 있어야 하는 곳은 정확히 **그 세션이 쓰고 있던 곳**이다.
+ *   설정의 `addDirs` 도 그대로 더한다(사람이 일부러 넓혀 둔 것이다).
+ *   cwd 와 같은 폴더는 버린다 — 실측에서 본 그 쓸모없는 중복이 그것이다.
+ *
+ * @returns {{cwd:string, addDirs:string[]}}
+ */
+export function launchRoots(target, project) {
+  const t = target || {}, p = project || {}
+  const cwd = p.repo || t.runCwd || t.mainCwd || null
+  /**
+   * 🔴 같은 폴더인지 볼 때는 **대소문자를 무시한다.** `pathKey` 는 드라이브 문자만
+   *   대문자로 맞추고 나머지 대소문자는 그대로 두므로, Windows 에서 같은 폴더인
+   *   `c:/repo/A` 와 `C:/REPO/a` 가 다른 키가 된다 — `isInside` 가 쓰는 방식과 같게 맞춘다.
+   *   틀리면 같은 폴더를 두 번 넘기게 되고, 그것이 이번 사고의 겉모습이었다.
+   */
+  const key = (x) => pathKey(x).toLowerCase()
+  const seen = new Set(cwd ? [key(cwd)] : [])
+  const addDirs = []
+  for (const d of [t.runCwd, t.mainCwd, ...(p.resume?.addDirs || [])]) {
+    if (!d) continue
+    const k = key(d)
+    if (seen.has(k)) continue
+    seen.add(k)
+    addDirs.push(d)
+  }
+  return { cwd, addDirs }
+}
 
 /**
  * 🔴 셸(cmd.exe)을 거치지 않는다.
