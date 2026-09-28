@@ -38,7 +38,7 @@ import { localStamp } from '../lib/stamp.mjs'
 function freshVerdict(sessionId) {
   try {
     const out = execFileSync(process.execPath,
-      [join(RS_HOME, 'src', 'resume.mjs'), '--dry-run', '--force', '--session', sessionId],
+      [join(RS_HOME, 'src', 'resume.mjs'), '--dry-run', '--now', '--session', sessionId],
       { cwd: RS_HOME, encoding: 'utf8', timeout: 60_000, windowsHide: true })
     // 첫 줄이 판정이다: `✅ <id> 재개 가능 — 이유` / `⛔ <id> 건너뜀 — 이유`
     const line = out.split('\n').map((l) => l.trim()).find((l) => l.startsWith('✅') || l.startsWith('⛔')) || ''
@@ -58,15 +58,17 @@ function freshVerdict(sessionId) {
  * 🔴 떼어내서 띄운다(detached). 재시작은 최대 30분 돌 수 있으므로 HTTP 응답을
  *   붙잡고 있으면 화면이 멈춘 것처럼 보인다. 진행은 로그로 본다.
  *
- * 🔴 **화면의 '지금 재시작 실행' 은 `--force` 로 띄운다** (사용자 지시 2026-09-28).
- *   사람이 단추를 누른 것은 «지금 돌려라»는 의지 표시다. 예약 회차를 위한 아껴 쓰기
- *   (하루 횟수·최소 간격·연속실패·조용한 시간)를 그 의지보다 앞세울 이유가 없다 —
- *   그래서 force 가 그것들을 건너뛰고, **재개지시가 있으면 그것으로 띄운다.**
+ * 🔴 **화면의 '지금 재시작 실행' 은 `--now` 로 띄운다** (사용자 결정 2026-09-28).
+ *   사람이 단추를 누른 것은 «지금 돌려라»는 의지 표시이므로 **재시작 조건과 상관없이**
+ *   재개지시를 실행한다. `--force` 보다 세다 — force 는 «기다리면 풀리는 것»만 건너뛰고
+ *   일하는 세션·제한 중은 지켰지만, `--now` 는 판정을 아예 부르지 않는다.
  *
- *   🔴 그래도 뚫리지 않는 것이 있다(force 계약, `test/resume-force.test.mjs`):
- *     **일하는 중**(도구 대기·답 대기) · **제한 중** · 활동 시각 모름 · 저장소 잠금 ·
- *     이어갈 지점 없음. 사람의 의지로도 **사람이 쓰는 대화에는 끼어들지 않는다** —
- *     단추를 누른 사람과 그 세션을 쓰는 사람이 같다는 보장이 없고, 제한 중에는 어차피 실패한다.
+ *   🔴 대가: **다른 사람이 쓰고 있는 세션에도 끼어들 수 있다.** 그래서 확인 창이 누르기
+ *     전에 그 사실을 말한다(detail.js). 예약 회차는 이 플래그를 절대 쓰지 않는다.
+ *
+ *   🔴 그래도 남는 두 가지 — 조건이 아니라 **깨지면 복구가 안 되는 것**이다:
+ *     ① 세션별 락·프로세스 단일 실행(같은 세션에 둘이 쓰면 서로를 덮어쓴다)
+ *     ② 띄울 자리(작업 디렉터리)와 보낼 말(재개지시·추적기·잘린 자리)
  */
 export function runNow(kind, sessionId) {
   /**
@@ -94,7 +96,7 @@ export function runNow(kind, sessionId) {
 
 function spawnResume(sessionId) {
   const child = spawn(process.execPath,
-    [join(RS_HOME, 'src', 'resume.mjs'), '--force', '--session', sessionId],
+    [join(RS_HOME, 'src', 'resume.mjs'), '--now', '--session', sessionId],
     { cwd: RS_HOME, detached: true, stdio: 'ignore', windowsHide: true })
   child.unref()
   return child

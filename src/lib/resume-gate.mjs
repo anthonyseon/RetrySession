@@ -24,6 +24,44 @@ export const GATE = {
 }
 
 /**
+ * `nowGate` — 화면의 **`지금 재시작 실행`**(`--now`) 이 쓰는 판정.
+ *
+ * 🔴 조건을 하나도 보지 않는다 (사용자 결정 2026-09-28: «지금 재시작 실행은 사용자의
+ *   의지로 실행하는 것이기 때문에 재시작 조건과 상관없이 강제로 재개지시를 실행한다»).
+ *   `--force` 와 다르다 — force 는 «기다리면 풀리는 것»만 건너뛰고 일하는 세션·제한 중·
+ *   모르는 상태는 지켰다. 여기서는 그 셋도 건너뛴다.
+ *
+ *   🔴 대가: **다른 사람이 쓰고 있는 세션에도 끼어든다.** 그래서 확인 창이 누르기 전에
+ *     그 사실을 말한다(`src/ui/detail.js`). 예약 회차는 이 길로 오지 않는다.
+ *
+ * 그래도 둘은 본다 — «조건»이 아니라 **없으면 띄울 수가 없는 것**이다:
+ *   ① 띄울 자리(작업 디렉터리)  ② 보낼 말(재개지시·추적기·잘린 자리)
+ *
+ * 🔴 재개지시를 **맨 앞에** 둔다 — `buildPrompt` 가 실제로 그 순서로 고르기 때문이다
+ *   (`lib/prompt.mjs`: `target.resumePrompt` 가 있으면 그것을 보낸다). 여기서 다른 순서로
+ *   이름을 붙이면 로그가 "doing 07" 이라 말하고 실제로는 재개지시를 보내게 된다.
+ */
+export function nowGate(input) {
+  const { target = {}, project = null, session = null, tracker = null } = input || {}
+  if (!project) {
+    return { go: false, stage: GATE.repo, point: null, why: '작업 디렉터리를 알 수 없다 — 재개를 띄울 자리가 없다' }
+  }
+  const tr = tracker?.exists && !tracker.error ? tracker : null
+  const point = target.resumePrompt ? '재개지시'
+    : tr?.doing ? `doing ${tr.doing.id}`
+      : tr?.nextTodo ? `todo ${tr.nextTodo.id}`
+        : session?.stoppedByLimit ? '제한으로 잘린 지점'
+          : session?.stoppedByInterrupt ? '끊긴 지점' : null
+  if (!point) {
+    return {
+      go: false, stage: GATE.point, point: null,
+      why: '보낼 지시가 없다 — 설정 탭에 재개지시를 넣어라 (강제 실행도 무엇을 보낼지는 알아야 한다)',
+    }
+  }
+  return { go: true, stage: null, point, why: `사람이 지금 띄웠다 — 재시작 조건을 건너뛴다 (재개 지점 ${point})` }
+}
+
+/**
  * @param target   등록부 항목 {restart, resumePrompt, …}
  * @param project  resolveRepo 로 찾은 저장소 (없으면 null)
  * @param state    loadRunState 결과

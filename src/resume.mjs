@@ -30,6 +30,7 @@
  *   node src/resume.mjs --status     예산·마지막 실행 상태
  *   node src/resume.mjs --rearm      회로 차단·연속실패 해제
  *   node src/resume.mjs --force      기다리면 풀리는 것만 건너뛴다 — 아래 계약 참고
+ *   node src/resume.mjs --now        판정을 건너뛰고 지금 띄운다 (화면의 지금 재시작 실행)
  */
 import { localStamp } from './lib/stamp.mjs'
 import { appendLine, appendOrFold } from './lib/io.mjs'
@@ -42,7 +43,7 @@ import {
 import { classifyRun } from './lib/classify.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath, isSessionId } from './lib/targets.mjs'
 import { runClaude, parseResult, launchRoots } from './lib/claude-run.mjs'
-import { resumeGate } from './lib/resume-gate.mjs'
+import { resumeGate, nowGate } from './lib/resume-gate.mjs'
 import { printStatus, doRearm } from './lib/resume-report.mjs'
 import { scanSessions } from './lib/sessions.mjs'
 import { singleInstance } from './lib/single.mjs'
@@ -51,6 +52,23 @@ const argv = process.argv.slice(2)
 const flag = (n) => argv.includes(n)
 const opt = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : null }
 const DRY = flag('--dry-run'), FORCE = flag('--force')
+
+/**
+ * `--now` — **판정을 건너뛰고 지금 띄운다.** 화면의 `지금 재시작 실행` 이 이것으로 부른다.
+ *
+ * 🔴 사용자 결정 (2026-09-28): 그 단추는 사람의 의지로 누르는 것이니 **재시작 조건과
+ *   상관없이** 재개지시를 실행한다. `--force` 와 다르다 — force 는 «기다리면 풀리는 것»만
+ *   건너뛰고 일하는 세션·제한 중은 지켰다. `--now` 는 그 둘까지 건너뛴다.
+ *
+ * 🔴 대가를 분명히 적어 둔다: **다른 사람이 쓰고 있는 세션에도 끼어들 수 있다.**
+ *   그래서 이 플래그는 사람이 단추를 누른 경로에서만 쓰고, 예약 회차는 절대 쓰지 않는다.
+ *   확인 창이 그 사실을 누르기 전에 말한다(src/ui/detail.js).
+ *
+ * 🔴 그래도 남기는 두 가지 — 이것들은 «조건»이 아니라 **깨지면 복구가 안 되는 것**이다:
+ *   ① 세션별 락·프로세스 단일 실행 — 같은 세션에 둘이 동시에 쓰면 서로를 덮어쓴다.
+ *   ② 띄울 자리와 보낼 말 — 작업 디렉터리를 모르거나 보낼 지시가 없으면 띄울 수 없다.
+ */
+const NOW = flag('--now')
 
 const log = (P, line) => { try { appendLine(P.resumeLogPath, line) } catch { /* 로그 실패로 재개를 막지 않는다 */ } }
 
@@ -113,11 +131,23 @@ function verdict(target, ctx) {
    *   "사람이 그 세션을 쓰고 있다"가 아니었고, 그 오해가 560회 연속 건너뜀을 만들었다.
    *   판정은 세션 집계(미완결 도구·마지막 차례·조용한 시간)로 한다 — resume-gate 참고.
    */
+  const common = { P, project, state, limitStopped: !!s?.stoppedByLimit, interrupted: !!s?.stoppedByInterrupt }
+
+  const tracker = tp ? { exists: true, ...readTracker(tp) } : { exists: false }
+
+  /**
+   * 🔴 `--now` 는 **재시작 조건을 하나도 보지 않는다.** 사람이 단추를 눌렀기 때문이다.
+   *   그 판정도 여기서 짜지 않고 `nowGate` 한 곳에 둔다 — 조건을 보지 않는다는 것이
+   *   «판정이 없다»는 뜻은 아니다(띄울 자리·보낼 말은 여전히 본다). 계약은
+   *   `test/resume-now.test.mjs` 가 못박는다.
+   */
+
+  if (NOW) return { ...nowGate({ target, project, session: s, tracker }), ...common }
+
   const g = resumeGate({
-    target, project, state, session: s, quota: ctx.quota, force: FORCE,
-    tracker: tp ? { exists: true, ...readTracker(tp) } : { exists: false },
+    target, project, state, session: s, quota: ctx.quota, force: FORCE, tracker,
   })
-  return { ...g, P, project, state, limitStopped: !!s?.stoppedByLimit, interrupted: !!s?.stoppedByInterrupt }
+  return { ...g, ...common }
 }
 
 /* ── 부속 명령 ───────────────────────────────────────────────── */
@@ -232,6 +262,7 @@ for (const target of items) {
      *   락을 잡은 **뒤에** 다시 본다 — 락 밖에서 보면 그 사이 다른 재개가 들어올 수 있다.
      *   판정은 같은 함수를 다시 부른다(규칙을 두 벌 만들지 않는다). 뒤집혔으면 띄우지
      *   않고 이유를 남긴다 — 사람이 쓰는 대화에 끼어들지 않는 것이 예산보다 먼저다.
+     *   (--now 면 판정을 부르지 않으므로 여기서도 «띄울 자리·보낼 말» 만 다시 본다.)
      */
     refreshCtx(ctx)
     const again = verdict(target, ctx)

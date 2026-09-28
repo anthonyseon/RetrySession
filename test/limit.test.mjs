@@ -151,8 +151,10 @@ const resumeSrc = resumeSource.split('\n')
  *   규칙을 두 벌 만들면 화면과 실제가 다른 말을 하게 된다(실제로 그랬다).
  */
 test('🔴 재개가 공용 판정을 쓴다 (자기만의 규칙을 다시 만들지 않는다)', () => {
-  assert.match(resumeSrc, /import \{ resumeGate \} from '\.\/lib\/resume-gate\.mjs'/)
+  // `--now` 의 판정(nowGate)도 같은 모듈에 있다 — 조건을 건너뛰는 길도 한 곳에 둔다
+  assert.match(resumeSrc, /import \{ resumeGate, nowGate \} from '\.\/lib\/resume-gate\.mjs'/)
   assert.match(resumeSrc, /const g = resumeGate\(\{/)
+  assert.match(resumeSrc, /nowGate\(\{/, '--now 판정도 불러 써야 한다 (여기서 다시 짜면 갈린다)')
   assert.ok(!/if \(limitInfo\.limited\)/.test(resumeSrc), '제한 판정을 여기서 또 하면 안 된다')
 })
 

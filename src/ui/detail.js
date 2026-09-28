@@ -220,13 +220,15 @@ function drawDetail() {
   b1.addEventListener('click', () => actions.post('/api/run', { kind: 'heartbeat' }).then(() => setTimeout(actions.loadDetail, 2500)))
   const b2 = el('button', 'sm', '지금 재시작 실행')
   b2.addEventListener('click', async () => {
-    // 🔴 무엇을 건너뛰는지 **눌러 확인하기 전에** 말한다 — force 로 띄우기 때문이다
+    // 🔴 무엇을 건너뛰는지 **누르기 전에** 말한다 — `--now` 는 조건을 전부 건너뛰므로
+    //   일하는 세션에도 끼어든다. 그 사실을 나중에 알리는 것은 알리지 않는 것과 같다.
     if (!confirm([
-      '이 세션을 지금 재시작합니다 (강제).',
+      '이 세션을 지금 재시작합니다 — 재시작 조건을 **전부** 건너뜁니다.',
       '',
-      '· 재개지시가 있으면 그것으로 띄웁니다',
-      '· 하루 횟수 · 최소 간격 · 연속실패 · 조용한 시간을 건너뜁니다',
-      '· 일하는 중이거나 사용량 제한 중이면 그래도 띄우지 않습니다',
+      '· 재개지시를 그대로 실행합니다',
+      '· 하루 횟수 · 최소 간격 · 연속실패 · 조용한 시간 · 사용량 제한을 건너뜁니다',
+      '· 🔴 그 세션이 일하는 중이어도 끼어듭니다 — 누군가 쓰고 있으면 지금 멈추세요',
+      '· 이미 재개가 돌고 있으면 띄우지 않습니다 (같은 세션에 둘이 쓰면 서로를 덮어씁니다)',
       '',
       '사람이 보지 않는 상태로 토큰을 쓰고 파일을 고칩니다. 계속할까요?',
     ].join('\n'))) return
@@ -245,7 +247,7 @@ function drawDetail() {
     const v = r && r.verdict
     if (v) {
       const same = seen ? (!!seen.go === !!v.go) : true
-      const head = v.go ? '강제 실행 — 최신 기준으로도 가능해 띄웠습니다' : '강제로도 돌지 않습니다'
+      const head = v.go ? '강제 실행 — 조건을 건너뛰고 띄웠습니다' : '띄우지 못했습니다'
       actions.say(`${head}: ${v.why}` + (same ? '' : ' · 🔴 화면이 보여주던 판정과 달랐습니다(화면을 새로 읽었습니다)'))
     } else if (r && r.error) {
       actions.say(`✖ ${r.error}`)
