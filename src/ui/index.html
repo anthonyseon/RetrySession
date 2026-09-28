@@ -54,9 +54,13 @@
   <section class="groups" id="tiles"></section>
 </div>
 
-<main>
-  <section class="panel">
-    <h2>세션 <span id="scount" class="badge off"><span class="ic">●</span>—</span>
+<main id="main">
+  <section class="panel" id="spanel">
+    <h2>
+      <!-- 🔴 접어도 옆의 "세션 n개" 는 남는다 — 접힌 것이 없는 것으로 보이면 안 된다 -->
+      <button type="button" class="foldbtn" id="btnSessFold"
+              aria-expanded="true" aria-controls="spanel" title="세션 영역 접기">▾</button>
+      세션 <span id="scount" class="badge off"><span class="ic">●</span>—</span>
       <span class="spacer"></span>
       <label class="filter">
         <input type="checkbox" id="onlyReg"> 등록된 것만
@@ -76,6 +80,11 @@
     <div id="folders" class="folders hide"></div>
     <div id="slist"></div>
   </section>
+
+  <!-- 너비 조절 손잡이. 드래그 · 좌우 화살표 · 더블클릭(기본값으로) 다 된다. -->
+  <div class="splitter" id="split" role="separator" aria-orientation="vertical" tabindex="0"
+       aria-label="세션과 상세의 너비 조절"
+       title="드래그해서 너비를 바꿉니다 (더블클릭: 기본값, ←/→: 24px, Shift+←/→: 80px)"></div>
 
   <section class="panel" id="detail">
     <h2 id="dtitle">상세 — 왼쪽에서 세션을 고르세요</h2>

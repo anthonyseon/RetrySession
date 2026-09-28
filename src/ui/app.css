@@ -236,10 +236,13 @@ pre.manual{
 
 /* ── 본문 2단 ──
    align-items:stretch 로 두 패널이 같은 높이를 갖고, 각자 안에서 스크롤한다. */
+/* 세션 | 손잡이 | 상세.
+   🔴 기본은 비율이다. 드래그하면 layout.js 가 첫 칸을 px 로 덮어쓴다 —
+     저장된 값이 없으면 inline 스타일을 비워 이 비율로 돌아온다. */
 main{
   flex:1 1 auto; min-height:0;
-  display:grid; grid-template-columns:minmax(420px,1.05fr) minmax(460px,1.35fr);
-  gap:12px; padding:0 16px 16px; align-items:stretch;
+  display:grid; grid-template-columns:minmax(320px,1.05fr) 6px minmax(420px,1.35fr);
+  gap:0 6px; padding:0 16px 16px; align-items:stretch;
 }
 .panel{
   background:var(--surface); border:1px solid var(--grid); border-radius:9px;
@@ -263,9 +266,19 @@ main{
    쓸 수 없으므로, 페이지 스크롤로 되돌리고 패널에는 넉넉한 상한만 준다. */
 @media (max-width:1100px){
   body{overflow:auto}
-  main{grid-template-columns:1fr; align-items:start}
+  /* 🔴 !important — 드래그가 남긴 inline 격자를 좁은 화면에서는 무시해야 한다.
+       안 그러면 저장된 px 때문에 한 칸이 화면을 넘어가 상세가 사라진다. */
+  main{grid-template-columns:1fr !important; gap:12px; align-items:start}
   .top, .alerts-wrap{max-height:none; overflow:visible}
   #slist, #dscroll{max-height:70vh}
+  /* 세로로 쌓인 뒤에는 손잡이가 아무것도 나누지 않는다 */
+  .splitter{display:none}
+  /* 접힌 세로 띠도 여기서는 뜻이 없다 — 펴 둔다 */
+  main.sessfold #spanel > h2{writing-mode:horizontal-tb; height:auto; border-right:0}
+  main.sessfold #spanel .actions,
+  main.sessfold #spanel #folders,
+  main.sessfold #spanel #slist{display:block}
+  main.sessfold #spanel > h2 .filter{display:inline-flex}
 }
 
 /* ── 선택 작업 바 ── */

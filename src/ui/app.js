@@ -18,6 +18,7 @@ import { drawAlerts, drawTiles } from './summary.js'
 import { drawFolders, items, syncSelection } from './list.js'
 import { redrawDetail } from './detail.js'
 import { openSettings, closeSettings, drawSettings, isSettingsOpen, pcAction } from './setup.js'
+import { initLayout } from './layout.js'
 
 
 /* ── 통신 ────────────────────────────────────────────────────── */
@@ -310,6 +311,10 @@ $('#onlyReg').addEventListener('change', (e) => { S.onlyRegistered = e.target.ch
 Object.assign(actions, { draw, loadStatus, loadDetail, post, meta })
 
 /* ── 시작 ────────────────────────────────────────────────────── */
+
+// 너비 조절 손잡이와 세션 영역 접기. 저장해 둔 배치를 먼저 적용한다 —
+// 첫 그리기 뒤에 배치가 튀면 사람은 화면이 덜컹거린다고 느낀다.
+initLayout()
 /**
  * 🔴 폴링은 **겹치지 않게** 한다.
  *

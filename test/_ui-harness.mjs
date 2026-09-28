@@ -24,6 +24,13 @@ class FakeNode {
     // 스크롤 관련 값. 실제 브라우저에서는 레이아웃이 정하지만 시험에서는 직접 준다.
     this.scrollTop = 0; this.scrollHeight = 0; this.clientHeight = 0
     /**
+     * 🔴 너비와 위치도 준다. 배치(스플리터)는 **그릇 너비를 알아야** 자를 수 있고,
+     *   모르면 잘못 잘라 한쪽이 사라진다. 시험이 그 경계를 짚으려면 여기 있어야 한다.
+     *   실제 브라우저에서는 레이아웃이 정하지만 시험에서는 직접 준다.
+     */
+    this.clientWidth = 0
+    this._rect = { left: 0, top: 0, width: 0, height: 0 }
+    /**
      * 🔴 dataset·style·value 가 없으면 **그려보는 시험 자체가 불가능하다.**
      *   setup.js 는 `sel.dataset.key = …` 와 `sm.style.cursor = …` 를 쓴다.
      *   없는 것에 대입하면 TypeError 이고, 브라우저에서는 그 순간 모달이 빈 채로 뜬다.
@@ -38,6 +45,7 @@ class FakeNode {
   set title(v) { this.attrs.title = v }
   get title() { return this.attrs.title }
   append(...xs) { for (const x of xs) this.children.push(typeof x === 'string' ? new label(x) : x) }
+  getBoundingClientRect() { return { ...this._rect } }
   setAttribute(k, v) { this.attrs[k] = String(v) }
   getAttribute(k) { return this.attrs[k] ?? null }
   addEventListener(kind, fn) { (this._on ||= {})[kind] = fn }
