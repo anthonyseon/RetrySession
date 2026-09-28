@@ -68,6 +68,23 @@ export function runClaude({ sessionId, cwd, prompt, cfg, addDirs }) {
     const startedText = Date.now()
     const args = ['--resume', sessionId, '-p', '--output-format', 'json',
       '--permission-mode', cfg.permissionMode || 'acceptEdits']
+    /**
+     * 🔴 **무인 실행은 `claude --dangerously-skip-permissions` 와 같은 권한으로 돈다**
+     *   (사용자 결정 2026-09-28). `--permission-mode bypassPermissions` 만으로는 부족하다 —
+     *   그 모드에서도 헤드리스 실행이 승인 요청을 만들면 사람이 없어 곧 거부가 된다.
+     *
+     *   왜 그렇게 정했나 (실측): `acceptEdits` 로 두 회차를 돌렸더니 둘 다 결과가 없었다.
+     *     13:48 · ok · $18.271 · 권한거부 11건 → 디스크 변경 0건 (Write·Edit·git·node)
+     *     15:11 · ok · $15.814 · 권한거부  7건 → 디스크 변경 0건 (node 스크립트·리다이렉션)
+     *   그 저장소는 편집을 자기 `.mjs` 스크립트로만 하고 게이트 15종을 돌리도록 규약이
+     *   세워져 있어서, node 를 못 쓰면 **일을 시작할 수조차 없다.** 돈만 쓰고 끝났다.
+     *
+     *   🔴 대가를 분명히 적어 둔다: 이 모드에서 무인 재개는 **무엇이든 실행할 수 있다.**
+     *   그래서 남은 방어선은 넷이다 — 재개지시의 안전 규칙 두 줄(추측 금지·되돌리기 어려운
+     *   작업 금지) · 하루 횟수 상한 · 회차 타임아웃 · "일하는 중이면 안 건드린다" 판정.
+     *   되돌리려면 이 블록을 지우는 것이 아니라 설정의 permissionMode 를 내려라.
+     */
+    if ((cfg.permissionMode || '') === 'bypassPermissions') args.push('--dangerously-skip-permissions')
     for (const d of addDirs || []) args.push('--add-dir', d)
 
     const exe = claudeBin(cfg.claudeBin)
