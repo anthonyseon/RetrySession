@@ -71,8 +71,8 @@ export function resumeGate({ target, project, state = {}, session, running, trac
    *   pid 생존보다 이것이 "사람이 붙어 있나"를 더 정확히 말해 준다.
    *
    *   그리고 이 예외는 다른 관문을 열지 않는다 — 제한이 아직 안 풀렸으면 아래 `limited`
-   *   가 막고, 방금까지 활동이 있었으면 `active` 가 막는다(기본 10분: 제한 알림 뒤로
-   *   10분은 조용해야 한다). **`stoppedByLimit` 이 아닌 이유로는 살아 있는 세션에 들어가지
+   *   가 막고, 방금까지 활동이 있었으면 `active` 가 막는다(기본 3분: 제한 알림 뒤로
+   *   3분은 조용해야 한다). **`stoppedByLimit` 이 아닌 이유로는 살아 있는 세션에 들어가지
    *   않는다** — 끊김·재개지시·추적기만으로는 여전히 `running` 에서 멈춘다.
    */
   if (running?.running) {
@@ -93,7 +93,12 @@ export function resumeGate({ target, project, state = {}, session, running, trac
   if (limitInfo.limited) return no(GATE.limited, limitInfo.why)
 
   if (!force) {
-    const limit = cfg.sessionActiveMin ?? 10
+    /**
+     * 조용해야 하는 시간. 정본은 `config/projects.json` 의 `defaults.resume.sessionActiveMin`
+     * 이고 여기 값은 설정을 못 읽었을 때의 **같은 기본값**이다 — 둘이 갈리면 설정을 고쳐도
+     * 어떤 경로에서는 옛 값으로 도니, `test/docs.test.mjs` 가 둘을 대조한다.
+     */
+    const limit = cfg.sessionActiveMin ?? 3
     if (session.activeMin !== null && session.activeMin !== undefined && session.activeMin < limit) {
       return no(GATE.active, `방금까지 활동이 있었다 (${session.activeMin}분 전, 한계 ${limit}분) — 아직 사람이 붙어 있을 수 있다`)
     }

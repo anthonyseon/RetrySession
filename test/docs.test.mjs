@@ -85,6 +85,33 @@ test('🔴 설명서의 상세 탭 이름이 화면의 탭과 같다', () => {
  *   그대로 찾기 때문이다.
  */
 /**
+ * 🔴 "몇 분 조용해야 하나"는 **네 곳**에 적혀 있다 — 설정·판정의 기본값·설명서·화면.
+ *
+ *   설정 하나를 고치면 나머지 셋이 뒤처지고, 그러면 화면은 «10분 이상 조용하다» 라고
+ *   적어 둔 채 3분에 이어받는다. 숫자가 말과 다른 화면은 사람이 판단할 수 없게 만든다.
+ *   정본은 `config/projects.json` 의 `defaults.resume.sessionActiveMin` 이고,
+ *   나머지 셋이 그 숫자를 그대로 말하는지 기계가 잰다.
+ */
+test('🔴 "조용해야 하는 시간"이 설정·판정·설명서·화면에서 같은 숫자다', () => {
+  const cfg = JSON.parse(read('config/projects.json')).defaults.resume.sessionActiveMin
+  assert.equal(typeof cfg, 'number', '설정에 sessionActiveMin 이 없다')
+
+  // 판정의 기본값(설정을 못 읽었을 때)도 같아야 한다
+  const gate = read('src/lib/resume-gate.mjs')
+  const fallback = /cfg\.sessionActiveMin \?\? (\d+)/.exec(gate)
+  assert.ok(fallback, '판정에서 sessionActiveMin 기본값을 못 찾았다')
+  assert.equal(Number(fallback[1]), cfg, `판정 기본값 ${fallback[1]} ≠ 설정 ${cfg}`)
+
+  // 화면과 설명서가 같은 숫자를 말하는가
+  assert.match(read('src/ui/index.html'), new RegExp(`<b>${cfg}분 이상</b> 조용하다`),
+    `화면이 ${cfg}분이라고 말해야 한다`)
+  const manual = read('Manual.md')
+  assert.match(manual, new RegExp(`\\*\\*${cfg}분 이상\\*\\* 조용하다`), `설명서 §5-1 이 ${cfg}분이어야 한다`)
+  assert.match(manual, new RegExp(`활동이 있었다 \\(${cfg}분\\)`), `설명서의 막는 조건표도 ${cfg}분이어야 한다`)
+  assert.match(read('README.md'), new RegExp(`기본 ${cfg}분`), `README 가드 목록도 ${cfg}분이어야 한다`)
+})
+
+/**
  * 🔴 화면 맨 위의 "언제 이어받는가" 설명이 **판정과 같은 말**이어야 한다.
  *
  *   실측 (2026-09-28): 제한이 풀린 순간 이어받는 것이 이 도구의 목적인데 539회 연속
@@ -100,7 +127,7 @@ test('🔴 화면의 "언제 이어받는가" 설명이 판정과 같은 것을 
   for (const key of ['stoppedByLimit', 'sessionActiveMin', 'quietHours', 'budgetVerdict', 'limitState']) {
     assert.ok(gate.includes(key), `판정에 ${key} 가 없는데 화면이 그 조건을 설명한다`)
   }
-  assert.match(html, /sessionActiveMin/, '10분 조건의 설정 이름을 적어야 고칠 수 있다')
+  assert.match(html, /sessionActiveMin/, '조용해야 하는 시간의 설정 이름을 적어야 고칠 수 있다')
   assert.match(html, /재시작 시작/, '어느 단추로 켜는지 적어야 한다')
   // 설명서에도 같은 조건이 있어야 한다 (화면을 못 보고 읽는 사람이 있다)
   const manual = read('Manual.md')

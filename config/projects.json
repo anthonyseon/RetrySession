@@ -20,7 +20,7 @@
       "maxPerDay": 12,
       "maxCostUSDPerDay": 5,
       "timeoutMin": 30,
-      "sessionActiveMin": 10,
+      "sessionActiveMin": 3,
       "lockStaleMin": 60,
       "failStreakMax": 3,
       "quietHours": null,
