@@ -1,5 +1,8 @@
 <!DOCTYPE html>
-<html lang="ko" data-theme="dark">
+<!-- 🔴 기본은 **밝게** 다. `light` 를 명시했으므로 시스템이 어두운 테마여도 밝게 뜬다
+     (theme.css 의 prefers-color-scheme 블록은 `:not([data-theme="light"])` 라서 비켜난다).
+     단추 글자는 **반대**를 적어야 한다 — 지금이 밝으면 단추는 `어둡게` 다. -->
+<html lang="ko" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,7 +19,7 @@
   <span class="live"><i class="dot off" id="dot"></i><span id="freshness">연결 중…</span></span>
   <button type="button" class="sm" id="btnAuto">자동갱신 켬</button>
   <button type="button" class="sm" id="btnRefresh">지금 갱신</button>
-  <button type="button" class="sm" id="btnTheme">밝게</button>
+  <button type="button" class="sm" id="btnTheme">어둡게</button>
   <button type="button" class="sm" id="btnSetup" aria-haspopup="dialog">설정</button>
 </header>
 

@@ -160,6 +160,24 @@ test('🔴 고른 줄은 색 말고 **선**으로도 말한다', () => {
 
 /* ── 4. 값이 두 벌이 아니다 ─────────────────────────────────── */
 
+/**
+ * 🔴 기본 테마와 단추 글자는 **반대**여야 한다.
+ *
+ *   단추는 "누르면 무엇이 되나"를 적는다. 밝은 화면에서 단추가 `밝게` 라고 적혀 있으면
+ *   사람은 눌러 보고 나서야 뜻을 안다 — 이 저장소가 배지에서 이미 고친 부류다
+ *   (누른 것이 먹혔는지 화면이 말해야 한다). 기본값을 바꿀 때 둘 중 하나만 고치기 쉬워서
+ *   기계가 함께 잰다.
+ */
+test('🔴 기본 테마는 밝게이고, 단추는 반대(어둡게)를 가리킨다', () => {
+  const html = readFileSync(join(ROOT, 'src', 'ui', 'index.html'), 'utf8')
+  const m = /<html[^>]*data-theme="(light|dark)"/.exec(html)
+  assert.ok(m, 'html 에 data-theme 기본값이 없다')
+  assert.equal(m[1], 'light', '기본 테마는 밝게다')
+  const btn = /id="btnTheme"[^>]*>([^<]+)</.exec(html)
+  assert.ok(btn, '테마 단추를 못 찾았다')
+  assert.equal(btn[1].trim(), '어둡게', '밝은 화면에서는 단추가 어둡게를 제안해야 한다')
+})
+
 const darkBlocks = () => [...css.matchAll(
   /(?::root\[data-theme="dark"\]|:root:where\(:not\(\[data-theme="light"\]\)\))\s*\{([\s\S]*?)\n\s*\}/g)]
 
