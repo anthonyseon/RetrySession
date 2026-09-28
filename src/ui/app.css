@@ -284,6 +284,12 @@ main{
 .stitle{font-weight:500; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
 .smeta{color:var(--muted); font-size:11.5px; margin-top:4px; display:flex; gap:8px; flex-wrap:wrap}
 .smeta b{color:var(--ink-2); font-weight:500}
+/* 사용량 두 줄 — 앞의 오늘/누적 표가 같은 자리에서 시작해야 두 줄이 비교된다 */
+.uline{margin-top:2px}
+.uline .utag{
+  color:var(--muted); min-width:26px; font-variant-numeric:tabular-nums;
+  border-right:1px solid var(--grid); padding-right:6px; margin-right:-2px;
+}
 .sbadges{display:flex; gap:6px; margin-top:8px; flex-wrap:wrap}
 code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11.5px}
 .path{color:var(--muted); font-family:ui-monospace,Consolas,monospace; font-size:11.5px; word-break:break-all}

@@ -233,10 +233,16 @@ function drawTiles(d) {
       : (h.bypassSessions ? badge('warn', '▲', `권한 우회 ${h.bypassSessions}`) : null))
   box.append(g2)
 
-  /* ── 사용량 ── */
+  /* ── 사용량 ──
+     🔴 오늘과 누적을 **갈라서** 적는다. 누적만 보여주면 "지금 얼마나 쓰고 있나"를
+       알 수 없는데, 그것이 사람이 가장 자주 묻는 것이다. 오늘은 **로컬 자정** 기준이다
+       (UTC 로 세면 Asia/Seoul 에서 하루 중 9시간을 어제로 센다). */
+  const money = (v) => '$' + n(typeof v === 'number' ? v.toFixed(2) : v)
   const g3 = group('사용량')
+  line(g3, '오늘 토큰', compact(h.todayTokens || 0), `${h.todayKey || '오늘'} · 로컬 자정 기준`)
+  line(g3, '오늘 정가', money(h.todayUSD || 0), h.costNote)
   line(g3, '누적 토큰', compact(h.totalTokens), `${h.sessionCount}개 세션 합계`)
-  line(g3, '정가 환산', '$' + n(h.totalUSD.toFixed ? h.totalUSD.toFixed(2) : h.totalUSD), h.costNote)
+  line(g3, '누적 정가', money(h.totalUSD), h.costNote)
   box.append(g3)
 
   /* ── OS 트리거 ── */

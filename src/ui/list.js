@@ -103,6 +103,40 @@ const authBadge = (s) => {
 }
 
 
+/**
+ * 사용량을 **오늘(로컬)과 누적으로 갈라** 두 줄로 보여준다.
+ *
+ * 🔴 왜 한 줄에 `330M / 1.8G` 로 붙이지 않았나 — 목록은 열세 줄을 훑는 자리다.
+ *   슬래시로 붙이면 어느 쪽이 오늘인지 **기억해야** 읽히고, 네 항목이 모두 그 모양이면
+ *   한 줄이 숫자 벽이 된다. 줄을 가르고 앞에 `오늘`·`누적` 을 붙이면 읽는 순간 갈린다.
+ *
+ * 🔴 누적만 보면 "지금 얼마나 쓰고 있나"를 알 수 없고, 오늘만 보면 이 세션이 얼마짜리인지
+ *   알 수 없다. 둘 다 필요하므로 둘 다 적는다 — 하나를 고르는 문제가 아니다.
+ */
+function usageLines(s, add) {
+  const box = el('div', 'usage')
+  const row = (label, hint, u) => {
+    const line = el('div', 'smeta uline')
+    const tag = el('b', 'utag', label)
+    if (hint) tag.title = hint
+    line.append(tag)
+    add(line, '턴', `u${n(u.user)}/a${n(u.asst)}`)
+    add(line, '도구', n(u.tools))
+    add(line, '토큰', compact(u.tokens))
+    add(line, '정가', '$' + (u.usd || 0).toFixed(2))
+    box.append(line)
+  }
+  row('오늘', s.todayKey ? `${s.todayKey} (로컬 시간 기준 · 자정에 0 으로 돌아간다)` : null, {
+    user: s.todayUserMsgs || 0, asst: s.todayAssistantMsgs || 0,
+    tools: s.todayToolCalls || 0, tokens: s.todayTokenSum || 0, usd: s.todayCostUSD || 0,
+  })
+  row('누적', '이 세션이 시작된 뒤 전체', {
+    user: s.userMsgs, asst: s.assistantMsgs,
+    tools: s.toolCalls, tokens: s.tokenSum, usd: s.costUSD,
+  })
+  return box
+}
+
 /* ── 열린 폴더 ───────────────────────────────────────────────── */
 /**
  * VS Code 에 열린 폴더별 세션 수.
@@ -218,16 +252,14 @@ function items(d) {
     body.append(t)
 
     const m = el('div', 'smeta')
-    const add = (k, v) => { const w = el('span'); w.append(el('b', null, k + ' '), document.createTextNode(v)); m.append(w) }
-    add('id', s.shortId)
-    add('활동', s.activeMin != null ? `${s.activeMin}분 전` : '?')
-    add('턴', `u${s.userMsgs}/a${s.assistantMsgs}`)
-    add('도구', n(s.toolCalls))
-    add('토큰', compact(s.tokenSum))
-    add('정가', '$' + (s.costUSD || 0).toFixed(2))
-    if (s.gitBranch) add('브랜치', s.gitBranch)
-    if (s.ide) add('VS Code', `포트 ${s.ide.port}`)
+    const add = (box, k, v) => { const w = el('span'); w.append(el('b', null, k + ' '), document.createTextNode(v)); box.append(w) }
+    add(m, 'id', s.shortId)
+    add(m, '활동', s.activeMin != null ? `${s.activeMin}분 전` : '?')
+    if (s.gitBranch) add(m, '브랜치', s.gitBranch)
+    if (s.ide) add(m, 'VS Code', `포트 ${s.ide.port}`)
     body.append(m)
+    body.append(usageLines(s, add))
+    
     body.append(el('div', 'path', shortPath(s.mainCwd || s.runCwd)))
 
     const bb = el('div', 'sbadges')

@@ -30,7 +30,10 @@ const ID = 'aaaaaaaa-1111-2222-3333-444444444444'
 /** 재시작을 켠 세션 하나 — gate 만 갈아끼워 상황을 만든다 */
 const session = (gate, over = {}) => ({
   sessionId: ID, shortId: 'aaaaaaaa', title: '제목', runKnown: true, running: false,
-  activeMin: 60, userMsgs: 1, assistantMsgs: 1, toolCalls: 0, tokenSum: 0, costUSD: 0,
+  activeMin: 60, userMsgs: 9, assistantMsgs: 11, toolCalls: 7, tokenSum: 5_000_000, costUSD: 12.5,
+  // 오늘 몫은 누적보다 **작게** 둔다 — 두 줄이 정말 갈렸는지 시험이 보려면 달라야 한다
+  todayKey: '2026-09-28', todayUserMsgs: 2, todayAssistantMsgs: 3, todayToolCalls: 1,
+  todayTokenSum: 250_000, todayCostUSD: 1.25,
   mainCwd: 'c:\\x', runCwd: 'c:\\x', registered: true,
   watch: { on: false, verdict: null }, tracker: { exists: false },
   restart: {
@@ -56,6 +59,11 @@ const drawList = (s) => {
  */
 const badgeTitles = () => cell.get('slist')
   .querySelectorAll('span').filter((x) => String(x.className).startsWith('badge'))
+  .map((x) => x.getAttribute('title')).filter(Boolean)
+
+/** 사용량 줄 앞의 `오늘`·`누적` 표에 달린 hover 문구 (배지가 아니라 b.utag 다) */
+const tagTitles = () => cell.get('slist')
+  .querySelectorAll('b').filter((x) => String(x.className).includes('utag'))
   .map((x) => x.getAttribute('title')).filter(Boolean)
 
 const drawPanel = (s) => {
@@ -137,6 +145,76 @@ test('오늘 과부하로 막힌 횟수를 보여준다 (차단하지 않으므�
   const txt = drawList(s)
   assert.ok(txt.includes('과부하'), txt)
   assert.ok(txt.includes('4회'), '몇 번인지 말해야 한다')
+})
+
+/* ── 사용량: 오늘과 누적 ─────────────────────────────────────── */
+
+/**
+ * 🔴 사용량은 **오늘(로컬)과 누적을 갈라** 두 줄로 그린다.
+ *   누적만 보면 "지금 얼마나 쓰고 있나"를 알 수 없고, 오늘만 보면 이 세션이 얼마짜리인지
+ *   알 수 없다. 어느 쪽이 무엇인지도 화면이 말해야 한다 — 숫자 두 개를 슬래시로 붙이면
+ *   사람이 순서를 기억해야 읽힌다.
+ */
+test('🔴 사용량을 오늘·누적 두 줄로 그린다 (네 항목 모두)', () => {
+  const txt = drawList(session({ go: true, point: '재개지시', why: 'x' }))
+  assert.ok(txt.includes('오늘'), `오늘 줄이 없다: ${txt}`)
+  assert.ok(txt.includes('누적'), '누적 줄이 없다')
+  // 오늘: 턴 u2/a3 · 도구 1 · 토큰 250.0K · $1.25
+  assert.match(txt, /오늘.*u2\/a3.*1.*250\.0K.*\$1\.25/, `오늘 줄의 값이 틀렸다: ${txt}`)
+  // 누적: 턴 u9/a11 · 도구 7 · 토큰 5.0M · $12.50
+  assert.match(txt, /누적.*u9\/a11.*7.*5\.0M.*\$12\.50/, `누적 줄의 값이 틀렸다: ${txt}`)
+  assert.ok(txt.indexOf('오늘') < txt.indexOf('누적'), '오늘이 위에 온다 — 자주 보는 쪽이 먼저다')
+})
+
+test('🔴 오늘 줄이 어느 날짜인지 hover 로 남는다 (자정에 0 이 되는 이유)', () => {
+  drawList(session({ go: true, point: '재개지시', why: 'x' }))
+  assert.ok(badgeTitles().concat(tagTitles()).some((t) => /2026-09-28/.test(t)),
+    '오늘이 어느 날짜인지 볼 곳이 있어야 한다 — 자정을 넘긴 화면이 어제를 오늘이라 말하면 안 된다')
+})
+
+test('오늘 몫이 0 이어도 줄은 그린다 (줄이 사라지면 비교할 것이 없다)', () => {
+  const s = session({ go: true, point: '재개지시', why: 'x' })
+  s.todayUserMsgs = 0; s.todayAssistantMsgs = 0; s.todayToolCalls = 0
+  s.todayTokenSum = 0; s.todayCostUSD = 0
+  const txt = drawList(s)
+  assert.match(txt, /오늘.*u0\/a0.*\$0\.00/, `오늘 0 을 그려야 한다: ${txt}`)
+  assert.ok(txt.includes('누적'), '누적은 그대로 있어야 한다')
+})
+
+/**
+ * 🔴 상세의 **처리 상황** 탭도 오늘·누적을 갈라 보여준다. 목록은 훑는 자리이고
+ *   여기는 들여다보는 자리다 — 모델별로 **오늘 무엇을 태우고 있나**까지 나와야 한다.
+ */
+test('🔴 상세가 오늘·누적을 갈라 보여주고 모델별 표를 둘 그린다', () => {
+  const s = session({ go: true, point: '재개지시', why: 'x' })
+  s.byModel = { 'claude-opus-5': { input: 100, cacheWrite1h: 0, cacheWrite5m: 0, cacheRead: 0, output: 50, usd: 12.5 } }
+  s.todayByModel = { 'claude-opus-5': { input: 10, cacheWrite1h: 0, cacheWrite5m: 0, cacheRead: 0, output: 5, usd: 1.25 } }
+  S.state = { ...healthy(), sessions: [s] }
+  S.openSession = ID
+  S.tab = 'now'
+  S.detail = { ok: true, item: [], progress: { openTools: [], toolRunning: false }, activeMin: 60, bytes: 0, tailRead: 0, entryCount: 0, watchLog: [], restartLog: [], target: {} }
+  redrawDetail()
+  const txt = cell.get('tab-now').textContent
+  assert.match(txt, /오늘/, `오늘 줄이 없다: ${txt}`)
+  assert.match(txt, /누적/, '누적 줄이 없다')
+  assert.match(txt, /\$1\.25/, '오늘 정가가 없다')
+  assert.match(txt, /\$12\.50/, '누적 정가가 없다')
+  assert.match(txt, /모델별 — 오늘/, '오늘 모델표가 없다 — 무엇을 태우고 있나를 볼 곳이 없다')
+  assert.match(txt, /모델별 — 누적/, '누적 모델표가 없다')
+})
+
+test('오늘 쓴 모델이 없으면 오늘 표는 그리지 않는다 (빈 표는 읽을 것이 없다)', () => {
+  const s = session({ go: true, point: '재개지시', why: 'x' })
+  s.byModel = { 'claude-opus-5': { input: 100, cacheWrite1h: 0, cacheWrite5m: 0, cacheRead: 0, output: 50, usd: 12.5 } }
+  s.todayByModel = {}
+  S.state = { ...healthy(), sessions: [s] }
+  S.openSession = ID; S.tab = 'now'
+  S.detail = { ok: true, item: [], progress: { openTools: [], toolRunning: false }, activeMin: 60, bytes: 0, tailRead: 0, entryCount: 0, watchLog: [], restartLog: [], target: {} }
+  redrawDetail()
+  const txt = cell.get('tab-now').textContent
+  assert.ok(!txt.includes('모델별 — 오늘'), '오늘 쓴 것이 없으면 그 표는 없다')
+  assert.match(txt, /모델별 — 누적/, '누적 표는 남아야 한다')
+  assert.match(txt, /오늘/, '요약 줄의 오늘은 0 으로라도 남아야 한다')
 })
 
 /**

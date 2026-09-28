@@ -196,6 +196,19 @@ export function sessionView(s, registry, runMap, ideWins = [], procMap = new Map
     byModel: cost.byModel,
     bytes: s.bytes,
 
+    /**
+     * 오늘(로컬) 몫 — 누적과 **나란히** 보여준다.
+     * 스캔이 이미 계산해 뒀다(`lib/sessions.mjs` 의 오늘 통). 여기서 다시 세지 않는다 —
+     * 두 곳에서 세면 반드시 어긋나고, 어긋난 숫자는 둘 다 못 믿게 된다.
+     */
+    todayKey: s.todayKey || null,
+    todayTokenSum: s.todayTokenSum || 0,
+    todayCostUSD: s.todayCostUSD || 0,
+    todayByModel: s.todayByModel || {},
+    todayUserMsgs: s.todayUserMsgs || 0,
+    todayAssistantMsgs: s.todayAssistantMsgs || 0,
+    todayToolCalls: s.todayToolCalls || 0,
+
     // 이 세션이 어느 VS Code 창에서 열린 폴더에 있나 (살아있는 창만)
     ide: findWindow(runCwd, ideWins) || findWindow(pairCwd2, ideWins),
 

@@ -184,6 +184,8 @@ export const healthy = () => ({
   totals: {
     sessionCount: 7, running: 4, runKnown: true, watchOn: 2, restartOn: 0,
     foldersNoSession: 0, bypassSessions: 0, totalTokens: 1234567, totalUSD: 4.21, costNote: '정가 환산 참고값',
+    // 오늘 몫은 누적보다 **작아야** 한다 — 두 숫자가 갈렸는지 시험이 보려면 달라야 한다
+    todayTokens: 234567, todayUSD: 1.23, todayKey: '2026-09-28',
   },
 })
 

@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { emptyTotals, foldEntry, foldLines, isLimitNotice, isInterruptedNotice } from '../src/lib/sessions.mjs'
+import { emptyTotals, foldEntry, foldLines, isLimitNotice, isInterruptedNotice } from '../src/lib/session-fold.mjs'
 import { quotaView } from '../src/lib/status.mjs'
 
 const A = (o) => ({ type: 'assistant', timestamp: '2026-09-18T01:00:00.000Z', ...o })

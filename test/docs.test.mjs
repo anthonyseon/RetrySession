@@ -84,6 +84,22 @@ test('🔴 설명서의 상세 탭 이름이 화면의 탭과 같다', () => {
  *   **제목을 그대로** 비교한다(뜻이 같은 다른 말이 아니라). 사람은 화면에 뜬 문장을
  *   그대로 찾기 때문이다.
  */
+/**
+ * 🔴 사용량 줄의 표(`오늘`·`누적`)와 그 뜻이 설명서에 있어야 한다.
+ *   숫자 두 줄이 나란히 있는 화면은 **어느 쪽이 무엇인지** 문서가 말해주지 않으면
+ *   사람이 추측한다. 그리고 추측은 "오늘 얼마 썼나"를 반대로 읽는 쪽으로도 간다.
+ */
+test('🔴 사용량을 오늘·누적으로 가른 것이 설명서에 있다', () => {
+  const list = read('src/ui/list.js')
+  const manual = read('Manual.md')
+  assert.match(list, /row\('오늘'/, '목록이 오늘 줄을 그려야 한다')
+  assert.match(list, /row\('누적'/, '목록이 누적 줄을 그려야 한다')
+  for (const w of ['오늘', '누적', '로컬 자정']) {
+    assert.ok(manual.includes(w), `설명서가 '${w}' 를 설명하지 않는다`)
+  }
+  assert.match(manual, /이하/, '오늘 ≤ 누적 이라는 성질을 적어야 한다 — 뒤집혀 보이면 결함이다')
+})
+
 test('🔴 경보 제목이 설명서의 경보표에 있다', () => {
   const src = read('src/lib/alerts.mjs')
   const manual = read('Manual.md')

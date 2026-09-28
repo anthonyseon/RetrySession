@@ -98,6 +98,12 @@ export function fullStatus() {
   const acct = account()
   const totalTokens = sessions.reduce((a, s) => a + s.tokenSum, 0)
   const totalUSD = +sessions.reduce((a, s) => a + s.costUSD, 0).toFixed(2)
+  /**
+   * 오늘(로컬) 합계. 🔴 반올림은 **합한 뒤 한 번만** 한다 — 세션마다 반올림해서 더하면
+   *   세션 수만큼 오차가 쌓인다(CLAUDE.md 「금액을 다룰 때」).
+   */
+  const todayTokens = sessions.reduce((a, s) => a + (s.todayTokenSum || 0), 0)
+  const todayUSD = +sessions.reduce((a, s) => a + (s.todayCostUSD || 0), 0).toFixed(2)
   const locks = allLockState()
 
   const fallback = {
@@ -142,6 +148,10 @@ export function fullStatus() {
       bypassSessions: sessions.filter((s) => s.processes?.riskyPerm).length,
       totalTokens,
       totalUSD,
+      todayTokens,
+      todayUSD,
+      // 어느 날짜를 "오늘"로 셌는지 — 자정을 넘긴 화면이 어제 숫자를 오늘이라 말하지 않게
+      todayKey: dayKey(),
       // 🔴 구독(max)이면 정가 환산은 청구액이 아니다. 화면이 이 문장을 그대로 보여준다.
       costNote: acct.isSubscription
         ? `정가 환산 참고값 — 구독(${acct.subscriptionType})이므로 실제 청구액이 아니다`

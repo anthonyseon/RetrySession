@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { limitState, recordRun, budgetVerdict, emptyState } from '../src/lib/guard.mjs'
 import { isLimitFailure } from '../src/lib/classify.mjs'
-import { isLimitNotice, foldEntry, emptyTotals } from '../src/lib/sessions.mjs'
+import { isLimitNotice, foldEntry, emptyTotals } from '../src/lib/session-fold.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const minutes = 60_000

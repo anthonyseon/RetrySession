@@ -88,24 +88,47 @@ function drawDetail() {
     now.append(t2)
   }
 
-  /* 사용량 표 */
+  /* 사용량 — 오늘(로컬)과 누적을 갈라서 */
   if (Object.keys(s.byModel || {}).length) {
-    const tb = el('table', 'models')
-    const thead = el('thead'), hr = el('tr')
-    for (const h of ['모델', '입력', '캐시쓰기', '캐시읽기', '출력', '정가']) hr.append(el('th', null, h))
-    thead.append(hr); tb.append(thead)
-    const body = el('tbody')
-    for (const [id, t] of Object.entries(s.byModel)) {
-      const r = el('tr')
-      r.append(el('td', null, id + (t.estimated ? ' (추정)' : '')),
-        el('td', null, compact(t.input)), el('td', null, compact(t.cacheWrite1h + t.cacheWrite5m)),
-        el('td', null, compact(t.cacheRead)), el('td', null, compact(t.output)),
-        el('td', null, '$' + t.usd.toFixed(2)))
-      body.append(r)
+    const sum = el('dl', 'kv')
+    const kvSum = (k, u) => {
+      sum.append(el('dt', null, k))
+      sum.append(el('dd', null,
+        `턴 u${n(u.user)}/a${n(u.asst)} · 도구 ${n(u.tools)} · 토큰 ${compact(u.tokens)} · 정가 $${(u.usd || 0).toFixed(2)}`))
     }
-    tb.append(body)
+    kvSum(`오늘 (${s.todayKey || '로컬 자정 기준'})`, {
+      user: s.todayUserMsgs || 0, asst: s.todayAssistantMsgs || 0, tools: s.todayToolCalls || 0,
+      tokens: s.todayTokenSum || 0, usd: s.todayCostUSD || 0,
+    })
+    kvSum('누적', {
+      user: s.userMsgs, asst: s.assistantMsgs, tools: s.toolCalls,
+      tokens: s.tokenSum, usd: s.costUSD,
+    })
+    now.append(el('h3', null, '사용량'), sum)
     now.append(el('div', 'note', '토큰은 트랜스크립트 실측이고 금액은 정가 환산이다. ' + (S.state.totals.costNote || '')))
-    now.append(tb)
+
+    /** 모델별 표. 오늘 몫이 있으면 **같은 모양으로 두 번** 그린다 — 어느 모델을 오늘 태우고 있나 */
+    const modelTable = (byModel) => {
+      const tb = el('table', 'models')
+      const thead = el('thead'), hr = el('tr')
+      for (const h of ['모델', '입력', '캐시쓰기', '캐시읽기', '출력', '정가']) hr.append(el('th', null, h))
+      thead.append(hr); tb.append(thead)
+      const body = el('tbody')
+      for (const [id, t] of Object.entries(byModel)) {
+        const r = el('tr')
+        r.append(el('td', null, id + (t.estimated ? ' (추정)' : '')),
+          el('td', null, compact(t.input)), el('td', null, compact(t.cacheWrite1h + t.cacheWrite5m)),
+          el('td', null, compact(t.cacheRead)), el('td', null, compact(t.output)),
+          el('td', null, '$' + t.usd.toFixed(2)))
+        body.append(r)
+      }
+      tb.append(body)
+      return tb
+    }
+    if (Object.keys(s.todayByModel || {}).length) {
+      now.append(el('div', 'note', '모델별 — 오늘'), modelTable(s.todayByModel))
+    }
+    now.append(el('div', 'note', '모델별 — 누적'), modelTable(s.byModel))
   }
 
   /* 재시작 예산 */
