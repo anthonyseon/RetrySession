@@ -33,7 +33,14 @@ export const GATE = {
  * @param force    --force 로 부른 것인가 (조용한시간·활동·예산만 건너뛴다)
  * @returns {{go:boolean, why:string|null, point:string|null, stage:string|null}}
  */
-export function resumeGate({ target, project, state = {}, session, tracker = null, quota = null, force = false, now = Date.now() }) {
+export function resumeGate(input) {
+  /**
+   * 🔴 `= {}` 로는 부족하다 — 그건 `undefined` 만 막고 `null` 은 그대로 던진다.
+   *   판정이 던지면 그 회차가 죽고, 죽은 회차는 이유를 남기지 못한다.
+   */
+  const {
+    target, project, state = {}, session, tracker = null, quota = null, force = false, now = Date.now(),
+  } = input || {}
   const cfg = project?.resume || {}
   const no = (stage, why) => ({ go: false, why, stage, point: null })
 

@@ -12,6 +12,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { resumeGate, GATE } from '../src/lib/resume-gate.mjs'
 
 const project = (over = {}) => ({
@@ -166,6 +167,35 @@ test('🔴 조용한지 모르면 막는다 — force 로도 못 뚫는다 (fail
       assert.equal(g.go, false, `activeMin=${quiet} · force=${force} 인데 통과했다`)
       assert.equal(g.stage, GATE.unknown)
     }
+  }
+})
+
+/**
+ * 🔴 판정의 **재료가 응답에 실려야** 한다.
+ *
+ *   실측 (2026-09-28): 판정은 `openTools`·`lastKind` 로 `작업중` 을 정확히 말하는데
+ *   화면으로 나가는 세션 객체에는 그 두 값이 없었다(`undefined`). 근거를 볼 수 없으면
+ *   "왜 작업중인가"를 확인하려고 트랜스크립트를 다시 읽어야 한다 —
+ *   값만 있고 근거가 없으면 판단할 수 없다(요약 타일에서 이미 고친 부류다).
+ */
+test('🔴 판정 재료가 화면으로 나가는 세션 객체에 있다', () => {
+  const src = readFileSync(new URL('../src/lib/session-view.mjs', import.meta.url), 'utf8')
+  // 판정에 넘기는 것과 화면에 내보내는 것, 두 자리 모두 있어야 한다
+  assert.ok((src.match(/openTools/g) || []).length >= 2, 'openTools 를 판정에만 넘기고 화면에는 안 준다')
+  assert.ok((src.match(/lastKind/g) || []).length >= 2, 'lastKind 를 판정에만 넘기고 화면에는 안 준다')
+})
+
+/**
+ * 🔴 판정은 **던지지 않는다.** 던지면 그 회차가 통째로 죽고, 죽은 회차는 이유를 남기지
+ *   못한다 — 조용히 아무 일도 일어나지 않는 상태가 되는데 그게 이 도구의 최악이다.
+ *   (실측 2026-09-28: 인자 없이 부르면 구조분해에서 던졌다. 호출부는 전부 객체를 넘기지만
+ *   "지금은 안 그런다"는 이유로 두면 다음 호출부가 그 지뢰를 밟는다.)
+ */
+test('🔴 인자가 없어도 던지지 않고 "안 된다"로 답한다', () => {
+  for (const arg of [undefined, {}, null]) {
+    const g = resumeGate(arg)
+    assert.equal(g.go, false, `${arg} 로 불렀는데 통과했다`)
+    assert.ok(g.why, '이유 없이 막으면 사람이 무엇을 볼지 알 수 없다')
   }
 })
 

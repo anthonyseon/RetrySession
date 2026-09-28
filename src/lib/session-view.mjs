@@ -191,6 +191,16 @@ export function sessionView(s, registry, runMap, ideWins = [], procMap = new Map
     activeMin: s.activeMin,
     firstAt: s.firstAt ? localStamp(new Date(s.firstAt)) : null,
 
+    /**
+     * 🔴 **판정의 재료를 응답에 함께 싣는다** — "쓰는 중인가"를 정하는 값들이다.
+     *   실측 (2026-09-28, 전수 재검증): 판정은 이 값들로 `작업중` 을 정확히 말하는데,
+     *   응답에는 `undefined` 로 비어 있었다. 화면·진단이 **판정의 근거를 볼 수 없다**는 뜻이고,
+     *   그러면 "왜 작업중이라는 거지"를 확인하려고 트랜스크립트를 다시 읽어야 한다.
+     *   값만 있고 근거가 없으면 판단할 수 없다 — 이 저장소가 요약 타일에서 이미 고친 것이다.
+     */
+    openTools: s.openTools ?? null,
+    lastKind: s.lastKind ?? null,
+
     userMsgs: s.userMsgs,
     assistantMsgs: s.assistantMsgs,
     toolCalls: s.toolCalls,
