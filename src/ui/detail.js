@@ -276,7 +276,11 @@ function drawGate(s) {
     })
     acts.append(b)
   }
-  if (stage === 'running') acts.append(el('div', 'note', '사람이 쓰는 대화에는 끼어들지 않습니다 — 그 세션 창을 닫으면 다음 회차부터 대상이 됩니다.'))
+  if (stage === 'running') {
+    acts.append(el('div', 'note',
+      '사람이 쓰는 대화에는 끼어들지 않습니다 — 그 세션 창을 닫으면 다음 회차부터 대상이 됩니다. ' +
+      '단, 사용량 제한에 잘린 뒤 아무 입력이 없는 세션은 제한이 풀리는 순간 이어받습니다(화면 맨 위 설명 참고).'))
+  }
   if (stage === 'repo') acts.append(el('div', 'note', 'config/projects.json 에서 그 저장소의 resume.enabled 를 켜야 합니다 (--force 로도 뚫리지 않습니다).'))
   if (acts.children.length) box.append(acts)
 }

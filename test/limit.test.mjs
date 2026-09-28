@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { limitState, recordRun, budgetVerdict, emptyState } from '../src/lib/guard.mjs'
 import { isLimitFailure } from '../src/lib/classify.mjs'
 import { isLimitNotice, foldEntry, emptyTotals } from '../src/lib/session-fold.mjs'
+import { resumeGate, GATE } from '../src/lib/resume-gate.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const minutes = 60_000
@@ -179,6 +180,18 @@ test('🔴 제한 결과는 스케줄러 이력을 빨갛게 물들이지 않는
 test('실행 중 확인은 그대로 남아 있다 (③ — 세션이 열려 있으면 안 민다)', () => {
   assert.match(resumeSrc, /running: sessionRunning\(ctx\.running, target\.sessionId, isAlive\)/,
     '실제 pid 로 확인한 결과를 판정에 넘겨야 한다')
-  const gate = readFileSync(join(ROOT, 'src', 'lib', 'resume-gate.mjs'), 'utf8')
-  assert.match(gate, /if \(running\?\.running\) return no\(GATE\.running/)
+  /**
+   * 🔴 예전에는 판정 **소스의 모양**을 정규식으로 봤다(`if (running?.running) return …`).
+   *   제한 해제 예외를 넣자 모양이 바뀌어 깨졌는데, 그때 지키던 것은 모양이 아니라
+   *   **"실행 중이면 막는다"는 답**이었다. 순수 함수이므로 불러서 답을 본다.
+   */
+  const g = resumeGate({
+    target: { restart: true, resumePrompt: '이어서 해라' },
+    project: { id: 'P', repo: 'c:\\r', resume: { enabled: true, sessionActiveMin: 10, maxPerDay: 12, failStreakMax: 3 } },
+    state: {}, session: { activeMin: 60, stoppedByLimit: false, quota: null },
+    running: { running: true, isCertain: true, why: '세션이 실행 중이다 (pid 7)' },
+    tracker: { exists: false },
+  })
+  assert.equal(g.go, false, '실행 중인 세션에 밀어넣으면 안 된다')
+  assert.equal(g.stage, GATE.running)
 })

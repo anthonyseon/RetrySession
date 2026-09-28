@@ -85,6 +85,30 @@ test('🔴 설명서의 상세 탭 이름이 화면의 탭과 같다', () => {
  *   그대로 찾기 때문이다.
  */
 /**
+ * 🔴 화면 맨 위의 "언제 이어받는가" 설명이 **판정과 같은 말**이어야 한다.
+ *
+ *   실측 (2026-09-28): 제한이 풀린 순간 이어받는 것이 이 도구의 목적인데 539회 연속
+ *   건너뛰어졌고, 조건이 화면에 없어서 사람은 로그를 열어야 알 수 있었다. 그래서 설명을
+ *   화면에 넣었다 — 그런데 설명과 판정이 갈라지면 **틀린 설명이 화면에 붙어 있는** 것이라
+ *   없느니만 못하다. 조건에 쓰이는 이름이 판정 코드에 실제로 있는지 기계가 잰다.
+ */
+test('🔴 화면의 "언제 이어받는가" 설명이 판정과 같은 것을 가리킨다', () => {
+  const html = read('src/ui/index.html')
+  const gate = read('src/lib/resume-gate.mjs')
+  assert.match(html, /<details class="howto"/, '화면 맨 위의 설명이 없다')
+  // 설명이 말하는 다섯 조건이 판정에도 있어야 한다
+  for (const key of ['stoppedByLimit', 'sessionActiveMin', 'quietHours', 'budgetVerdict', 'limitState']) {
+    assert.ok(gate.includes(key), `판정에 ${key} 가 없는데 화면이 그 조건을 설명한다`)
+  }
+  assert.match(html, /sessionActiveMin/, '10분 조건의 설정 이름을 적어야 고칠 수 있다')
+  assert.match(html, /재시작 시작/, '어느 단추로 켜는지 적어야 한다')
+  // 설명서에도 같은 조건이 있어야 한다 (화면을 못 보고 읽는 사람이 있다)
+  const manual = read('Manual.md')
+  assert.match(manual, /제한이 풀리면|제한 해제/, '설명서에 제한 해제 재개 조건이 없다')
+  assert.match(manual, /한 글자도/, '“사람이 입력하지 않았다”가 핵심 조건이다 — 설명서에도 있어야 한다')
+})
+
+/**
  * 🔴 사용량 줄의 표(`오늘`·`누적`)와 그 뜻이 설명서에 있어야 한다.
  *   숫자 두 줄이 나란히 있는 화면은 **어느 쪽이 무엇인지** 문서가 말해주지 않으면
  *   사람이 추측한다. 그리고 추측은 "오늘 얼마 썼나"를 반대로 읽는 쪽으로도 간다.
