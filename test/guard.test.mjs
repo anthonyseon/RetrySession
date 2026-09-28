@@ -108,11 +108,22 @@ test('예산 — 하루 횟수 상한', () => {
   assert.match(v.why, /하루 상한 3회/)
 })
 
-test('예산 — 하루 비용 상한 (횟수는 남아도 막는다)', () => {
-  const s = { ...emptyState(), byDay: { '2026-09-18': 1 }, costByDay: { '2026-09-18': 5.5 } }
+/**
+ * 🔴 **비용은 막지 않는다 — 통계로만 본다** (사용자 결정 2026-09-28). 걷어낸 이유: 상한은
+ *   띄우기 전에만 보므로 한 회차가 넘는 것을 못 막고(실측: 상한 $5, 한 회차 $18.271),
+ *   넘은 뒤에는 그날 나머지를 전부 막아 "일해야 할 때만" 멈췄다. 지금은 횟수·타임아웃이 묶는다.
+ */
+test('🔴 비용이 참고선을 넘어도 막지 않는다 (통계로만 쓴다)', () => {
+  const s = { ...emptyState(), byDay: { '2026-09-18': 1 }, costByDay: { '2026-09-18': 999 } }
   const v = budgetVerdict(s, cfg, base)
+  assert.equal(v.ok, true, '비용으로 막으면 안 된다')
+  assert.equal(v.costToday, 999, '그래도 얼마 썼는지는 돌려줘야 한다 — 통계는 남는다')
+})
+
+test('비용이 넘었어도 막는 것은 횟수다 (둘을 섞지 않는다)', () => {
+  const v = budgetVerdict({ ...emptyState(), byDay: { '2026-09-18': 3 }, costByDay: { '2026-09-18': 999 } }, cfg, base)
   assert.equal(v.ok, false)
-  assert.match(v.why, /하루 상한 \$5/)
+  assert.match(v.why, /하루 상한 3회/, '이유는 횟수여야 한다 — 비용을 이유로 대면 거짓이다')
 })
 
 test('예산 — 어제 기록은 오늘 예산에 영향 없다', () => {

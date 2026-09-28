@@ -135,7 +135,10 @@ function drawDetail() {
   if (d.restart) {
     const r = d.restart, c = r.config, b = r.budget
     const box = el('div')
-    box.append(el('div', 'note', `재시작 예산 — 오늘 ${b.runsToday}/${c.maxPerDay}회 · $${b.costToday}/$${c.maxCostUSDPerDay ?? '-'} · 연속실패 ${r.state.failStreak || 0}/${c.failStreakMax} · 권한 ${c.permissionMode}`))
+    // 🔴 비용은 **막지 않는다** — 참고선이라고 적는다. "/$5" 처럼 쓰면 상한으로 읽힌다.
+    box.append(el('div', 'note', `재시작 예산 — 오늘 ${b.runsToday}/${c.maxPerDay}회`
+      + ` · $${b.costToday} 씀(참고선 $${c.maxCostUSDPerDay ?? '-'} · 막지 않음)`
+      + ` · 연속실패 ${r.state.failStreak || 0}/${c.failStreakMax} · 권한 ${c.permissionMode}`))
     const m = el('div', 'meter' + (b.runsToday >= c.maxPerDay ? ' crit' : b.runsToday / c.maxPerDay > .7 ? ' warn' : ''))
     const i = el('i'); i.style.width = Math.min(100, (b.runsToday / Math.max(1, c.maxPerDay)) * 100) + '%'
     m.append(i); box.append(m)
@@ -273,7 +276,8 @@ function drawGate(s) {
   // 숫자는 한 줄로. 상한에 얼마나 가까운지가 한눈에 보여야 한다.
   const nums = el('div', 'note')
   nums.textContent = `오늘 ${r.runsToday ?? '?'}/${r.maxPerDay ?? '-'}회`
-    + ` · $${r.costToday ?? 0}/$${r.maxCostUSDPerDay ?? '-'}`
+    // 비용은 통계다 — 상한처럼 보이지 않게 적는다
+    + ` · $${r.costToday ?? 0} 씀(참고선 $${r.maxCostUSDPerDay ?? '-'})`
     + ` · 연속실패 ${r.failStreak ?? 0}/${r.failStreakMax ?? '-'}`
     + (r.overloadToday ? ` · API 과부하로 막힘 ${r.overloadToday}회` : '')
     // 연속실패로 세지 않는 것들은 여기서라도 세어 보여야 "왜 안 돌았나"가 보인다

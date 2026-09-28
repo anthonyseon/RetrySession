@@ -181,12 +181,19 @@ export function saveRunState(path, state) {
 /**
  * 예산·회로차단기 판정. 순수 함수.
  *
- * 🔴 비용 상한이 있는 이유 (실측)
- *   `claude -p` 1회는 아무 일도 안 해도 최소 ~$0.21 든다 — 시스템 프롬프트 캐시 생성
- *   21k 토큰이 매 프로세스마다 새로 잡힌다(세션을 재사용하지 않으므로 캐시가 안 걸린다).
- *   횟수 상한만으로는 실제 지출을 못 막는다. 긴 작업 1회가 짧은 작업 10회보다 비싸다.
+ * 🔴 **비용은 막지 않는다 — 통계로만 본다** (사용자 결정 2026-09-28).
+ *   `costToday` 는 계속 세어 돌려주고 화면·`--status` 가 보여주지만, 이 함수는 그것으로
+ *   재개를 거절하지 않는다. 막는 것은 **횟수**(maxPerDay) · 최소 간격 · 연속실패 · 회로 차단이다.
  *
- * @returns {{ok:boolean, why:string|null, 오늘실행:number, 오늘비용:number}}
+ *   되돌리려는 다음 사람을 위해 양쪽 근거를 남긴다:
+ *   · 상한을 뒀던 이유 — `claude -p` 1회는 아무 일도 안 해도 최소 ~$0.21 들고(시스템 프롬프트
+ *     캐시 21k 토큰이 매 프로세스마다 새로 잡힌다), 긴 작업 1회가 짧은 작업 10회보다 비싸다.
+ *   · 걷어낸 이유 — 비용 상한은 **띄우기 전에만** 보므로 한 회차가 상한을 넘는 것을 막지
+ *     못한다(실측 2026-09-28: 상한 $5 인데 한 회차가 $18.271 을 썼다). 넘은 뒤에는 그날
+ *     나머지를 전부 막아 "일해야 할 때 멈추는" 쪽으로만 작동했다.
+ *   · 남는 노출 — 지출을 묶는 것은 이제 횟수(기본 12회/일)와 회차 타임아웃(기본 30분)뿐이다.
+ *
+ * @returns {{ok:boolean, why:string|null, runsToday:number, costToday:number}}
  */
 export function budgetVerdict(state, cfg, now = Date.now()) {
   const today = dayKey(new Date(now))
@@ -205,10 +212,7 @@ export function budgetVerdict(state, cfg, now = Date.now()) {
   const max = cfg.maxPerDay ?? 12
   if (runsToday >= max) return no(`오늘 ${runsToday}회 실행 (하루 상한 ${max}회)`)
 
-  const costCap = cfg.maxCostUSDPerDay
-  if (typeof costCap === 'number' && costToday >= costCap) {
-    return no(`오늘 $${costToday} 사용 (하루 상한 $${costCap})`)
-  }
+  // 🔴 비용은 여기서 막지 않는다 (위 주석). costToday 는 통계로 돌려주기만 한다.
 
   const interval = cfg.minGapMin ?? 30
   const last = state.lastRun

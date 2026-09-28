@@ -28,7 +28,8 @@ export function printStatus() {
     const auth = (st.authByDay || {})[dayKey()] || 0
     console.log(`── ${id.slice(0, 8)} ${v.title ? `· ${v.title.slice(0, 40)}` : ''}`)
     console.log(`   재시작 ${v.restart ? 'O' : 'X'} · 감시 ${v.watch ? 'O' : 'X'} · 권한 ${project?.resume.permissionMode || '-'}`)
-    console.log(`   오늘 ${b.runsToday}/${project?.resume.maxPerDay ?? '-'}회 · $${b.costToday}/$${project?.resume.maxCostUSDPerDay ?? '-'}`
+    // 🔴 비용은 막지 않는다(통계) — 슬래시로 붙이면 상한으로 읽힌다
+    console.log(`   오늘 ${b.runsToday}/${project?.resume.maxPerDay ?? '-'}회 · $${b.costToday} 씀(참고선 $${project?.resume.maxCostUSDPerDay ?? '-'})`
       + (over ? ` · 과부하로 막힘 ${over}회` : '')
       + (auth ? ` · 로그인 끊겨 헛돔 ${auth}회` : ''))
     console.log(`   연속실패 ${st.failStreak || 0}/${project?.resume.failStreakMax ?? '-'} · 차단 ${st.blocked ? `🔴 ${st.blocked.reason}` : '없음'}`)
