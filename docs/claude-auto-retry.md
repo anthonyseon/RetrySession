@@ -240,7 +240,7 @@ breaker 락까지는 필요 없다 — 우리는 `wx` 로 원자적 생성을 �
 
 | 순위 | 항목 | 상태 | 어디에 |
 |---|---|---|---|
-| 1 | API 과부하를 `fail` 로 세지 않기 (§1) | ✅ 반영 | `guard.isTransientFailure` · `result: 'overload'` · `overloadByDay` · 경보 `과부하잦음` |
+| 1 | API 과부하를 `fail` 로 세지 않기 (§1) | ✅ 반영 | `classify.isTransientFailure` · `result: 'overload'` · `overloadByDay` · 경보 `과부하잦음` |
 | 2 | 끊긴 응답을 재개 지점으로 (§2) | ✅ 반영 | `sessions.isInterruptedNotice` · `stoppedByInterrupt` · 재개 지점 넷째 |
 | 3 | 락 신원에 시작 시각 (§4) | ✅ 반영 | `single.procStartEpoch` — **거절하는 길에서만** 확인한다 |
 | 4 | 제한 임박 경보 (§3) | ❌ **안 함** | 아래 참조 |

@@ -259,7 +259,9 @@ const cssAll = () => ['app.css', 'fold.css', 'theme.css']
 function values(prop) {
   const src = cssAll().replace(/\/\*[\s\S]*?\*\//g, '')
   const out = new Set()
-  for (const m of src.matchAll(new RegExp(`${prop}[a-z-]*:\s*([^;}]+)`, 'g'))) {
+  // 🔴 템플릿 문자열 안에서는 `\\s` 라고 써야 정규식의 \s 가 된다. `\s` 로 쓰면 그냥 's' 이고,
+  //   `s*` 는 빈 것도 맞으므로 **우연히 통과한다** — 검사기가 헛도는 것을 알아채기 어렵다.
+  for (const m of src.matchAll(new RegExp(`${prop}[a-z-]*:\\s*([^;}]+)`, 'g'))) {
     for (const v of m[1].trim().split(/\s+/)) if (/^[\d.]+px$/.test(v)) out.add(v)
   }
   return [...out].sort((a, b) => parseFloat(a) - parseFloat(b))

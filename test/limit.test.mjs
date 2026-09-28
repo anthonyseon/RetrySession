@@ -15,7 +15,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { limitState, isLimitFailure, recordRun, budgetVerdict, emptyState } from '../src/lib/guard.mjs'
+import { limitState, recordRun, budgetVerdict, emptyState } from '../src/lib/guard.mjs'
+import { isLimitFailure } from '../src/lib/classify.mjs'
 import { isLimitNotice, foldEntry, emptyTotals } from '../src/lib/sessions.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -169,10 +170,10 @@ test('🔴 지시문이 "제한에 끊겼다"를 세션에 알려준다', () => 
 })
 
 test('🔴 제한 결과는 스케줄러 이력을 빨갛게 물들이지 않는다', () => {
-  assert.match(resumeSrc, /notOurFault = result === 'limited' \|\| result === 'overload'/,
-    '제한과 과부하를 한 이름으로 묶어야 한다')
+  assert.match(resumeSrc, /notOurFault = result === 'limited' \|\| result === 'overload' \|\| result === 'auth'/,
+    '제한·과부하·인증을 한 이름으로 묶어야 한다 — 우리 실패가 아닌 것은 셋이다')
   assert.match(resumeSrc, /if \(result !== 'ok' && !notOurFault\) exitCode = 1/,
-    '제한·과부하는 exit 1 이 아니다')
+    '제한·과부하·인증은 exit 1 이 아니다')
 })
 
 test('실행 중 확인은 그대로 남아 있다 (③ — 세션이 열려 있으면 안 민다)', () => {

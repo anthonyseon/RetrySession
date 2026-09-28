@@ -88,6 +88,20 @@ const overloadBadge = (s) => {
     : null
 }
 
+/**
+ * 오늘 로그인이 끊겨 재개가 헛돈 횟수.
+ *
+ * 🔴 과부하와 달리 **한 번부터** 보여준다 — 저쪽이 흔들린 것이 아니라 우리 쪽
+ *   전제(로그인된 계정)가 사라진 것이고, 사람이 다시 로그인해야 할 수도 있다.
+ */
+const authBadge = (s) => {
+  const nth = s.restart?.authToday || 0
+  return nth
+    ? badge('warn', '⚿', `로그인끊김 ${nth}회`,
+      `오늘 로그인이 끊겨 재개가 ${nth}회 헛돌았습니다. 연속실패로 세지 않으니 로그인이 살아나면 저절로 다시 돕니다.`)
+    : null
+}
+
 
 /* ── 열린 폴더 ───────────────────────────────────────────────── */
 /**
@@ -218,7 +232,7 @@ function items(d) {
 
     const bb = el('div', 'sbadges')
     bb.append(watchBadge(s), resumeBadge(s))
-    for (const b of [limitBadge(s), interruptBadge(s), overloadBadge(s)]) if (b) bb.append(b)
+    for (const b of [limitBadge(s), interruptBadge(s), overloadBadge(s), authBadge(s)]) if (b) bb.append(b)
     if (s.tracker.exists) {
       bb.append(badge(s.tracker.allDone ? 'good' : 'off', '▤',
         `추적기 ${s.tracker.doneMark}${s.tracker.doing ? ` · doing ${s.tracker.doing.id}` : ''}`))

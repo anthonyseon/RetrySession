@@ -8,6 +8,10 @@
  *   **감시 장치가 "모르면 정상"이라고 답하면 감시가 아니다.**
  *
  * 판정은 순수 함수로 두고 시험으로 고정한다(test/guard.test.mjs). 매번 손으로 쓰면 매번 틀린다.
+ *
+ * 🔴 **띄운 결과**를 읽는 판정은 여기가 아니라 [`classify.mjs`](./classify.mjs) 에 있다
+ *   (제한·인증·과부하 문구 → 결과 이름). 이 파일은 "지금 띄워도 되나"를, 그 파일은
+ *   "띄운 결과가 무엇이었나"를 본다 — 앞은 상태를 읽고 뒤는 문구를 읽는다.
  */
 import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { localStamp, dayKey, minutesSince, minuteOfDay, parseHhmm } from './stamp.mjs'
@@ -129,44 +133,6 @@ export function limitState(quota, now = Date.now()) {
   return { limited: false, lifted: true, leftMin, liftedEpoch, why: null }
 }
 
-/**
- * 이번 실행이 **사용량 제한 때문에** 실패했는가. 순수 함수.
- *
- * 제한 전 확인을 통과했더라도(기록이 낡았거나 방금 걸렸거나) 실제로는 막힐 수 있다.
- * 그때 이것을 실패로 세면 세 번 만에 회로가 차단된다 — 기다리면 될 일에.
- * 🔴 모르면 실패로 센다(false) — 진짜 고장을 제한으로 감추면 안 된다.
- */
-export function isLimitFailure(label) {
-  const s = String(label || '')
-  if (!s) return false
-  return /limit/i.test(s) && /(usage|rate|quota|reset|weekly|session limit)/i.test(s)
-}
-
-/**
- * 이 실패는 **저쪽이 잠깐 흔들린 것**인가 (API 과부하·서버 오류).
- *
- * 🔴 왜 필요한가 — 제한이 차단기를 태우는 것과 **같은 사고의 다른 얼굴**이다.
- *   제한은 두 겹으로 막아 뒀는데(판정 앞 limitState, 판정 뒤 isLimitFailure)
- *   과부하는 한 겹도 없었다. 529 는 isLimitFailure 에 안 걸려 'fail' 이 되고,
- *   'fail' 세 번이면 회로가 차단되어 **사람이 --rearm 할 때까지 재개가 멎는다.**
- *   Anthropic 쪽이 45분 흔들리면 우리 차단기가 내려가는 셈이다. 기다리면 될 일에.
- *
- * 🔴 영구 오류를 지나가는 것으로 읽으면 반대쪽 사고가 난다 — 고장 난 채로
- *   영원히 다시 시도한다. 그래서 **아는 영구 오류를 먼저 배제**한다.
- *   실측(트랜스크립트 800파일·106,329줄, 2026-09-22): 실제로 나타난 것은
- *     · `API Error: 529 Overloaded. This is a server-side issue, usually temporary …`  ← 지나간다
- *     · `API Error: 400 tools.11.custom.input_schema.properties: …`                    ← 영구(10회)
- *   400 을 지나가는 것으로 봤다면 스키마가 틀린 채로 하루 12회를 계속 태웠을 것이다.
- */
-export function isTransientFailure(label) {
-  const s = String(label || '')
-  if (!s) return false
-  // 고칠 때까지 계속 실패할 것들 — 재시도가 답이 아니다
-  if (/\bAPI Error:\s*(400|401|403|404|405|413|422)\b/i.test(s)) return false
-  if (/\bAPI Error:\s*(408|425|429|5\d\d)\b/i.test(s)) return true
-  return /(overloaded|service unavailable|bad gateway|gateway timeout|temporarily limiting requests|server[- ]side issue)/i.test(s)
-}
-
 /* ── 조용한 시간 ─────────────────────────────────────────────── */
 
 /**
@@ -261,7 +227,7 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
   const okCount = result === 'ok'
 
   /**
-   * 🔴 **우리 잘못이 아닌 실패**는 연속실패를 올리지 않는다 — 제한과 과부하 둘 다.
+   * 🔴 **우리 잘못이 아닌 실패**는 연속실패를 올리지 않는다 — 제한·과부하·인증 셋.
    *   실패로 세면 세 번 만에 회로가 차단되고, 저쪽이 멀쩡해진 뒤에도 사람이
    *   --rearm 을 해줄 때까지 재개가 멎는다. 기다리면 될 일이었다.
    *   그렇다고 성공도 아니다 — 연속실패를 **0 으로 되돌리지도 않는다.**
@@ -269,11 +235,20 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
    *   하루 횟수에는 센다(프로세스를 띄웠으니 시도는 시도다).
    *
    *   '제한' 은 옛 기록에 남아 있는 한글 값이다 — 읽을 때만 받아 준다(기록을 버리지 않는다).
+   *   'auth' 는 차단하지 않는 대신 **경보로 올린다**(isAuthFailure 의 주석 참고).
    */
-  const notOurFault = result === 'limited' || result === '제한' || result === 'overload'
+  const notOurFault = result === 'limited' || result === '제한' || result === 'overload' || result === 'auth'
   const failStreak = okCount ? 0 : notOurFault ? (state.failStreak || 0) : (state.failStreak || 0) + 1
   const limit = cfg.failStreakMax ?? 3
   const prevCost = (state.costByDay || {})[today] || 0
+
+  /**
+   * 차단하지 않는 실패는 **세기라도 세야** 한다. 하루에 몇 번 막혔는지 모르면
+   * "왜 아무 일도 안 일어나지"가 또 안 보인다 — 잦아지면 경보로 올린다(alerts.mjs).
+   */
+  const bump = (map, hit) => (hit
+    ? { ...(map || {}), [today]: ((map || {})[today] || 0) + 1 }
+    : (map || {}))
 
   const next = {
     ...state,
@@ -287,13 +262,8 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
     },
     byDay: { ...(state.byDay || {}), [today]: ((state.byDay || {})[today] || 0) + 1 },
     costByDay: { ...(state.costByDay || {}), [today]: +(prevCost + (costUSD || 0)).toFixed(4) },
-    /**
-     * 과부하는 연속실패로 세지 않지만 **세기는 센다.** 하루에 몇 번이나 막혔는지
-     * 모르면 "왜 아무 일도 안 일어나지"가 또 안 보인다 — 잦아지면 경보로 올린다.
-     */
-    overloadByDay: result === 'overload'
-      ? { ...(state.overloadByDay || {}), [today]: ((state.overloadByDay || {})[today] || 0) + 1 }
-      : (state.overloadByDay || {}),
+    overloadByDay: bump(state.overloadByDay, result === 'overload'),
+    authByDay: bump(state.authByDay, result === 'auth'),
     failStreak,
     blocked: failStreak >= limit
       ? { at: localStamp(new Date(now)), reason: `연속 ${failStreak}회 실패` }

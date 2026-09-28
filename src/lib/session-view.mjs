@@ -87,6 +87,8 @@ export function sessionView(s, registry, runMap, ideWins = [], procMap = new Map
        *   기록하는 쪽(guard.recordRun)이 dayKey 로 쓰므로 읽는 쪽도 같아야 한다.
        */
       overloadToday: (st.overloadByDay || {})[dayKey()] || 0,
+      /** 오늘 로그인이 끊겨 재개가 헛돈 횟수. 위와 같은 이유로 보여준다(차단은 안 한다) */
+      authToday: (st.authByDay || {})[dayKey()] || 0,
       blocked: st.blocked || null,
       corrupt: st.corrupt || null,
       budgetOk: b.ok,

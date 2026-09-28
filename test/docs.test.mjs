@@ -74,12 +74,12 @@ test('🔴 설명서의 상세 탭 이름이 화면의 탭과 같다', () => {
 })
 
 test('🔴 설명서가 말하는 재시작 결과가 코드가 내는 것과 같다', () => {
-  const src = read('src/resume.mjs')
+  // 결과 이름을 정하는 자리는 classify.classifyRun 하나다(resume.mjs 는 그것을 부른다)
+  const src = read('src/lib/classify.mjs')
   const manual = read('Manual.md')
-  // resume.mjs 가 result 로 쓰는 값들
-  const results = ['ok', 'limited', 'overload', 'timeout', 'fail']
+  const results = ['ok', 'limited', 'auth', 'overload', 'timeout', 'fail']
   for (const r of results) {
-    assert.match(src, new RegExp(`'${r}'`), `resume.mjs 가 '${r}' 를 더는 쓰지 않는다`)
+    assert.match(src, new RegExp(`'${r}'`), `classifyRun 이 '${r}' 를 더는 내지 않는다`)
     assert.ok(manual.includes(`\`${r}\``), `설명서에 결과 '${r}' 설명이 없다`)
   }
 })

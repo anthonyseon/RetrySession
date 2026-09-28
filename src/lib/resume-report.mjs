@@ -25,10 +25,12 @@ export function printStatus() {
     const st = loadRunState(P.resumeState)
     const b = project ? budgetVerdict(st, project.resume) : { runsToday: '?', costToday: '?', ok: false, why: '저장소 미해결' }
     const over = (st.overloadByDay || {})[dayKey()] || 0
+    const auth = (st.authByDay || {})[dayKey()] || 0
     console.log(`── ${id.slice(0, 8)} ${v.title ? `· ${v.title.slice(0, 40)}` : ''}`)
     console.log(`   재시작 ${v.restart ? 'O' : 'X'} · 감시 ${v.watch ? 'O' : 'X'} · 권한 ${project?.resume.permissionMode || '-'}`)
     console.log(`   오늘 ${b.runsToday}/${project?.resume.maxPerDay ?? '-'}회 · $${b.costToday}/$${project?.resume.maxCostUSDPerDay ?? '-'}`
-      + (over ? ` · 과부하로 막힘 ${over}회` : ''))
+      + (over ? ` · 과부하로 막힘 ${over}회` : '')
+      + (auth ? ` · 로그인 끊겨 헛돔 ${auth}회` : ''))
     console.log(`   연속실패 ${st.failStreak || 0}/${project?.resume.failStreakMax ?? '-'} · 차단 ${st.blocked ? `🔴 ${st.blocked.reason}` : '없음'}`)
     console.log(`   마지막 ${st.lastRun ? `${st.lastRun.at} · ${st.lastRun.result} · ${st.lastRun.tookSec}초 · $${st.lastRun.costUSD ?? 0}` : '없음'}`)
   }

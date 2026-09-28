@@ -68,6 +68,36 @@ export function currentAlerts(d) {
       '세션의 실행 여부를 알 수 없고, 자율 재개는 이 상태에서 멈춥니다.')
   }
 
+  /**
+   * 🔴 로그인이 끊겼다.
+   *
+   *   실측 (2026-09-28, 전수 재검증): 실제 재개가 발동해
+   *   `Failed to authenticate: OAuth session expired and could not be refreshed` 로
+   *   실패했는데 **경보가 하나도 없었다.** 화면 머리에 "계정 확인 실패" 라는 글자만
+   *   바뀐다 — 그건 눈에 띄지 않고, 목록은 트랜스크립트에서 읽으니 멀쩡히 보인다.
+   *
+   *   이 도구의 전제가 로그인된 계정이다(API 키를 쓰지 않는다). 그것이 없으면 재개는
+   *   15분마다 조용히 실패한다. 겉은 조용하고 속은 멎은 상태 — 반드시 말해야 한다.
+   */
+  if (d.account && d.account.ok === false) {
+    /**
+     * 🔴 "끊겼다"와 "모른다"를 한 문구로 말하지 않는다 — `account()` 의 ok:false 는 둘이다.
+     *   조회가 성공했는데 loggedIn:false 면 **확실히** 로그아웃이다 → 치명.
+     *   조회 자체가 실패했으면(타임아웃·CLI 없음) 우리가 모르는 것이다 → 경고.
+     *   20초 타임아웃 한 번에 «로그인이 끊겼습니다» 를 외치면 그건 2026-09-21 의
+     *   "감시 켠 지 38초" 거짓 경보와 같은 실수다. 늑대를 외치면 진짜 늑대를 놓친다.
+     */
+    if (d.account.error) {
+      push('계정조회실패', 'warning', '로그인 상태를 확인할 수 없습니다',
+        `claude auth status 가 답하지 않습니다 — ${d.account.error}. ` +
+        '정말 끊긴 것인지 조회만 실패한 것인지 알 수 없습니다. 계속 뜨면 VS Code 에서 로그인을 확인하세요.')
+    } else {
+      push('로그인끊김', 'critical', '로그인이 끊겼습니다',
+        'claude auth status 가 «로그인되어 있지 않다»고 답합니다. ' +
+        'API 키를 쓰지 않으므로 이 계정이 없으면 자율 재개가 한 번도 돌지 못합니다. VS Code 에서 다시 로그인하세요.')
+    }
+  }
+
   /* 재시작 회로 차단 */
   for (const s of d.sessions || []) {
     if (s.restart?.on && s.restart.blocked) {
@@ -87,6 +117,24 @@ export function currentAlerts(d) {
      *   못 돈 채로 조용하다. 차단은 안 하되 **말은 해야** 한다.
      *   한 번에 떠들면 거짓 경보가 된다(529 한 번은 정상 범위다). 세 번부터 말한다.
      */
+    /**
+     * 🔴 재개가 **로그인 때문에** 헛돌았다.
+     *
+     *   과부하는 세 번부터 말하지만 이것은 **한 번부터** 말한다 — 저쪽이 흔들린 것과
+     *   달리 사람이 다시 로그인해야 할 수도 있고, 그동안 재개 기회는 통째로 날아간다.
+     *   차단은 하지 않으므로(classify.isAuthFailure) 말하지 않으면 아무도 모른다.
+     *
+     *   🔴 두 조건을 **함께** 본다. `마지막 실행이 auth` 만 보면 어제 낫고 지나간 일을
+     *     다음 실행이 올 때까지 계속 외친다. `오늘 몇 회` 만 보면 이미 성공으로
+     *     넘어간 뒤에도 외친다. 둘을 곱해야 "지금 열려 있는 문제"만 남는다.
+     */
+    if (s.restart?.on && (s.restart.authToday || 0) >= 1 && s.restart.lastRun?.result === 'auth') {
+      push('인증실패', 'warning', '로그인이 끊겨 재시작이 헛돌았습니다',
+        `${s.title || s.shortId} — 오늘 ${s.restart.authToday}회 (마지막 ${s.restart.lastRun.at}). ` +
+        '차단하지 않았으니 로그인이 살아나면 저절로 다시 돕니다. 안 풀리면 VS Code 에서 다시 로그인하세요.',
+        s.sessionId)
+    }
+
     if (s.restart?.on && (s.restart.overloadToday || 0) >= 3) {
       push('과부하잦음', 'warning', 'API 과부하로 재시작이 계속 막힙니다',
         `${s.title || s.shortId} — 오늘 ${s.restart.overloadToday}회. 저쪽 문제라 기다리면 풀립니다(차단하지 않았습니다). ` +

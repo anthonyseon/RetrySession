@@ -37,8 +37,9 @@ import { readTracker } from './lib/tracker.mjs'
 import { buildPrompt } from './lib/prompt.mjs'
 import {
   loadRunState, saveRunState, budgetVerdict, recordRun,
-  acquireLock, releaseLock, quietNow, sessionRunning, limitState, isLimitFailure, isTransientFailure,
+  acquireLock, releaseLock, quietNow, sessionRunning, limitState,
 } from './lib/guard.mjs'
+import { classifyRun } from './lib/classify.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath, isSessionId } from './lib/targets.mjs'
 import { runningSessions, isAlive } from './lib/cli.mjs'
 import { runClaude, parseResult } from './lib/claude-run.mjs'
@@ -232,24 +233,13 @@ for (const target of items) {
     })
     const p = parseResult(r.stdout)
     /**
-     * 🔴 제한 때문에 막힌 것은 실패가 아니다.
-     *   판정에서 미리 막지만(제한상태), 기록이 낡았거나 방금 걸렸으면 여기까지 온다.
-     *   그때 실패로 세면 세 번 만에 회로가 차단된다 — 기다리면 될 일에. 뒷받침 장치다.
+     * 🔴 **우리 잘못이 아닌 실패**를 실패로 세면 세 번 만에 회로가 차단되고, 저쪽이
+     *   멀쩡해진 뒤에도 사람이 --rearm 을 해줄 때까지 재개가 멎는다. 제한(때가 아닌 것) ·
+     *   과부하(저쪽이 흔들린 것) · 인증(전제가 사라진 것) 셋 다 그렇다.
+     *   판정 순서가 곧 결론이라 classify.classifyRun 하나로 두고 시험으로 고정한다.
      */
     const didFail = r.timedOut || r.code !== 0 || !p.ok
-    // 타임아웃은 제한도 과부하도 아니다 — 30분을 실제로 돌았다는 뜻이다
-    const label = `${p.summary} ${r.stderr}`
-    const limitBlocked = didFail && !r.timedOut && isLimitFailure(label)
-    /**
-     * 🔴 저쪽이 흔들린 것도 우리 실패가 아니다 (제한과 같은 이유).
-     *   529·503 은 isLimitFailure 에 안 걸려 'fail' 로 세어졌고, 세 번이면 회로가
-     *   차단됐다. 기다리면 될 일에 사람 손을 부르는 것은 제한에서 이미 고친 실수다.
-     */
-    const overloaded = didFail && !r.timedOut && !limitBlocked && isTransientFailure(label)
-    const result = r.timedOut ? 'timeout'
-      : !didFail ? 'ok'
-      : limitBlocked ? 'limited'
-        : overloaded ? 'overload' : 'fail'
+    const result = classifyRun({ timedOut: r.timedOut, failed: didFail, label: `${p.summary} ${r.stderr}` })
 
     const next = recordRun(loadRunState(v.P.resumeState), {
       result, summary: p.summary, tookSec: r.tookSec, costUSD: p.costUSD,
@@ -271,9 +261,10 @@ for (const target of items) {
       next.blocked ? `  🔴 연속 ${next.failStreak}회 실패로 회로 차단됨 — 고친 뒤 --rearm` : '',
     ].filter(Boolean).join('\n'))
 
-    // 🔴 제한·과부하는 실패가 아니다 — 스케줄러 이력을 빨갛게 물들이지 않는다.
+    // 🔴 제한·과부하·인증은 실패가 아니다 — 스케줄러 이력을 빨갛게 물들이지 않는다.
     //   가드에 막힌 회차가 exit 0 인 것과 같은 이유다. 때가 아닌 것이지 고장이 아니다.
-    const notOurFault = result === 'limited' || result === 'overload'
+    //   인증은 대신 경보로 나간다 — exit 0 이 "괜찮다"는 뜻이 되지 않게(alerts.mjs).
+    const notOurFault = result === 'limited' || result === 'overload' || result === 'auth'
     const shown = result === 'ok' ? '✅' : notOurFault ? '◔' : '✖'
     console.log(`${shown} ${short} — ${result} · ${r.tookSec}초 · $${p.costUSD}`)
     if (result !== 'ok' && !notOurFault) exitCode = 1

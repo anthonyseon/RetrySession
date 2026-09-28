@@ -139,6 +139,25 @@ test('오늘 과부하로 막힌 횟수를 보여준다 (차단하지 않으므�
   assert.ok(txt.includes('4회'), '몇 번인지 말해야 한다')
 })
 
+/**
+ * 🔴 로그인이 끊겨 헛돈 횟수도 보여준다. 과부하와 같은 이유(차단하지 않으니 말해야
+ *   한다)인데, **한 번부터** 보여준다 — 529 한 번은 정상 범위지만 로그인은 그렇지 않다.
+ */
+test('로그인이 끊겨 헛돈 횟수를 한 번부터 보여준다', () => {
+  const s = session({ go: true, point: '재개지시', why: 'x' })
+  s.restart.authToday = 1
+  const txt = drawList(s)
+  assert.ok(txt.includes('로그인끊김'), txt)
+  assert.ok(txt.includes('1회'), '몇 번인지 말해야 한다')
+  assert.ok(badgeTitles().some((t) => /저절로 다시 돕니다|연속실패로 세지 않/.test(t)),
+    '차단하지 않았다는 사실이 hover 에 남아야 한다 — 안 그러면 사람이 차단을 풀러 간다')
+})
+
+test('끊긴 적이 없으면 그 배지는 없다 (0 을 보여주면 없는 문제를 만든다)', () => {
+  const txt = drawList(session({ go: true, point: '재개지시', why: 'x' }))
+  assert.ok(!txt.includes('로그인끊김'), txt)
+})
+
 test('응답이 끊긴 자리를 보여준다 (사람이 "왜 여기서 멈췄지"를 묻는 상태다)', () => {
   const txt = drawList(session({ go: true, point: '끊긴 지점', why: 'x' },
     { stoppedByInterrupt: true, interruptNoticeTime: '2026-09-22 10:00:00' }))

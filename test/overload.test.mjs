@@ -9,7 +9,8 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isTransientFailure, recordRun, emptyState } from '../src/lib/guard.mjs'
+import { isTransientFailure } from '../src/lib/classify.mjs'
+import { recordRun, emptyState } from '../src/lib/guard.mjs'
 
 /**
  * 🔴 실측 결함 (2026-09-22): 529 는 isLimitFailure 에 안 걸려 'fail' 이 됐고,
