@@ -1,0 +1,36 @@
+/*
+ * usage.css — 맨 위 **사용량 패널**의 무늬만.
+ *
+ * 🔴 왜 따로 파일인가 — app.css 가 390줄이고 규칙은 400줄이다(test/line-limit).
+ *   넘긴 자리가 쪼갤 자리라는 규칙을 적용했다. 상자 자체는 `.howto` 를 그대로 쓴다
+ *   (같은 접이식 상자다) — 여기는 그 위에 얹는 것만 둔다.
+ */
+
+/* 갱신 단추 + 읽은 시각. 🔴 단추는 summary 밖이다 — 안에 있으면 누를 때 패널이 접힌다 */
+.usage .urow{display:flex; align-items:center; gap:8px; margin:8px 0 2px; flex-wrap:wrap}
+
+.usage h3{margin:12px 0 4px; font-size:12.5px; color:var(--ink)}
+/* 이름 칸을 넓힌다 — 「초과분(overage)」·「오늘 (2026-09-28)」 이 접히면 읽기 어렵다 */
+.usage .kv{grid-template-columns:148px 1fr}
+/* `/usage` 의 성질·스킬은 줄마다 적는다 (한 줄로 이으면 무엇이 몇 %인지 안 보인다) */
+.usage .kv dd{white-space:pre-wrap}
+.usage .warnbox{margin-top:6px}
+.usage table.models{margin-top:4px}
+
+/* 원문 — 접어 둔다. 서식이 바뀌어 파싱이 깨진 날 사람이 읽을 유일한 자리다 */
+.usage .rawbox{margin-top:6px}
+.usage .rawbox summary{color:var(--muted); font-size:11.5px}
+.usage .rawbox pre.log{margin-top:4px; border:1px solid var(--ring); border-radius:6px}
+
+/**
+ * 🔴 펼친 내용에 **높이 한계**를 준다 — `.top`·`.alerts-wrap` 과 같은 방식이다.
+ *   이 패널은 `flex:0 0 auto` 라서, 내용이 길어지면 줄지 않고 아래의 `main`
+ *   (세션 목록·상세)을 눌러 버린다. 요약 타일 10장이 네 줄을 먹어 일하는 목록이
+ *   화면 밖으로 밀렸던 것과 같은 고장이다.
+ *   🔴 안쪽에는 스크롤을 두지 않는다(로그·표에 max-height 금지) — 상자 하나만 구른다.
+ */
+#usageMain{max-height:44vh; overflow-y:auto}
+/* 좁은 화면에서는 페이지가 구른다 — 여기서 또 가두면 스크롤 안의 스크롤이 된다 */
+@media (max-width:1100px){
+  #usageMain{max-height:none; overflow:visible}
+}

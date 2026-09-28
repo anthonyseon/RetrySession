@@ -164,6 +164,34 @@ export function account({ ttlMs = 60000 } = {}) {
   }
 }
 
+/**
+ * `/usage` — Claude 가 스스로 말하는 **사용량 상세**.
+ *
+ * 🔴 왜 이것을 쓰나 (실측 2026-09-28)
+ *   `claude --help` 에는 `usage` **하위 명령이 없다.** 하지만 세션 안의 슬래시 명령
+ *   `/usage` 는 헤드리스에서도 돈다 — `claude -p /usage --output-format json` 을 재 보니
+ *   `total_cost_usd: 0 · num_turns: 0 · duration_api_ms: 0` 이었다. **모델을 호출하지 않고
+ *   로컬에서 답한다** — 그래서 공짜고, 화면의 `갱신` 이 눌릴 때마다 불러도 된다.
+ *
+ *   주는 것: 구독 사용 여부 · 최근 24시간·7일의 요청 수·세션 수 · 어떤 성질의 사용이
+ *   한도를 먹었는지(긴 컨텍스트·장시간 세션·병렬) · 상위 스킬. 그 자리에 「approximate,
+ *   based on local sessions on this machine」이라고 적혀 있으니 **그 말을 그대로 옮긴다.**
+ *
+ * 🔴 글을 그대로 보관한다. 서식이 바뀌면 파싱은 깨지지만 원문은 여전히 읽을 수 있다 —
+ *   파싱 실패를 "사용량 0" 으로 보여주는 것이 이 저장소가 가장 싫어하는 부류다.
+ */
+export function claudeUsage({ ttlMs = 60000 } = {}) {
+  const r = cached('usage', ttlMs, () => callJson(['-p', '/usage', '--output-format', 'json'], { timeout: 90000 }))
+  const text = typeof r.data?.result === 'string' ? r.data.result : ''
+  return {
+    ok: r.ok && !!text,
+    error: r.ok ? (text ? null : '/usage 가 빈 답을 줬다') : r.error,
+    text,
+    cached: r.cached,
+    ageMs: r.ageMs,
+  }
+}
+
 /** CLI 버전 — 한 번 읽으면 잘 바뀌지 않는다 */
 export function cliVersion({ ttlMs = 600000 } = {}) {
   const hit = _cache.get('ver')

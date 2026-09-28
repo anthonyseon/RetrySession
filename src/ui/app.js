@@ -19,6 +19,7 @@ import { drawFolders, items, syncSelection } from './list.js'
 import { redrawDetail } from './detail.js'
 import { openSettings, closeSettings, drawSettings, isSettingsOpen, pcAction } from './setup.js'
 import { initLayout } from './layout.js'
+import { initUsage } from './usage.js'
 
 
 /* ── 통신 ────────────────────────────────────────────────────── */
@@ -321,6 +322,11 @@ Object.assign(actions, { draw, loadStatus, loadDetail, post, meta, say })
 // 너비 조절 손잡이와 세션 영역 접기. 저장해 둔 배치를 먼저 적용한다 —
 // 첫 그리기 뒤에 배치가 튀면 사람은 화면이 덜컹거린다고 느낀다.
 initLayout()
+/**
+ * 사용량 패널. 🔴 **폴링에 넣지 않는다** — `/usage` 호출이 몇 초 걸려서, 상태 갱신과
+ *   같이 돌면 화면 전체가 그만큼 느려진다. 펼칠 때 한 번 읽고 `갱신` 으로 다시 읽는다.
+ */
+initUsage()
 /**
  * 🔴 폴링은 **겹치지 않게** 한다.
  *

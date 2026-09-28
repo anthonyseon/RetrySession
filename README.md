@@ -279,11 +279,11 @@ config/
 src/
   heartbeat.mjs          ① 감시 본체        hb.mjs  ← 스케줄러가 부르는 ASCII 진입점
   resume.mjs             ② 재시작 본체      rs.mjs  ← 같은 이유
-  ui/server.mjs          ③ 화면 (127.0.0.1) index.html · app.js · layout.js · app.css · fold.css
+  ui/server.mjs          ③ 화면 (127.0.0.1) index.html · app.js · layout.js · usage.js · *.css
   lib/
     config.mjs  targets.mjs     설정 · 대상 등록부
     sessions.mjs +session-fold  증분 캐시 스캔 · 줄 접기(사용량 오늘/누적) · detail.mjs 상세
-    cli.mjs                     claude.exe 를 정보 출처로 (agents --json · auth status)
+    cli.mjs + usage.mjs         claude.exe 를 정보 출처로 (agents --json · auth status · /usage 사용량 패널)
     claude-run.mjs              claude --resume 을 띄우고 결과를 읽는다 (판정 없음)
     tracker.mjs probe.mjs       추적기 판정 · git·세션 관측
     guard.mjs classify.mjs      🔴 fail-closed 판정(낡음·조용한시간·예산·락) · 결과 이름 분류
@@ -327,12 +327,12 @@ CLI 가 주는 것은 CLI 로 얻고, 없는 것만 파일에서 읽는다. CLI 
 |---|---|
 | `claude agents --json` | 실행 중 세션 — pid · cwd · kind · startedAt · name |
 | `claude auth status --json` | 계정 — email · orgName · subscriptionType · authMethod |
+| `claude -p /usage` | 최근 24시간·7일의 요청·세션 수 — 🔴 그쪽이 「이 기계의 로컬 세션 기준 근사값」이라 말한다(그 말을 함께 보여준다). CLI 에 `usage` 하위 명령이 없어 슬래시 명령을 헤드리스로 부른다. 토큰을 쓰지 않는다(실측 `num_turns: 0`) |
 | `~/.claude/projects/*/*.jsonl` | 토큰 · 모델 · 제목 · 도구 호출 · 대화 · `quotaLimits` |
 | `schtasks /Query` | OS 예약 등록 여부 · 마지막 결과 |
 
-트랜스크립트는 크다 — 실측으로 한 파일이 **21.6MB** 였다. 그래서:
-목록은 (크기·mtime·오프셋) 캐시로 **자란 부분만** 읽고(초회 186ms → 이후 3ms),
-상세는 **꼬리 512KB** 만 읽는다(21.6MB 파일에 6ms).
+트랜스크립트는 크다 — 실측으로 한 파일이 **21.6MB** 였다. 그래서 목록은 (크기·mtime·오프셋) 캐시로
+**자란 부분만** 읽고(초회 186ms → 이후 3ms), 상세는 **꼬리 512KB** 만 읽는다(21.6MB 파일에 6ms).
 
 ## "이 폴더의 세션이 목록에 없다"
 

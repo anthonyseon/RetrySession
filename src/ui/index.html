@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/fold.css">
+<link rel="stylesheet" href="/usage.css">
 </head>
 <body>
 
@@ -86,6 +87,25 @@
     (무엇이든 입력하면 그 순간부터 다시 사람의 대화로 다룹니다). 예전에는 pid 로 읽어 <b>560회 연속</b>
     건너뛰었습니다.
   </p>
+</details>
+
+<!-- ── 사용량 상세 ──
+     🔴 접은 채로 둔다. 이 패널의 절반은 `claude -p /usage` 를 실제로 불러 얻는데
+        실측 2~8초가 걸린다 — 3초마다 도는 상태 폴링에 끼우면 화면 전체가 느려진다.
+        그래서 펼칠 때 한 번 읽고, 그 뒤로는 `갱신` 을 누를 때만 다시 읽는다.
+        접힌 줄(summary)에도 오늘 토큰·요청 수·제한 상태가 적힌다. -->
+<details class="howto usage" id="usageBox">
+  <summary>
+    <b>사용량</b>
+    <span class="cond" id="usageDigest">펼치면 읽습니다 — 토큰 · 요청 수 · 제한 상태</span>
+    <span class="muted">— 자세히</span>
+  </summary>
+  <div class="urow">
+    <!-- 🔴 단추는 summary 밖에 둔다 — summary 안에 있으면 누를 때 패널이 접힌다 -->
+    <button type="button" class="sm primary" id="btnUsage">갱신</button>
+    <span class="muted" id="usageAt">아직 읽지 않았습니다</span>
+  </div>
+  <div id="usageMain"></div>
 </details>
 
 <!-- 요약 열 개 항목을 한 묶음으로. 머리 띠가 곧 숨김/표시 단추다. -->

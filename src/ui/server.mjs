@@ -28,6 +28,7 @@ import { singleInstance } from '../lib/single.mjs'
 import { isLocal, originOk } from '../lib/http.mjs'
 import { runNow, detail } from './actions.mjs'
 import { pcState, clearCache, validateValue } from '../lib/pc.mjs'
+import { usageReport } from '../lib/usage.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
@@ -152,6 +153,16 @@ const server = createServer(async (req, res) => {
 
     /* 상태 */
     if (req.method === 'GET' && p === '/api/status') return json(res, 200, fullStatus())
+
+    /**
+     * 사용량 상세. **상태 조회와 따로 둔다** — `/usage` 호출이 몇 초 걸릴 수 있어서
+     * `/api/status`(3초마다 폴링)에 끼우면 화면 전체가 그만큼 느려진다.
+     * `?fresh=1` 은 화면의 `갱신` 단추가 쓴다 — 캐시를 건너뛰고 지금 값을 읽는다.
+     */
+    if (req.method === 'GET' && p === '/api/usage') {
+      const fresh = new URL(req.url, 'http://x').searchParams.get('fresh') === '1'
+      return json(res, 200, usageReport({ fresh }))
+    }
 
     // 트레이 전용 — 키가 전부 ASCII 다 (scripts/tray.ps1 이 ANSI 로 읽히기 때문)
     if (req.method === 'GET' && p === '/api/tray') return json(res, 200, trayStatus())
