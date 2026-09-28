@@ -112,3 +112,44 @@ test('스킬이 CLAUDE.md 를 대체하지 않는다 — 불변 규칙은 거기
   assert.match(readFileSync(change.path, 'utf8'), /CLAUDE\.md/,
     '변경 절차 스킬은 불변 규칙의 정본(CLAUDE.md)을 가리켜야 한다')
 })
+
+/**
+ * 🔴 스킬이 가리키는 **소스·시험 파일**도 실재해야 한다.
+ *
+ *   실측 (2026-09-28): 이 회차에 스킬을 고치면서 `lib/resume-gate.mjs` ·
+ *   `test/config.test.mjs` · `test/docs.test.mjs` 같은 **새 파일 이름**을 여럿 적었다.
+ *   지금은 맞지만, 파일이 옮겨지거나 이름이 바뀌면 스킬만 조용히 뒤처진다.
+ *   설명서에 이미 같은 규칙을 걸어 뒀다(test/docs.test.mjs) — 스킬도 같은 대접을 받는다.
+ *
+ *   `.ps1` 은 위에서 이미 검사한다. 여기서는 `src/**` 와 `test/**` 를 본다.
+ */
+test('🔴 스킬이 가리키는 src·test 파일이 실재한다', () => {
+  const missing = []
+  for (const s of skills()) {
+    const src = readFileSync(s.path, 'utf8')
+    for (const m of src.matchAll(/\b((?:src|test)\/[\w./-]*\.(?:mjs|js|json))/g)) {
+      // `src/lib/x.mjs` 처럼 폴더를 줄여 쓴 것도 받아 준다 (lib/x.mjs → src/lib/x.mjs)
+      if (!existsSync(join(ROOT, m[1]))) missing.push(`${s.name}: ${m[1]}`)
+    }
+    for (const m of src.matchAll(/\blib\/([\w-]+\.mjs)\b/g)) {
+      if (!existsSync(join(ROOT, 'src', 'lib', m[1]))) missing.push(`${s.name}: lib/${m[1]}`)
+    }
+  }
+  assert.deepEqual([...new Set(missing)], [],
+    `스킬이 없는 파일을 가리킨다 — 따라 하다 막히면 문서를 불신하게 된다:\n  ${missing.join('\n  ')}`)
+})
+
+test('🔴 스킬이 가리키는 config 파일이 실재한다', () => {
+  const missing = []
+  for (const s of skills()) {
+    for (const m of readFileSync(s.path, 'utf8').matchAll(/\bconfig\/([\w-]+\.json)\b/g)) {
+      if (!existsSync(join(ROOT, 'config', m[1]))) missing.push(`${s.name}: config/${m[1]}`)
+    }
+  }
+  assert.deepEqual([...new Set(missing)], [], `없는 설정 파일을 가리킨다:\n  ${missing.join('\n  ')}`)
+})
+
+test('🔴 검사기가 헛돌지 않는다 (없는 파일을 넣으면 잡아야 한다)', () => {
+  assert.equal(existsSync(join(ROOT, 'src', 'lib', 'nosuch-gate.mjs')), false)
+  assert.equal(existsSync(join(ROOT, 'config', 'nosuch.json')), false)
+})
