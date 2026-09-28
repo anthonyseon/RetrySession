@@ -238,3 +238,71 @@ test('요약을 접으면 본문이 그 공간을 가져간다', () => {
   assert.match(html, /main\{[^}]*flex:\s*1 1 auto/, 'main 이 남는 공간을 가져가야 한다')
   assert.match(html, /\.top\{[^}]*flex:\s*0 0 auto/, '요약은 제 높이만 차지해야 한다')
 })
+
+/* ── 눈금 — 값이 흩어지면 정렬이 흐트러진다 ─────────────────── */
+
+/**
+ * 🔴 왜 이 시험이 있나 (실측 2026-09-28, 사용자 요청)
+ *   "정렬이 잘된 형태로 개선하라" 는 말을 듣고 세어 보니 값이 이렇게 흩어져 있었다:
+ *     font-size 10가지 · border-radius 9가지 · padding 35가지 · gap 13가지
+ *   11.5px 와 12px, 8px 와 9px 처럼 **구별되지 않는 차이**가 대부분이었다. 눈에는
+ *   "왜 이것만 살짝 어긋났지" 로 보이고, 고치는 사람은 근처 값을 아무거나 집어 쓴다.
+ *   특히 패널 안쪽 **가로 인셋**이 11·13·14px 로 갈려 머리줄·줄·탭의 왼쪽 끝이 어긋났다.
+ *
+ *   그래서 쓸 수 있는 값을 정해 두고 기계가 지킨다. 새 값이 정말 필요하면 표를
+ *   늘리면서 **왜** 늘리는지 적게 된다 — 그게 이 시험의 진짜 목적이다.
+ */
+const cssAll = () => ['app.css', 'fold.css', 'theme.css']
+  .map((f) => readFileSync(join(ROOT, 'src', 'ui', f), 'utf8')).join('\n')
+
+/** `속성: 값` 에서 px 값만 모은다 (주석은 뺀다) */
+function values(prop) {
+  const src = cssAll().replace(/\/\*[\s\S]*?\*\//g, '')
+  const out = new Set()
+  for (const m of src.matchAll(new RegExp(`${prop}[a-z-]*:\s*([^;}]+)`, 'g'))) {
+    for (const v of m[1].trim().split(/\s+/)) if (/^[\d.]+px$/.test(v)) out.add(v)
+  }
+  return [...out].sort((a, b) => parseFloat(a) - parseFloat(b))
+}
+const extra = (got, allowed) => got.filter((v) => !allowed.includes(v))
+
+test('🔴 글자 크기는 다섯 단계만 쓴다 (10가지에서 줄였다)', () => {
+  const allowed = ['10px', '11.5px', '12.5px', '13px', '14px']
+  assert.deepEqual(extra(values('font-size'), allowed), [],
+    `표에 없는 글자 크기다. 11.5 와 12 처럼 구별되지 않는 차이를 늘리지 마라.\n  쓰는 값: ${values('font-size').join(' ')}`)
+})
+
+test('🔴 둥글기는 네 가지만 쓴다 (9가지에서 줄였다)', () => {
+  const allowed = ['4px', '6px', '9px', '999px']
+  assert.deepEqual(extra(values('border-radius'), allowed), [],
+    `표에 없는 둥글기다 — 4(작은 칩) · 6(단추·입력) · 9(패널·모달) · 999(알약).\n  쓰는 값: ${values('border-radius').join(' ')}`)
+})
+
+/**
+ * 🔴 간격은 4px 리듬 + 13px(패널 가로 인셋) + 16px(페이지 여백) 만.
+ *   2px 는 아이콘 사이처럼 아주 좁은 자리에만 남겼다.
+ */
+const SPACE = ['2px', '4px', '6px', '8px', '10px', '12px', '13px', '16px', '20px']
+
+for (const prop of ['padding', 'margin', 'gap']) {
+  test(`🔴 ${prop} 은 정해진 눈금만 쓴다`, () => {
+    assert.deepEqual(extra(values(prop), SPACE), [],
+      `${prop} 에 표에 없는 값이 있다 — 9px 와 8px 는 구별되지 않고 정렬만 흐트러진다.\n  허용: ${SPACE.join(' ')}\n  쓰는 값: ${values(prop).join(' ')}`)
+  })
+}
+
+test('🔴 패널 안쪽 가로 인셋이 하나다 (머리줄·줄·탭의 왼쪽 끝이 맞아야 한다)', () => {
+  const src = cssAll().replace(/\/\*[\s\S]*?\*\//g, '')
+  // `padding: <세로> <가로>` 두 값 꼴에서 가로만 모은다
+  const across = new Set()
+  for (const m of src.matchAll(/padding:\s*(?:0|[\d.]+px)\s+([\d.]+px)(?=\s*[;}]|\s+(?:0|[\d.]+px))/g)) across.add(m[1])
+  const ok = ['6px', '8px', '12px', '13px', '16px']   // 13=패널 안쪽 · 16=페이지 여백 · 나머지는 작은 칩
+  assert.deepEqual([...across].filter((v) => !ok.includes(v)), [],
+    `패널 안쪽 가로 인셋이 갈렸다 — 왼쪽 끝이 어긋나 보인다.\n  쓰는 값: ${[...across].sort().join(' ')}`)
+})
+
+test('검사기가 헛돌지 않는다 (값을 정말 읽고 있다)', () => {
+  assert.ok(values('font-size').length >= 4, '글자 크기를 못 읽었다')
+  assert.ok(values('padding').length >= 6, 'padding 을 못 읽었다')
+  assert.ok(values('border-radius').includes('999px'), '알약 모양(999px)을 못 읽었다')
+})
