@@ -42,8 +42,17 @@ const S = {
  *   hover 는 마우스가 있어야 보이고 인쇄도 안 된다. 보이는 곳에 이미 있는 것을
  *   한 번 더 놓는 자리다(상세의 판정 패널·재시작 로그).
  */
-function badge(kind, icon, label, why) {
-  const b = el('span', 'badge ' + kind)
+/**
+ * @param sw 스위치 상태를 **색으로** 갈라야 할 때 `'on'`·`'off'` (감시·재시작 배지).
+ *
+ * 🔴 왜 채널을 따로 두나 — 배지 하나가 두 가지를 말한다: **스위치가 켜졌나**(사람이 누른
+ *   것)와 **지금 어떤가**(판정). 색을 판정에만 쓰면 `켬 · 대기` 는 검은 글씨에 작은 점만
+ *   주황이고 `꺼짐` 은 회색 글씨라, 스위치 상태가 눈에 띄지 않는다(사용자 지적).
+ *   그래서 판정은 글자·아이콘 색으로, 스위치는 **테두리와 왼쪽 띠**로 나른다.
+ *   색만으로 나르지는 않는다 — 라벨에 `켬`·`꺼짐` 이라는 **말**이 그대로 들어 있다.
+ */
+function badge(kind, icon, label, why, sw) {
+  const b = el('span', 'badge ' + kind + (sw ? ' sw-' + sw : ''))
   b.append(el('i', 'ic', icon), el('span', null, label))
   if (why) b.title = why
   return b

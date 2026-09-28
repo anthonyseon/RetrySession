@@ -238,7 +238,11 @@ document.querySelector('#dtabs').addEventListener('click', (e) => {
 $('#btnRefresh').addEventListener('click', () => { loadStatus(); loadDetail() })
 $('#btnAuto').addEventListener('click', () => {
   S.auto = !S.auto
-  $('#btnAuto').textContent = S.auto ? '자동갱신 켬' : '자동갱신 끔'
+  const b = $('#btnAuto')
+  b.textContent = S.auto ? '자동갱신 켬' : '자동갱신 끔'
+  // 🔴 글자만 바뀌면 지금 어느 쪽인지 훑어서 모른다 — 배지와 같은 색 채널을 쓴다
+  b.classList.toggle('sw-on', S.auto)
+  b.classList.toggle('sw-off', !S.auto)
 })
 $('#btnTheme').addEventListener('click', () => {
   const toLight = document.documentElement.dataset.theme !== 'light'

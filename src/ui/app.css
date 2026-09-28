@@ -221,6 +221,7 @@ pre.manual{
 .badge.crit{color:var(--crit-ink)} .badge.crit .ic{color:var(--crit)}
 .badge.off{color:var(--muted)}
 
+
 /* ── 계량기 ── */
 .meter{height:6px; border-radius:4px; background:var(--accent-track); overflow:hidden; margin-top:8px}
 .meter > i{display:block; height:100%; background:var(--accent); border-radius:4px}
@@ -279,6 +280,12 @@ main{
 .actions .n{color:var(--ink-2); font-size:12.5px; margin-right:4px}
 .filter{font-weight:400; color:var(--muted); font-size:11.5px}
 .filter input{vertical-align:-2px}
+/**
+ * 체크 토글도 색으로 갈린다 — `accent-color` 로 체크 표시 자체를 강조색으로,
+ * 켜진 필터의 라벨은 흐림에서 본문 색으로 올린다(걸러내는 중이라는 사실이 중요하다).
+ */
+.filter input, .srow input[type="checkbox"]{accent-color:var(--accent)}
+.filter:has(input:checked){color:var(--ink-2); font-weight:500}
 
 /* ── 열린 폴더 (VS Code 워크스페이스) ── */
 /* 폴더가 많아도 세션 목록을 밀어내지 않게 자체 상한을 둔다 */

@@ -17,14 +17,14 @@ import { $, el, n, compact, shortPath, S, badge, actions } from './common.js'
  *   그 뒤의 말이 "그래서 지금은 어떤가"다. 설정과 상태를 한 배지에 뭉개지 않는다.
  */
 const watchBadge = (s) => {
-  if (!s.watch.on) return badge('off', '○', '감시 꺼짐')
+  if (!s.watch.on) return badge('off', '○', '감시 꺼짐', null, 'off')
   const v = s.watch.verdict
-  if (!v) return badge('warn', '◔', '감시 켬 · 대기', '감시를 켰고 첫 기록을 기다리는 중입니다.')
+  if (!v) return badge('warn', '◔', '감시 켬 · 대기', '감시를 켰고 첫 기록을 기다리는 중입니다.', 'on')
   // 🔴 첫 기록을 기다리는 중은 끊긴 것이 아니다 — 빨강으로 말하지 않는다
-  if (v.waiting) return badge('warn', '◔', '감시 켬 · 대기', v.why)
+  if (v.waiting) return badge('warn', '◔', '감시 켬 · 대기', v.why, 'on')
   return v.alive
-    ? badge('good', '●', `감시 켬 · 정상 (${v.ageMin}분)`, `${v.ageMin}분 전에 기록했습니다.`)
-    : badge('crit', '▲', '감시 켬 · 끊김', v.why)
+    ? badge('good', '●', `감시 켬 · 정상 (${v.ageMin}분)`, `${v.ageMin}분 전에 기록했습니다.`, 'on')
+    : badge('crit', '▲', '감시 켬 · 끊김', v.why, 'on')
 }
 /** 제한에 잘려 멈춰 있나 — 재개가 이어받을 수 있는 상태다 */
 const limitBadge = (s) => (s.stoppedByLimit
@@ -68,16 +68,16 @@ const GATE_WORD = {
 const resumeBadge = (s) => {
   const r = s.restart
   // 🔴 꺼짐/켬이 **먼저** 온다 — 누른 것이 먹혔는지가 이 배지의 첫 임무다
-  if (!r.on) return badge('off', '○', '재시작 꺼짐')
-  if (r.corrupt) return badge('crit', '▲', '재시작 켬 · 상태손상', r.corrupt)
+  if (!r.on) return badge('off', '○', '재시작 꺼짐', null, 'off')
+  if (r.corrupt) return badge('crit', '▲', '재시작 켬 · 상태손상', r.corrupt, 'on')
   const g = r.gate
-  if (!g) return badge('warn', '◔', '재시작 켬 · 판정불가', '저장소를 찾지 못해 판정할 수 없습니다.')
-  if (g.go) return badge('good', '●', `재시작 켬 · 가능 (${g.point})`, g.why)
+  if (!g) return badge('warn', '◔', '재시작 켬 · 판정불가', '저장소를 찾지 못해 판정할 수 없습니다.', 'on')
+  if (g.go) return badge('good', '●', `재시작 켬 · 가능 (${g.point})`, g.why, 'on')
   // 차단은 사람이 풀어야 한다 — 기다리면 되는 것들과 아이콘을 달리한다
   const crit = g.stage === 'blocked' || g.stage === 'repeated'
   const word = GATE_WORD[g.stage] || '대기'
   return badge(crit ? 'crit' : 'warn', crit ? '▲' : '◔',
-    crit ? `재시작 켬 · 차단 (${word})` : `재시작 켬 · 대기 (${word})`, g.why)
+    crit ? `재시작 켬 · 차단 (${word})` : `재시작 켬 · 대기 (${word})`, g.why, 'on')
 }
 
 /** 오늘 과부하로 막힌 횟수 — 차단하지 않으므로 여기서라도 보여야 한다 */
