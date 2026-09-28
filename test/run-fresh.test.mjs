@@ -48,6 +48,32 @@ test('하트비트는 그대로 띄운다 (판정이 없다 — 기록만 남긴
   assert.match(actions, /kind === 'resume' && sessionId/, '재개+세션 지정일 때만 판정을 끼운다')
 })
 
+/**
+ * 🔴 **화면의 '지금 재시작 실행' 은 강제다** (사용자 지시 2026-09-28).
+ *   사람이 단추를 누른 것은 «지금 돌려라»는 의지 표시다. 예약 회차를 위한 아껴 쓰기
+ *   (하루 횟수·최소 간격·연속실패·조용한 시간)를 그 의지보다 앞세울 이유가 없다.
+ *
+ *   🔴 그래도 뚫리지 않는 것은 그대로다 — 일하는 중·제한 중·활동 시각 모름·저장소 잠금.
+ *   단추를 누른 사람과 그 세션을 쓰는 사람이 같다는 보장이 없다(force 계약은
+ *   `test/resume-force.test.mjs`). 그래서 **판정 자체를 없애지 않고** force 만 넘긴다.
+ */
+test('🔴 지금 재시작 실행은 판정과 실행 **둘 다** force 로 부른다', () => {
+  const probe = /--dry-run'[^\]]*\]/.exec(actions)
+  assert.ok(probe, '실행 직전 판정(dry-run) 호출을 찾지 못했다')
+  assert.match(probe[0], /'--force'/, '판정도 force 로 물어야 한다 — 아니면 답과 실행이 갈린다')
+  const spawn = /function spawnResume[\s\S]*?\)\n/.exec(actions)
+  assert.ok(spawn, 'spawnResume 을 찾지 못했다')
+  assert.match(spawn[0], /'--force'/, '실제 실행도 force 여야 한다')
+})
+
+test('🔴 강제라는 사실과 무엇을 건너뛰는지 **누르기 전에** 말한다', () => {
+  assert.match(detail, /강제/, '확인 창이 강제임을 말해야 한다')
+  assert.match(detail, /하루 횟수 · 최소 간격 · 연속실패 · 조용한 시간을 건너뜁니다/,
+    '무엇을 건너뛰는지 적어야 한다')
+  assert.match(detail, /일하는 중이거나 사용량 제한 중이면 그래도 띄우지 않습니다/,
+    '강제로도 안 되는 것을 적어야 한다 — 눌렀는데 안 돌면 고장으로 읽힌다')
+})
+
 /* ── 화면 쪽 ─────────────────────────────────────────────────── */
 
 const detail = read('src', 'ui', 'detail.js')

@@ -38,7 +38,7 @@ import { localStamp } from '../lib/stamp.mjs'
 function freshVerdict(sessionId) {
   try {
     const out = execFileSync(process.execPath,
-      [join(RS_HOME, 'src', 'resume.mjs'), '--dry-run', '--session', sessionId],
+      [join(RS_HOME, 'src', 'resume.mjs'), '--dry-run', '--force', '--session', sessionId],
       { cwd: RS_HOME, encoding: 'utf8', timeout: 60_000, windowsHide: true })
     // 첫 줄이 판정이다: `✅ <id> 재개 가능 — 이유` / `⛔ <id> 건너뜀 — 이유`
     const line = out.split('\n').map((l) => l.trim()).find((l) => l.startsWith('✅') || l.startsWith('⛔')) || ''
@@ -57,6 +57,16 @@ function freshVerdict(sessionId) {
 /**
  * 🔴 떼어내서 띄운다(detached). 재시작은 최대 30분 돌 수 있으므로 HTTP 응답을
  *   붙잡고 있으면 화면이 멈춘 것처럼 보인다. 진행은 로그로 본다.
+ *
+ * 🔴 **화면의 '지금 재시작 실행' 은 `--force` 로 띄운다** (사용자 지시 2026-09-28).
+ *   사람이 단추를 누른 것은 «지금 돌려라»는 의지 표시다. 예약 회차를 위한 아껴 쓰기
+ *   (하루 횟수·최소 간격·연속실패·조용한 시간)를 그 의지보다 앞세울 이유가 없다 —
+ *   그래서 force 가 그것들을 건너뛰고, **재개지시가 있으면 그것으로 띄운다.**
+ *
+ *   🔴 그래도 뚫리지 않는 것이 있다(force 계약, `test/resume-force.test.mjs`):
+ *     **일하는 중**(도구 대기·답 대기) · **제한 중** · 활동 시각 모름 · 저장소 잠금 ·
+ *     이어갈 지점 없음. 사람의 의지로도 **사람이 쓰는 대화에는 끼어들지 않는다** —
+ *     단추를 누른 사람과 그 세션을 쓰는 사람이 같다는 보장이 없고, 제한 중에는 어차피 실패한다.
  */
 export function runNow(kind, sessionId) {
   /**
@@ -84,7 +94,7 @@ export function runNow(kind, sessionId) {
 
 function spawnResume(sessionId) {
   const child = spawn(process.execPath,
-    [join(RS_HOME, 'src', 'resume.mjs'), '--session', sessionId],
+    [join(RS_HOME, 'src', 'resume.mjs'), '--force', '--session', sessionId],
     { cwd: RS_HOME, detached: true, stdio: 'ignore', windowsHide: true })
   child.unref()
   return child

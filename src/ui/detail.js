@@ -220,7 +220,16 @@ function drawDetail() {
   b1.addEventListener('click', () => actions.post('/api/run', { kind: 'heartbeat' }).then(() => setTimeout(actions.loadDetail, 2500)))
   const b2 = el('button', 'sm', '지금 재시작 실행')
   b2.addEventListener('click', async () => {
-    if (!confirm('이 세션을 지금 재시작합니다. 사람이 보지 않는 상태로 토큰을 쓰고 파일을 고칠 수 있습니다. 계속할까요?')) return
+    // 🔴 무엇을 건너뛰는지 **눌러 확인하기 전에** 말한다 — force 로 띄우기 때문이다
+    if (!confirm([
+      '이 세션을 지금 재시작합니다 (강제).',
+      '',
+      '· 재개지시가 있으면 그것으로 띄웁니다',
+      '· 하루 횟수 · 최소 간격 · 연속실패 · 조용한 시간을 건너뜁니다',
+      '· 일하는 중이거나 사용량 제한 중이면 그래도 띄우지 않습니다',
+      '',
+      '사람이 보지 않는 상태로 토큰을 쓰고 파일을 고칩니다. 계속할까요?',
+    ].join('\n'))) return
     /**
      * 🔴 화면이 보여주던 판정과 **실행 직전의 최신 판정**을 견준다.
      *
@@ -236,7 +245,7 @@ function drawDetail() {
     const v = r && r.verdict
     if (v) {
       const same = seen ? (!!seen.go === !!v.go) : true
-      const head = v.go ? '최신 기준으로도 가능 — 띄웠습니다' : '최신 기준으로는 돌지 않습니다'
+      const head = v.go ? '강제 실행 — 최신 기준으로도 가능해 띄웠습니다' : '강제로도 돌지 않습니다'
       actions.say(`${head}: ${v.why}` + (same ? '' : ' · 🔴 화면이 보여주던 판정과 달랐습니다(화면을 새로 읽었습니다)'))
     } else if (r && r.error) {
       actions.say(`✖ ${r.error}`)
