@@ -7,11 +7,19 @@
 import { $, el, n, compact, shortPath, S, badge, keepScroll, actions } from './common.js'
 
 /** 상세를 다시 그린다. 보고 있던 세션·탭이 바뀌었으면 맨 위에서 시작한다 */
+/**
+ * 시간순으로 쌓이는 탭(대화·도구 · 감시 로그 · 재시작 로그 · 알림)은 **바닥**에서 시작한다.
+ * 🔴 순서를 뒤집지 않는 대신 스크롤로 최신을 보여준다 — 흐름(대화·회차 덩어리)은 지키고,
+ *   "방금 무슨 일이 있었나"는 열자마자 보이게 한다. 다른 탭은 그대로 위에서 시작한다.
+ */
+const TAIL_TABS = new Set(['tl', 'hb', 'rs', 'al'])
+
 function redrawDetail() {
   const key = `${S.openSession || ''}|${S.tab}`
   const changed = key !== S.lastDetailKey
   S.lastDetailKey = key
-  keepScroll('#dscroll', drawDetail, { toTop: changed })
+  const tail = changed && TAIL_TABS.has(S.tab)
+  keepScroll('#dscroll', drawDetail, { toTop: changed && !tail, toBottom: tail })
 }
 
 
@@ -151,9 +159,11 @@ function drawDetail() {
     now.append(el('div', null, ' '), box)
   }
 
-  /* 타임라인 */
+  /* 타임라인 — **시간순**(최신이 맨 아래). 로그 두 탭과 같은 방향이다(사용자 지시 2026-09-28).
+     🔴 뒤집지 마라. 대화는 앞뒤가 이어지는 흐름이라 거꾸로 놓으면 도구 호출과 그 결과가
+       뒤바뀌어 읽힌다. 최신을 보이게 하는 것은 스크롤이 한다(keepScroll 의 toBottom). */
   const tl = $('#tab-tl'); tl.textContent = ''
-  for (const it of [...d.item].reverse()) {
+  for (const it of d.item) {
     const cls = it.kind === '사용자' ? 'user' : it.kind === '어시스턴트' ? 'asst' : 'tool'
     const w = el('div', 'ti ' + cls)
     const hd = el('div', 'hd')
@@ -183,8 +193,12 @@ function drawDetail() {
   }
   if (!d.item.length) tl.append(el('div', 'empty', '최근 항목이 없다.'))
 
-  /* 로그 */
-  $('#tab-hb').textContent = (d.watchLog || []).join('\n') || '(감시 기록이 없다 — 감시를 켜고 5분 기다리거나 “지금 감시 실행”)'
+  /* 로그 — **시간순**(최신이 맨 아래). 파일에 쌓인 순서 그대로다.
+     🔴 뒤집지 마라 (사용자 지시 2026-09-28). 재시작 로그의 한 회차는 `RUN 시작` · 인자 ·
+       `RUN 끝` · 요약 여러 줄이 이어진 **덩어리**라, 줄을 뒤집으면 요약이 거꾸로 읽힌다.
+       최신을 바로 보이게 하는 것은 순서가 아니라 **스크롤**로 한다(keepScroll 의 toBottom). */
+  $('#tab-hb').textContent = (d.watchLog || []).join('\n')
+    || '(감시 기록이 없다 — 감시를 켜고 5분 기다리거나 “지금 감시 실행”)'
   $('#rsLog').textContent = (d.restartLog || []).join('\n') || '(재시작 기록이 없다)'
   drawGate(s)
 

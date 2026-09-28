@@ -85,13 +85,21 @@ const drawnOnce = new Set()
 /** 시험용 — 첫 렌더 기록을 지운다 */
 export const resetFirstRender = () => drawnOnce.clear()
 
-function keepScroll(sel, redraw, { toTop = false } = {}) {
+/**
+ * @param toBottom 옮겨 온 뒤 **바닥**에서 시작한다 (로그·타임라인).
+ *
+ * 🔴 왜 위가 아니라 바닥인가 — 이 세 탭은 **시간순**이라 최신이 맨 아래에 있다
+ *   (감시 로그·재시작 로그·대화·도구, 사용자 지시 2026-09-28). 위에서 시작하면 열 때마다
+ *   가장 오래된 줄을 보여주고 최신을 보려면 끝까지 내려야 한다 — 재시작 로그는 한 회차가
+ *   수십 줄이라 그 거리가 멀고, 안 읽는 기록은 없는 것과 같다.
+ */
+function keepScroll(sel, redraw, { toTop = false, toBottom = false } = {}) {
   const box = $(sel)
   if (!box) { redraw(); return }
 
   const firstDraw = !drawnOnce.has(sel)
   drawnOnce.add(sel)
-  if (firstDraw) { redraw(); box.scrollTop = 0; return }
+  if (firstDraw) { redraw(); box.scrollTop = toBottom ? box.scrollHeight : 0; return }
 
   const prev = box.scrollTop
   const wasAtBottom = box.scrollHeight - box.clientHeight - prev <= bottomSlack
@@ -99,6 +107,7 @@ function keepScroll(sel, redraw, { toTop = false } = {}) {
   redraw()
 
   // 다른 세션·다른 탭으로 옮겼으면 이전 위치를 되돌리는 게 오히려 이상하다
+  if (toBottom) { box.scrollTop = box.scrollHeight; return }
   if (toTop) { box.scrollTop = 0; return }
 
   // 레이아웃이 확정된 뒤에 되돌린다
