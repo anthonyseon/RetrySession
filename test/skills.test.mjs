@@ -170,6 +170,29 @@ test('🔴 스킬이 적은 트레이 뮤텍스 이름이 tray.ps1 의 것과 �
   }
 })
 
+/**
+ * 🔴 스킬이 가리키는 **절 번호**도 실재해야 한다.
+ *
+ *   실측 (2026-09-28): 표에 `(§8)` · `(§9)` 라고 적었는데 그 스킬에는 7절까지만 있었다.
+ *   파일 이름이 틀리면 따라 하다 막히지만, 절 번호가 틀리면 **찾다가 포기한다** —
+ *   더 조용한 실패다. 파일·명령에 이미 같은 규칙을 걸어 뒀으니 절 번호도 같은 대접을 받는다.
+ */
+test('🔴 스킬이 가리키는 절 번호가 그 문서에 있다', () => {
+  const missing = []
+  for (const s of skills()) {
+    const src = readFileSync(s.path, 'utf8')
+    // 그 문서 안의 제목에서 번호를 모은다: `## 3. …` · `### 3-1. …`
+    const heads = new Set([...src.matchAll(/^#{2,3}\s+([\d-]+)[.\s]/gm)].map((m) => m[1]))
+    for (const m of src.matchAll(/§([\d-]+)/g)) {
+      // 다른 문서(Manual 등)의 절을 가리키는 것은 여기서 판단하지 않는다
+      const sameDoc = !/(Manual|README|CLAUDE)[^§]{0,20}§/.test(src.slice(Math.max(0, m.index - 40), m.index + 2))
+      if (sameDoc && !heads.has(m[1])) missing.push(`${s.name}: §${m[1]}`)
+    }
+  }
+  assert.deepEqual([...new Set(missing)], [],
+    `스킬이 없는 절을 가리킨다 — 읽는 사람은 찾다가 포기한다:\n  ${missing.join('\n  ')}`)
+})
+
 test('🔴 검사기가 헛돌지 않는다 (없는 파일을 넣으면 잡아야 한다)', () => {
   assert.equal(existsSync(join(ROOT, 'src', 'lib', 'nosuch-gate.mjs')), false)
   assert.equal(existsSync(join(ROOT, 'config', 'nosuch.json')), false)
