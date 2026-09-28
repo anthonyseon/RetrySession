@@ -110,3 +110,37 @@ test('🔴 설명서가 말하는 동작줄 결과 문구가 실제 문구와 �
   }
   assert.ok(manual.includes('재시작을 켰습니다'), '설명서에 결과 문구 예시가 있어야 한다')
 })
+
+/**
+ * 🔴 화면에 **새로 생긴 조작**은 설명서에 있어야 한다.
+ *
+ *   실측: 배지 문구를 두 번 고치고 두 번 다 설명서가 뒤처졌다. 조작(드래그 손잡이·
+ *   접기 단추)은 더 나쁘다 — 눌러 볼 생각을 못 하면 있는 기능을 **모르고 지나간다.**
+ *   화면에 그 요소가 있으면 설명서가 그것을 가리켜야 한다.
+ */
+test('🔴 화면의 조작 요소를 설명서가 가리킨다', () => {
+  const html = read('src/ui/index.html')
+  const manual = read('Manual.md')
+  const pairs = [
+    [/id="split"/, ['드래그', '더블클릭'], '너비 조절 손잡이'],
+    [/id="btnSessFold"/, ['접기'], '세션 영역 접기'],
+    [/id="btnSetup"/, ['설정'], 'PC 설정'],
+    [/data-tab="cfg"/, ['재개지시'], '설정 탭'],
+  ]
+  for (const [inHtml, words, what] of pairs) {
+    if (!inHtml.test(html)) continue          // 화면에 없으면 설명할 것도 없다
+    for (const w of words) {
+      assert.ok(manual.includes(w), `설명서가 '${what}' 를 설명하지 않는다 ('${w}' 가 없다)`)
+    }
+  }
+})
+
+test('🔴 설명서가 말하는 최소 너비가 코드의 값과 같다', () => {
+  const layout = read('src/ui/layout.js')
+  const manual = read('Manual.md')
+  const min = /MIN_SESSION\s*=\s*(\d+)/.exec(layout)
+  const minD = /MIN_DETAIL\s*=\s*(\d+)/.exec(layout)
+  assert.ok(min && minD, '최소 너비가 코드에 있어야 한다')
+  assert.ok(manual.includes(`${min[1]}px`), `설명서의 세션 최소 너비가 코드(${min[1]}px)와 다르다`)
+  assert.ok(manual.includes(`${minD[1]}px`), `설명서의 상세 최소 너비가 코드(${minD[1]}px)와 다르다`)
+})
