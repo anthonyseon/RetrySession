@@ -30,7 +30,18 @@ export const GATE = {
  * @param session  세션 집계 {activeMin, openTools, lastKind, stoppedByLimit, stoppedByInterrupt, quota}
  *                 🔴 '사람이 쓰는 중인가' 는 pid 가 아니라 이 값들로 판정한다
  * @param tracker  {exists, error, allDone, doing, nextTodo, doneMark} (없으면 null)
- * @param force    --force 로 부른 것인가 (조용한시간·활동·예산만 건너뛴다)
+ * @param force    `--force` 로 부른 것인가 — **사람이 지금 돌리려고** 줄 때만 참이다.
+ *
+ * 🔴 force 의 계약: **기다리면 풀리는 것만 건너뛴다.** 틀렸을 때 사람을 다치게 하는 것은
+ *   건너뛰지 않는다. (`test/resume-gate.test.mjs` 의 force 표가 단계별로 못박는다.)
+ *
+ *   뚫는다 🔓  off(스위치 꺼짐) · quiet(조용한 시간) · active(방금 활동) ·
+ *             budget(횟수·간격·연속실패·상태 손상) · blocked(회로 차단)
+ *   못 뚫는다 🔒 repo(저장소 잠금·미해결) · gone(집계 없음) · unknown(활동 시각 모름) ·
+ *             busy(일하는 중) · limited(제한 중) · tracker · point · repeated
+ *
+ *   🔴 force 는 **판정만** 건드린다. 세션별 락·프로세스 단일 실행·실행 직전 재판정·
+ *     권한(설정이 정한다)·지시문의 안전 규칙은 force 와 무관하다.
  * @returns {{go:boolean, why:string|null, point:string|null, stage:string|null}}
  */
 export function resumeGate(input) {

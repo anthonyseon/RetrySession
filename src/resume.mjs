@@ -29,7 +29,7 @@
  *   node src/resume.mjs --dry-run    가드만 판정하고 띄우지 않는다 (지시문도 보여준다)
  *   node src/resume.mjs --status     예산·마지막 실행 상태
  *   node src/resume.mjs --rearm      회로 차단·연속실패 해제
- *   node src/resume.mjs --force      조용한시간·활동·예산 무시 (실행 중 확인과 락은 지킨다)
+ *   node src/resume.mjs --force      기다리면 풀리는 것만 건너뛴다 — 아래 계약 참고
  */
 import { localStamp } from './lib/stamp.mjs'
 import { appendLine, appendOrFold } from './lib/io.mjs'
