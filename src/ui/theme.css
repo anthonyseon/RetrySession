@@ -1,0 +1,68 @@
+/**
+ * theme.css — **색만.** 배치·구성요소는 app.css 에 있다.
+ *
+ * 🔴 왜 나눴나 — app.css 가 408줄이 되어 400줄 규칙을 넘겼다. 자를 자리는 여기가
+ *   맞다: 색은 한 덩이로 읽어야 단계(ΔL*)가 눈에 들어오고, 배치를 고치러 온 사람이
+ *   팔레트 60줄을 넘길 이유가 없다.
+ *
+ * 🔴 index.html 이 app.css 보다 **먼저** 부른다. 사용자 정의 속성은 순서와 무관하게
+ *   풀리지만, 읽는 사람에게는 색이 먼저 오는 것이 자연스럽다.
+ */
+/* ── 색: 검증된 기본 팔레트. 상태색은 고정이고 테마를 따르지 않는다.
+      상태색은 반드시 아이콘+라벨과 함께 쓴다 — 색만으로 뜻을 나르지 않는다. ── */
+:root{
+  color-scheme: light;
+  --plane:#f9f9f7; --surface:#fcfcfb; --surface-2:#f2f1ed; --surface-hover:#f7f6f2;
+  --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --base:#c3c2b7; --ring:rgba(11,11,11,.10);
+  --accent:#2a78d6; --accent-track:#cde2fb;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+  --good-ink:#006300; --crit-ink:#d03b3b;
+
+  /* ── 어두운 테마의 값은 **여기 한 번만** 적는다 ──
+     🔴 예전에는 [data-theme="dark"] 와 prefers-color-scheme 블록에 **두 벌** 있었다.
+       한쪽만 고치면 토글로 들어온 사람과 시스템 설정으로 들어온 사람이 다른 화면을
+       보는데 아무도 경고하지 않는다. 값은 하나, 아래 두 블록은 **연결만** 한다.
+
+     🔴 어두운 쪽 단계는 눈금이 아니라 **측정**으로 정했다 (CIE L*, 2026-09-28).
+       예전 값은 머리줄 vs 패널 ΔL* 4.0 · 경계선 vs 머리줄 4.7 로 뭉개져서
+       "기능의 구분이 어렵다"는 말이 나왔다. 지금은 인접한 면이 모두 ΔL* 6 이상이다.
+       ΔL* 는 지각적으로 균일하다 — WCAG 대비율은 어두운 쪽에서 체감과 어긋난다
+       (예전 값의 비율은 밝은 테마와 비슷했는데도 뭉개져 보였다).
+       test/theme.test.mjs 가 이 눈금을 지킨다. */
+  --d-plane:#0d0d0c;          /* L* 3.6  바닥 */
+  --d-surface:#1e1e1d;        /* L* 11.2 패널      (바닥에서 ΔL* 7.6) */
+  --d-surface-2:#2c2c2b;      /* L* 18.0 머리줄·칩 (패널에서 ΔL* 6.7) */
+  --d-surface-hover:#252524;  /* L* 14.5 줄에 마우스를 올렸을 때 — 선택과 달라야 한다 */
+  --d-grid:#3d3d3b;           /* L* 25.7 경계선    (패널 14.5 · 머리줄 7.7) */
+  --d-base:#4e4e4b;           /* L* 33.1 진한 선 */
+  --d-ink:#fff; --d-ink-2:#c3c2b7;
+  --d-muted:#95938c;          /* 칩 위에서 4.54:1 — 예전 #898781 은 3.89 로 AA 미달 */
+  --d-ring:rgba(255,255,255,.14);
+  --d-accent:#3987e5; --d-accent-track:#184f95;
+  --d-good-ink:#0daa0d;
+  --d-crit-ink:#f66060;       /* 🔴 글자용. 칩 위에서 4.50:1 (--crit #d03b3b 은 2.91) */
+}
+
+/* 토글로 고른 어두운 테마. 아래 미디어쿼리 블록과 **같은 줄이어야** 한다 */
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:var(--d-plane); --surface:var(--d-surface); --surface-2:var(--d-surface-2);
+  --surface-hover:var(--d-surface-hover);
+  --ink:var(--d-ink); --ink-2:var(--d-ink-2); --muted:var(--d-muted);
+  --grid:var(--d-grid); --base:var(--d-base); --ring:var(--d-ring);
+  --accent:var(--d-accent); --accent-track:var(--d-accent-track);
+  --good-ink:var(--d-good-ink); --crit-ink:var(--d-crit-ink);
+}
+/* 시스템이 어두운 테마일 때 (사람이 밝게를 고르지 않았다면) */
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --plane:var(--d-plane); --surface:var(--d-surface); --surface-2:var(--d-surface-2);
+    --surface-hover:var(--d-surface-hover);
+    --ink:var(--d-ink); --ink-2:var(--d-ink-2); --muted:var(--d-muted);
+    --grid:var(--d-grid); --base:var(--d-base); --ring:var(--d-ring);
+    --accent:var(--d-accent); --accent-track:var(--d-accent-track);
+    --good-ink:var(--d-good-ink); --crit-ink:var(--d-crit-ink);
+  }
+}
