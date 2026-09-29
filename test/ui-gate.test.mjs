@@ -341,3 +341,39 @@ test('전부 done 이면 «이어서 할 것이 없다» 와 다음 수단을 �
   assert.match(b, /전부 done/)
   assert.match(b, /재개지시를 넣으면 그것이 이깁니다/, '막다른 길로 두지 않는다')
 })
+
+/**
+ * 🔴 사용자 질문 (2026-09-29): 「추적기는 갱신이 안되는가?」
+ *   읽기는 늘 최신인데 **파일이 며칠째 그대로**일 수 있고, 그때 `9/9` 만 보이면 진행 중인
+ *   장부로 읽힌다. 그리고 재개지시로 도는 세션은 지시문에 추적기 규약이 들어가지 않아
+ *   무인 회차가 그 장부를 고치지 않는다 — 둘 다 화면이 말해야 한다.
+ */
+test('🔴 추적기가 며칠째 그대로면 배지와 툴팁이 그렇게 말한다', () => {
+  const s = session({ go: true, point: 'doing 07', why: 'x' })
+  s.tracker = {
+    exists: true, doneMark: '9/9', allDone: true,
+    fileAt: '2026-09-22 08:17:56', fileAgeMin: 7 * 1440 + 30,
+  }
+  drawList(s)
+  const b = [...badgeTitles(), cell.get('slist').textContent].join(' | ')
+  assert.match(b, /7일 그대로/, '며칠째 그대로인지 배지에 보여야 한다')
+  assert.match(b, /마지막 수정: 2026-09-22 08:17:56/, '언제 바뀐 파일인지 말해야 한다')
+  assert.match(b, /읽기만 합니다 — 갱신은 재개된 세션이 합니다/, '누가 고치는지 말해야 한다')
+})
+
+test('🔴 재개지시로 도는 세션에는 «추적기가 갱신되지 않는다» 고 적는다', () => {
+  const s = session({ go: true, point: '재개지시', why: 'x' })
+  s.tracker = { exists: true, doneMark: '9/9', allDone: true, fileAt: '2026-09-22 08:17:56', fileAgeMin: 9999 }
+  drawList(s)
+  const b = badgeTitles().join(' | ')
+  assert.match(b, /재개지시.*로 돕니다/, '지금 무엇으로 도는지 말해야 한다')
+  assert.match(b, /이 장부를 고치지 않습니다/, '왜 안 바뀌는지가 답이다')
+  assert.match(b, /재개지시를 비우세요/, '추적기로 돌리는 방법도 말해야 한다')
+})
+
+test('방금 갱신된 추적기에는 «그대로» 를 적지 않는다 (없는 문제를 만들지 않는다)', () => {
+  const s = session({ go: true, point: 'doing 03', why: 'x' })
+  s.tracker = { exists: true, doneMark: '3/9', allDone: false, doing: { id: '03' }, fileAt: '지금', fileAgeMin: 4 }
+  drawList(s)
+  assert.ok(!/그대로/.test(cell.get('slist').textContent), '배지 글자에 군더더기를 넣지 않는다')
+})

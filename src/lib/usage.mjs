@@ -10,17 +10,14 @@
  * 🔴 파싱이 깨져도 **원문을 함께 돌려준다.** 서식이 바뀌면 숫자는 못 뽑아도 사람은 읽을 수
  *   있어야 한다 — 파싱 실패를 "사용량 0" 으로 보여주는 것이 최악이다.
  */
-import { join } from 'node:path'
-import { readFileSync, mkdirSync } from 'node:fs'
 import { account, claudeUsage } from './cli.mjs'
 import { scanSessions } from './sessions.mjs'
 import { totalCost } from './pricing.mjs'
 import { sumTokens } from './session-fold.mjs'
 import { mergeHours } from './hours.mjs'
-import { learnBaseline, reconcileBaseline, windowViews } from './limit-window.mjs'
+import { joinWindows } from './limit-window.mjs'
+import { officialUsage } from './oauth-usage.mjs'
 import { limitState } from './guard.mjs'
-import { RS_HOME } from './config.mjs'
-import { writeJsonAtomic } from './io.mjs'
 import { localStamp, dayKey } from './stamp.mjs'
 
 /**
@@ -96,42 +93,6 @@ function quotaDetail(quota, now = Date.now()) {
   }
 }
 
-/* ── 창 기준선 (배운 것을 남긴다) ───────────────────────────── */
-
-/**
- * 🔴 기준선은 **기록으로 남는다.** 제한에 걸린 사건은 드물고(며칠에 한 번), 시간 통은
- *   8일치만 들고 있다. 그때 배운 것을 적어 두지 않으면 통이 밀려 나가는 순간 잊고,
- *   화면은 다시 「기준선 없음」으로 돌아간다 — 한 번 안 것을 잊는 것은 결함이다.
- */
-const baselineFile = () => {
-  const d = join(RS_HOME, 'state')
-  mkdirSync(d, { recursive: true })
-  return join(d, 'limits.json')
-}
-
-function loadBaseline() {
-  try { return JSON.parse(readFileSync(baselineFile(), 'utf8')) } catch { return {} }
-}
-
-/** 🔴 쓰기 실패가 보고를 막지 않는다 — 다음 회차에 다시 배운다 */
-function saveBaseline(next) {
-  try { writeJsonAtomic(baselineFile(), next) } catch { /* 기록 실패로 화면을 비우지 않는다 */ }
-}
-
-/**
- * 창 종류별 마지막 제한 기록을 **세션을 넘어** 합친다.
- * 🔴 창은 계정 단위다 — 어느 세션에서 걸렸든 그 사건은 같은 한도의 사건이다.
- */
-function mergeQuotaByType(sessions) {
-  const out = {}
-  for (const s of sessions) {
-    for (const [type, q] of Object.entries(s.quotaByType || {})) {
-      if (!out[type] || (q?._at || 0) >= (out[type]._at || 0)) out[type] = q
-    }
-  }
-  return out
-}
-
 /** 모델별 오늘·누적을 합친다 (세션을 넘어서) */
 function mergeByModel(sessions, pick) {
   const out = {}
@@ -149,7 +110,7 @@ function mergeByModel(sessions, pick) {
  * 화면이 읽는 사용량 보고서.
  * @param fresh `갱신` 을 눌렀을 때 — 캐시를 건너뛰고 지금 값을 읽는다.
  */
-export function usageReport({ fresh = false } = {}) {
+export async function usageReport({ fresh = false } = {}) {
   const ttl = fresh ? 0 : 60000
   const acct = account({ ttlMs: ttl })
   const cli = claudeUsage({ ttlMs: ttl })
@@ -162,20 +123,14 @@ export function usageReport({ fresh = false } = {}) {
   const allCost = totalCost(all)
 
   /**
-   * 굴러가는 창 — 「Session (5hr)」·「Weekly (7 day)」.
-   * 🔴 퍼센트는 **제한에 걸린 사건에서 배운 기준선**이 있을 때만 만든다(limit-window.mjs).
+   * 창 사용률 — 「Session (5hr)」·「Weekly (7 day)」.
+   *
+   * 🔴 **퍼센트는 공식 값이다**(사용자 지적 2026-09-29: 추정값이 실제와 크게 달랐다).
+   *   대화 화면이 쓰는 그 자리에서 받아 온다(`lib/oauth-usage.mjs`). 우리 실측 토큰은
+   *   같은 줄에 **참고**로 붙이고, 둘을 나누지 않는다 — 단위가 다르다.
    */
   const hours = mergeHours(sessions.map((s) => s.hours))
-  const byType = mergeQuotaByType(sessions)
-  /**
-   * 🔴 배우고 **어긋난 것은 고친다.** 제한 사건에서 배운 기준선이 실제와 맞지 않을 수 있다
-   *   (실측: 주간 기준선으로 215% 가 나왔는데 제한에 걸려 있지 않았다 — 기준선이 틀린 것이다).
-   *   「그 창을 넘겼는데 멀쩡하다」는 관측도 증거이므로 그만큼 기준선을 올린다.
-   */
-  const limitedNow = {}
-  for (const [type, q] of Object.entries(byType)) limitedNow[type] = limitState(q).limited
-  const baseline = reconcileBaseline(hours, learnBaseline(hours, byType, loadBaseline()), limitedNow)
-  saveBaseline(baseline)
+  const official = await officialUsage({ fresh })
 
   return {
     at: localStamp(),
@@ -189,10 +144,14 @@ export function usageReport({ fresh = false } = {}) {
     claude: { ok: cli.ok, error: cli.error, ...parseUsageText(cli.text) },
     quota: quotaDetail(scan.quota),
     /**
-     * 🔴 그쪽(`/usage` 화면)의 백분율이 아니다 — 헤드리스로는 그 숫자를 받을 수 없다.
-     *   우리가 잰 창 합이고, 기준선이 없으면 `pct: null` 로 둔다. 화면이 그렇게 말한다.
+     * 공식 사용률 + 우리 실측 토큰. 🔴 받지 못하면 `pct: null` 이고 `officialError` 에
+     *   이유가 남는다 — 실측으로 메우지 않는다(메우면 그게 또 추정이다).
      */
-    limits: windowViews(hours, baseline),
+    limits: joinWindows(official.windows, hours),
+    officialOk: official.ok,
+    officialError: official.error || null,
+    officialAt: official.at,
+    tokenExpiresInMin: official.tokenExpiresInMin ?? null,
     /** 우리 실측 집계. 오늘은 **로컬 자정** 기준이고 언제나 누적 이하다 */
     measured: {
       dayKey: dayKey(),

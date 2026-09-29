@@ -113,6 +113,12 @@ export function sessionView(s, registry, runMap, ideWins = [], procMap = new Map
         exists: true, path: project.tracker, doneMark: t.doneMark, allDone: t.allDone,
         doing: t.doing, nextTodo: t.nextTodo, doingViolations: t.doingViolations,
         nextAction: t.nextAction, error: t.error,
+        /**
+         * 🔴 **언제 바뀐 파일인가.** 읽기는 늘 최신이지만(캐시 없음) 파일 자체가 며칠째
+         *   그대로일 수 있다 — 그러면 `9/9` 가 「진행 중」으로 오해된다. 갱신은 재개된
+         *   세션이 하고, RetrySession 은 이 파일을 쓰지 않는다.
+         */
+        fileAt: t.fileAt || null, fileAgeMin: t.fileAgeMin ?? null,
       }
     } else if (project.tracker) {
       tracker = { exists: false, path: project.tracker, desc: '설정에 경로는 있는데 파일이 없다' }

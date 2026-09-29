@@ -8,7 +8,8 @@
  *   interpret() 는 순수 함수라서 시험할 수 있다. 감시 판정을 손으로 쓰다가
  *   fail-open 으로 9시간 중단을 놓친 실측 사고가 있었다 — 판정 코드는 시험으로 고정한다.
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
+import { localStamp } from './stamp.mjs'
 
 /**
  * 추적기 객체 → 재개에 필요한 요약.
@@ -54,15 +55,28 @@ export function interpret(obj) {
   }
 }
 
-/** 파일에서 읽어 판정한다. 읽기 실패도 판정 결과로 돌려준다(던지지 않는다) */
+/**
+ * 파일에서 읽어 판정한다. 읽기 실패도 판정 결과로 돌려준다(던지지 않는다).
+ *
+ * 🔴 **파일이 언제 바뀌었는지 함께 돌려준다** (사용자 질문 2026-09-29: 「추적기는 갱신이
+ *   안되는가?」). 화면은 이 파일을 3초마다 새로 읽으므로 표시는 늘 최신이다 — 그런데
+ *   `9/9` 만 보여주면 **그 장부가 며칠째 그대로인지** 알 수 없어 「진행 중」으로 읽힌다.
+ *   실측: 설정이 가리키던 추적기는 9/9 done 이고 파일 수정 시각이 7일 전이었다.
+ *   갱신은 재개된 세션이 한다 — RetrySession 은 이 파일을 **쓰지 않는다**(읽기 전용).
+ */
 export function readTracker(path) {
-  let obj
+  let obj, stat = null
   try {
     obj = JSON.parse(readFileSync(path, 'utf8'))
+    stat = statSync(path)
   } catch (e) {
     return { ...interpret(null), error: `추적기를 읽을 수 없다 (${path}): ${e.message}` }
   }
-  return interpret(obj)
+  return {
+    ...interpret(obj),
+    fileAt: localStamp(new Date(stat.mtimeMs)),
+    fileAgeMin: Math.round((Date.now() - stat.mtimeMs) / 60000),
+  }
 }
 
 /**

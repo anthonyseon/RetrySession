@@ -132,16 +132,32 @@ const timeoutBadge = (s) => {
 function trackerBadge(s) {
   const t = s.tracker
   const point = t.doing ? `doing ${t.doing.id}` : t.nextTodo ? `todo ${t.nextTodo.id}` : null
+  /**
+   * 🔴 **얼마나 오래 그대로인지 배지에 적는다** (사용자 질문 2026-09-29: 「추적기는 갱신이
+   *   안되는가?」). 화면은 파일을 3초마다 다시 읽으므로 표시는 최신이다 — 그런데 파일이
+   *   며칠째 그대로일 수 있고, 그때 `9/9` 만 보이면 「지금 진행 중인 장부」로 읽힌다.
+   *   실측: 설정이 가리킨 장부가 9/9 done · 파일 수정 7일 전이었다.
+   */
+  const age = t.fileAgeMin == null ? null
+    : t.fileAgeMin >= 1440 ? `${Math.floor(t.fileAgeMin / 1440)}일 그대로`
+      : t.fileAgeMin >= 60 ? `${Math.floor(t.fileAgeMin / 60)}시간 그대로` : '방금 갱신'
+  /** 재개지시로 도는 세션은 지시문에 추적기 규약이 들어가지 않는다 — 그래서 아무도 안 고친다 */
+  const byPrompt = s.restart?.gate?.point === '재개지시'
   const why = [
     `진행 장부(추적기)입니다 — 재시작이 "무엇을 이어서 할지" 여기서 고릅니다.`,
     `숫자 ${t.doneMark} = 끝난 단계 / 전체 단계 (status 가 done 인 것을 셉니다).`,
+    t.fileAt ? `파일 마지막 수정: ${t.fileAt}${age ? ` (${age})` : ''}` : null,
+    'RetrySession 은 이 파일을 읽기만 합니다 — 갱신은 재개된 세션이 합니다.',
+    byPrompt ? '🔴 지금 이 세션은 **재개지시**로 돕니다. 그 경로의 지시문에는 추적기 규약이'
+      + ' 들어가지 않으므로, 무인 회차가 이 장부를 고치지 않습니다(추적기로 돌리려면 설정 탭의'
+      + ' 재개지시를 비우세요).' : null,
     point ? `지금 재개 지점: ${point}${t.doing?.title ? ` — ${t.doing.title}` : ''}`
       : t.allDone ? '전부 done — 이어서 할 것이 없습니다. 재개지시를 넣으면 그것이 이깁니다.'
         : 'doing 도 todo 도 없습니다 — 재개 지점을 말해주지 않습니다.',
     t.error ? `🔴 읽을 수 없습니다: ${t.error}` : '파일 경로는 상세 → 처리 상황 탭에 있습니다.',
-  ].join('\n')
+  ].filter(Boolean).join('\n')
   return badge(t.allDone ? 'good' : 'off', '▤',
-    `추적기 ${t.doneMark}${t.doing ? ` · doing ${t.doing.id}` : ''}`, why)
+    `추적기 ${t.doneMark}${t.doing ? ` · doing ${t.doing.id}` : ''}${age && t.fileAgeMin >= 1440 ? ` · ${age}` : ''}`, why)
 }
 
 /**

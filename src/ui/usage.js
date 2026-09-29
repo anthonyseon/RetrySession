@@ -100,7 +100,8 @@ function drawUsage() {
 function digestLine(u) {
   const t = u.measured?.today || {}
   const q = u.quota || {}
-  // 🔴 창 사용률을 맨 앞에 — 사람이 가장 먼저 묻는 것이 「얼마나 남았나」다
+  // 🔴 창 사용률을 맨 앞에 — 사람이 가장 먼저 묻는 것이 「얼마나 남았나」다.
+  //   공식 값을 못 받았으면 `?` 다. 실측으로 메운 숫자를 여기 적으면 사람이 그것을 믿는다.
   const wins = (u.limits || []).map((w) => `${w.label} ${w.pct === null ? '?' : w.pct + '%'}`)
   return [
     ...wins,
@@ -112,45 +113,66 @@ function digestLine(u) {
 /* ── 굴러가는 창: Session (5hr) · Weekly (7 day) ─────────────── */
 
 /**
- * 🔴 **이 백분율은 그쪽 숫자가 아니다.** 대화 안의 `/usage` 화면에만 있는 값이고 헤드리스로는
- *   받을 수 없다(기록에도 없다 — `quotaLimits` 에 사용률 칸이 아예 없다). 그래서 우리가 잰
- *   창 합을, **제한에 실제로 걸린 순간**의 같은 창(=100%)으로 나눈다.
+ * 🔴 **백분율은 공식 값이다** (사용자 지적 2026-09-29).
+ *   예전에는 우리 실측을 «제한에 걸린 창» 으로 나눠 추정했는데, 사용자가 대화 안 `/usage`
+ *   에서 본 `Session 7% · Weekly 40%` 와 달리 화면은 100% 를 보여줬다. 한도의 단위도 창의
+ *   시작점도 우리가 모르니 추정으로는 맞출 수 없다. 그래서 대화 화면이 쓰는 그 자리에서
+ *   받아 온다(`lib/oauth-usage.mjs`).
  *
- * 🔴 기준선이 없으면 퍼센트를 **만들지 않는다.** 분모를 지어내면 「여유 있다」가 거짓이 되고
- *   사람이 그 숫자로 일을 계획한다. 그때는 절대량과 «왜 없는지» 만 적는다.
+ * 🔴 받지 못하면 **숫자를 만들지 않는다.** 실측 토큰으로 메우면 그게 다시 추정이다.
+ *   그 자리에는 «받지 못했다 + 이유» 를 적고, 사람이 `/usage` 로 직접 볼 수 있게 말한다.
  *
- * 🔴 그리고 이 값은 **최소값**이다 — 우리 실측은 이 기계의 로컬 세션만 본다.
+ * 🔴 색은 **그쪽이 준 severity** 를 먼저 따르고, 없으면 퍼센트로 정한다 — 경고의 기준을
+ *   우리가 새로 발명하지 않는다.
  */
 function limitsBlock(u) {
   const list = u.limits || []
   if (!list.length) return []
-  const out = [el('h3', null, '창 사용률 (우리 실측 기준)')]
+  const out = [el('h3', null, '창 사용률 (Claude 공식 값)')]
+  if (u.officialError) {
+    out.push(el('div', 'warnbox', `▲ 공식 사용률을 받지 못했습니다 — ${u.officialError}`))
+    out.push(el('div', 'note', '아래 토큰은 우리 실측입니다. 정확한 퍼센트는 대화 안에서 `/usage` 로 볼 수 있습니다.'))
+  }
   for (const w of list) {
     /**
-     * 🔴 **기준선의 출처가 백분율의 뜻을 바꾼다.**
-     *   `제한에 걸린 창` → 한도에 가까운 값이므로 70·90% 에서 색이 바뀌어야 한다.
-     *   `제한 없이 넘긴 최대 창` → 한도가 아니라 **우리 최고 기록**이다. 100% 라도 위험이
-     *     아니므로 경고색을 주지 않는다 — 여기에 빨강을 쓰면 늑대를 외치는 것이다.
+     * 🔴 **그쪽이 severity 를 주면 그것을 따른다** — 값이 `normal` 이어도 그렇다.
+     *   퍼센트로 우리가 다시 판정하면(예: 95% 니까 빨강) 그쪽이 «괜찮다» 고 한 것을
+     *   우리가 «위험» 이라 부르는 셈이다. 우리 기준을 그쪽 기준 위에 얹지 않는다.
+     *   severity 가 아예 없을 때만 퍼센트로 정한다(그때는 우리밖에 판정할 사람이 없다).
      */
-    const soft = w.baseline?.source === 'survived'
-    const tone = w.pct === null ? ' unknown' : soft ? '' : w.pct >= 90 ? ' crit' : w.pct >= 70 ? ' warn' : ''
+    const tone = w.pct === null ? ' unknown'
+      : w.severity ? (w.severity === 'critical' ? ' crit' : w.severity === 'warning' ? ' warn' : '')
+        : w.pct >= 90 ? ' crit' : w.pct >= 70 ? ' warn' : ''
     const row = el('div', 'urow wlimit')
     row.append(el('b', null, w.label))
-    row.append(el('span', 'wpct' + tone,
-      w.pct === null ? '기준선 없음' : soft ? `${w.pct}% · 우리가 본 최대치` : `${w.pct}% 이상`))
-    row.append(el('span', 'muted', `토큰 ${compact(w.tokens)}`
-      + (w.baseline ? ` / 기준선 ${compact(w.baseline.tokens)} (${w.baseline.from})` : '')
-      + ` · ${w.windowFrom} ~ ${w.windowTo}`))
-    row.title = w.why
+    row.append(el('span', 'wpct' + tone, w.pct === null ? '받지 못함' : `${w.pct}%`))
+    const bits = []
+    if (w.resetsAt) bits.push(`${w.resetsAt} 초기화` + (w.resetsInMin != null ? ` (${fmtLeft(w.resetsInMin)})` : ''))
+    if (w.measured) bits.push(`우리 실측 토큰 ${compact(w.measured.tokens)} (참고 · 굴러가는 창)`)
+    if (w.lockedReason) bits.push(`🔴 ${w.lockedReason}`)
+    row.append(el('span', 'muted', bits.join(' · ')))
+    row.title = w.pct === null
+      ? '공식 사용률을 받지 못했습니다 — 옆의 토큰은 우리 실측이고 퍼센트의 분자가 아닙니다.'
+      : `Claude 계정의 공식 사용률입니다(대화 안 /usage 와 같은 값). 옆의 토큰은 우리가 센 것이고 단위가 달라 나누지 않습니다.`
     out.push(row)
     if (w.pct !== null) {
       const m = el('div', 'meter' + tone)
       const i = el('i'); i.style.width = Math.min(100, w.pct) + '%'
       m.append(i); out.push(m)
     }
-    out.push(el('div', 'note', w.why))
   }
+  out.push(el('div', 'note',
+    '퍼센트와 초기화 시각은 **Claude 계정의 공식 값**입니다(로그인된 계정으로 읽습니다). '
+    + '토큰은 우리가 트랜스크립트에서 센 값이고 이 기계의 세션만 봅니다 — 둘은 단위가 달라 나누지 않습니다.'))
   return out
+}
+
+/** 남은 시간을 사람 말로 — 분이 6110 이면 「4일 5시간」이 읽힌다 */
+function fmtLeft(min) {
+  if (min < 0) return '지났습니다'
+  if (min < 60) return `${min}분 뒤`
+  const h = Math.floor(min / 60), d = Math.floor(h / 24)
+  return d > 0 ? `${d}일 ${h % 24}시간 뒤` : `${h}시간 ${min % 60}분 뒤`
 }
 
 function accountBlock(u) {

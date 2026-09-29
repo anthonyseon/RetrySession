@@ -88,7 +88,10 @@ function drawDetail() {
     const t2 = el('dl', 'kv')
     const kv2 = (k, v) => { t2.append(el('dt', null, k), el('dd', null, v ?? '-')) }
     // 🔴 숫자의 뜻을 **화면에** 적는다 — `9/9` 만 있으면 아는 사람만 읽는다(사용자 지적)
-    kv2('추적기', `${d.restart?.trackerFile || ''} · 단계 ${d.tracker.doneMark} 완료 (끝난 단계/전체 단계)`)
+    //   그리고 **언제 바뀐 파일인지**도 적는다. 우리는 읽기만 하고, 갱신은 세션이 한다.
+    kv2('추적기', `${d.restart?.trackerFile || ''} · 단계 ${d.tracker.doneMark} 완료 (끝난 단계/전체 단계)`
+      + (d.tracker.fileAt ? `\n마지막 수정 ${d.tracker.fileAt}` : '')
+      + (d.tracker.fileAgeMin >= 1440 ? ` — ${Math.floor(d.tracker.fileAgeMin / 1440)}일 그대로 (갱신은 재개된 세션이 합니다)` : ''))
     kv2('재개 지점', d.tracker.doing ? `doing ${d.tracker.doing.id} — ${d.tracker.doing.title || ''}`
       : d.tracker.nextTodo ? `todo ${d.tracker.nextTodo.id} — ${d.tracker.nextTodo.title || ''}`
       : d.tracker.allDone ? '전부 done — 재개할 것이 없다' : '없음')

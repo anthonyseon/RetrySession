@@ -161,7 +161,8 @@ const server = createServer(async (req, res) => {
      */
     if (req.method === 'GET' && p === '/api/usage') {
       const fresh = new URL(req.url, 'http://x').searchParams.get('fresh') === '1'
-      return json(res, 200, usageReport({ fresh }))
+      // 🔴 공식 사용률은 그물을 타므로 기다린다(await) — 안 기다리면 화면이 빈 약속을 받는다
+      return json(res, 200, await usageReport({ fresh }))
     }
 
     // 트레이 전용 — 키가 전부 ASCII 다 (scripts/tray.ps1 이 ANSI 로 읽히기 때문)

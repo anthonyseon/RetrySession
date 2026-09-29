@@ -66,23 +66,22 @@ const report = (over = {}) => ({
     costNote: '정가 환산 참고값 — 구독(max)이므로 실제 청구액이 아니다',
   },
   /**
-   * 굴러가는 창. 🔴 하나는 기준선이 **있고** 하나는 **없다** — 두 경우가 화면에서
-   *   확실히 달라야 한다(없는 것을 0% 로 그리면 「여유 있다」는 거짓이 된다).
+   * 창 사용률 — **공식 퍼센트 + 우리 실측 토큰**(실측 응답 모양, 2026-09-29).
+   * 🔴 퍼센트는 그쪽 값이고 토큰은 우리 값이다. 화면이 둘을 나누면 안 된다.
    */
   limits: [
     {
-      key: 'session5h', label: 'Session (5hr)', tokens: 229_089_341,
-      windowFrom: '2026-09-29 04:31:07', windowTo: '2026-09-29 09:31:07',
-      pct: 28, baseline: { tokens: 830_088_952, at: '2026-09-28 17:19:01' },
-      why: '우리 실측 ÷ 기준선(2026-09-28 17:19:01 에 제한에 걸렸을 때의 같은 창) — 다른 기기·claude.ai 사용은 안 보이므로 **최소값**입니다.',
+      key: 'session5h', label: 'Session (5hr)', pct: 9,
+      resetsAt: '2026-09-29 17:59:59', resetsInMin: 290, severity: 'normal', lockedReason: null,
+      measured: { tokens: 664_000_000, windowFrom: '2026-09-29 04:31:07', windowTo: '2026-09-29 09:31:07' },
     },
     {
-      key: 'weekly7d', label: 'Weekly (7 day)', tokens: 3_549_299_096,
-      windowFrom: '2026-09-22 09:31:07', windowTo: '2026-09-29 09:31:07',
-      pct: null, baseline: null,
-      why: '기준선이 없습니다 — Weekly (7 day) 한도에 실제로 걸린 기록이 있어야 % 를 셀 수 있습니다(그 순간이 100% 입니다). 지금은 실측 절대량만 보여줍니다.',
+      key: 'weekly7d', label: 'Weekly (7 day)', pct: 41,
+      resetsAt: '2026-10-03 18:59:59', resetsInMin: 6110, severity: 'normal', lockedReason: null,
+      measured: { tokens: 3_745_000_000, windowFrom: '2026-09-22 09:31:07', windowTo: '2026-09-29 09:31:07' },
     },
   ],
+  officialOk: true, officialError: null, officialAt: '2026-09-29 10:43:27', tokenExpiresInMin: 205,
   ...over,
 })
 
@@ -132,35 +131,59 @@ test('🔴 펼치면 한 번 읽고, 다시 펼쳐도 또 읽지 않는다', asy
  *   요청 수(Last 24h)는 본문으로 내렸다 — 한 줄에 다 넣으면 아무것도 읽히지 않는다.
  */
 test('접힌 줄에 창 사용률·오늘 몫·제한 상태가 적힌다 (곁눈질로 보는 자리다)', () => {
-  assert.match(digest(), /Session \(5hr\) 28%/, '5시간 창 사용률이 맨 앞이어야 한다')
-  assert.match(digest(), /Weekly \(7 day\) \?/, '🔴 모르는 것은 «?» 다 — 0% 로 적으면 거짓이다')
+  assert.match(digest(), /Session \(5hr\) 9%/, '5시간 창 사용률이 맨 앞이어야 한다')
+  assert.match(digest(), /Weekly \(7 day\) 41%/, '주간도 함께 — 공식 값이다')
   assert.match(digest(), /오늘 토큰 1\.8B/, '오늘 토큰을 적어야 한다')
   assert.match(digest(), /\$1261\.66/, '오늘 정가를 적어야 한다')
   assert.match(digest(), /제한 없음/, '제한 상태가 없으면 이 패널의 쓸모가 반으로 준다')
 })
 
-/* ── 창 사용률: 기준선이 있을 때와 없을 때 ──────────────────── */
+/* ── 창 사용률: 공식 값을 그대로 ────────────────────────────── */
 
-test('🔴 기준선이 있으면 % 와 막대를 그린다 — 다만 «이상» 이라고 적는다(최소값이다)', () => {
-  assert.match(text(), /창 사용률 \(우리 실측 기준\)/, '그쪽 숫자가 아니라는 것이 제목에 있어야 한다')
+/**
+ * 🔴 실측 결함 (사용자 지적 2026-09-29): 우리가 추정한 퍼센트가 실제와 크게 달랐다 —
+ *   `/usage` 는 `Session 7% · Weekly 40%`, 우리 화면은 **100%**. 지금은 공식 값을 받아 쓴다.
+ *   화면이 지켜야 하는 것: ① 그쪽 숫자를 그대로 ② 초기화 시각을 사람 말로
+ *   ③ 우리 실측 토큰은 **참고**라고 적기(퍼센트의 분자가 아니다).
+ */
+test('🔴 공식 퍼센트를 그대로 적고, 우리 실측은 «참고» 라고 말한다', () => {
+  assert.match(text(), /창 사용률 \(Claude 공식 값\)/, '출처가 제목에 있어야 한다')
   assert.match(text(), /Session \(5hr\)/, '그쪽에서 본 이름 그대로 적는다 — 사람이 찾을 수 있게')
-  assert.match(text(), /28% 이상/, '우리 실측은 로컬 세션만 본다 — 최소값임을 글자로 적는다')
-  assert.match(text(), /기준선 830\.1M/, '분모를 보여줘야 사람이 그 숫자를 의심할 수 있다')
-  assert.equal(body().querySelectorAll('div.meter').length, 1,
-    '기준선이 있는 창만 막대를 그린다 (둘 중 하나는 기준선이 없다)')
+  const pcts = body().querySelectorAll('span.wpct').map((x) => x.textContent)
+  assert.deepEqual(pcts, ['9%', '41%'], '숫자에 군더더기를 붙이지 않는다(추정이 아니다)')
+  assert.match(text(), /우리 실측 토큰 664.0M \(참고 · 굴러가는 창\)/, '단위가 달라 나누지 않는다고 말해야 한다')
+  assert.match(text(), /단위가 달라 나누지 않습니다/, '왜 나누지 않는지 적어야 한다')
+  assert.equal(body().querySelectorAll('div.meter').length, 2, '공식 값이 있는 창마다 막대를 그린다')
 })
 
-test('🔴 기준선이 없으면 % 를 만들지 않는다 (분모를 지어내면 「여유 있다」가 거짓이 된다)', () => {
-  assert.match(text(), /Weekly \(7 day\)/)
-  assert.match(text(), /기준선 없음/, '빈칸은 고장으로 읽힌다 — 모른다고 말해야 한다')
-  assert.match(text(), /한도에 실제로 걸린 기록이 있어야/, '왜 없는지·어떻게 생기는지 적어야 한다')
-  assert.match(text(), /토큰 3\.5B/, '% 가 없어도 **절대량**은 보여줘야 한다')
-  // 🔴 그 자리에 **숫자를 넣지 않는다.** 본문 전체로 `0%` 를 찾으면 설명의 «100%» 에
-  //   걸리므로(실제로 걸렸다) 그 창의 칸을 직접 본다 — 검사기는 정확한 자리를 봐야 한다.
+test('초기화 시각을 사람 말로 적는다 (6110분이 아니라 «4일 5시간 뒤»)', () => {
+  assert.match(text(), /2026-09-29 17:59:59 초기화 \(4시간 50분 뒤\)/, '5시간 창')
+  assert.match(text(), /2026-10-03 18:59:59 초기화 \(4일 5시간 뒤\)/, '주간 창')
+})
+
+test('🔴 공식 값을 못 받으면 «받지 못함» 이라 적고 이유를 보여준다 (실측으로 메우지 않는다)', async () => {
+  reply = {
+    ok: true,
+    body: report({
+      officialOk: false,
+      officialError: '계정 토큰이 거부됐습니다(401) — Claude Code 를 한 번 열면 갱신됩니다',
+      limits: [{
+        key: 'session5h', label: 'Session (5hr)', pct: null, resetsAt: null, resetsInMin: null,
+        severity: null, lockedReason: null,
+        measured: { tokens: 664_000_000, windowFrom: 'x', windowTo: 'y' },
+      }],
+    }),
+  }
+  await press()
+  assert.match(text(), /공식 사용률을 받지 못했습니다/, '무엇이 안 됐는지 말해야 한다')
+  assert.match(text(), /401/, '이유를 그대로 남긴다')
+  assert.match(text(), /`\/usage` 로 볼 수 있습니다/, '사람이 직접 볼 길을 알려줘야 한다')
   const pcts = body().querySelectorAll('span.wpct')
-  assert.equal(pcts.length, 2, '창마다 한 칸씩 있어야 한다')
-  assert.match(pcts[1].textContent, /기준선 없음/, '모르는 창에 숫자를 적으면 안 된다')
-  assert.ok(!/%/.test(pcts[1].textContent), `퍼센트 기호조차 없어야 한다: ${pcts[1].textContent}`)
+  assert.match(pcts[0].textContent, /받지 못함/)
+  assert.ok(!/%/.test(pcts[0].textContent), `퍼센트 기호조차 없어야 한다: ${pcts[0].textContent}`)
+  assert.equal(body().querySelectorAll('div.meter').length, 0, '모르는 값에 막대를 그리면 0% 로 읽힌다')
+  assert.match(text(), /우리 실측 토큰 664.0M/, '실측은 그대로 보여준다(그건 우리가 아는 값이다)')
+  assert.match(digest(), /Session \(5hr\) \?/, '접힌 줄에서도 «?» 다')
 })
 
 test('세 출처를 갈라서 그린다 — 근사값(/usage) · 관측 기록(제한) · 우리 실측', () => {
@@ -187,9 +210,11 @@ test('모델별은 오늘·누적을 한 줄에 두고, 둘 다 0 인 모델은 
 
 test('🔴 갱신 단추는 fresh=1 로 읽는다 (서버 캐시를 건너뛴다)', async () => {
   reply = { ok: true, body: report({ fresh: true }) }
+  // 🔴 절대 호출 수로 세지 않는다 — 앞에 시험을 하나 끼우면 깨지는 시험은 계약을 지키지 못한다
+  const before = calls.length
   await press()
-  assert.equal(calls.length, 2, '누르면 다시 읽어야 한다')
-  assert.equal(calls[1], '/api/usage?fresh=1', '캐시를 건너뛰지 않으면 «갱신» 이 거짓말이 된다')
+  assert.equal(calls.length, before + 1, '누르면 다시 읽어야 한다')
+  assert.equal(calls.at(-1), '/api/usage?fresh=1', '캐시를 건너뛰지 않으면 «갱신» 이 거짓말이 된다')
   assert.match(at(), /지금 읽은 값/, '지금 값인지 캐시인지 말해야 한다')
 })
 
@@ -257,25 +282,34 @@ test('제한 기록이 아예 없을 때 «0» 이 아니라 «기록 없음» �
  *   그때 100% 는 «한도에 닿았다» 가 아니라 «우리 최고 기록» 이다. 화면이 그렇게 말해야 하고,
  *   **경고색을 주면 안 된다** — 위험이 아닌 것에 빨강을 쓰면 진짜 경고가 묻힌다.
  */
-test('🔴 «제한 없이 넘긴 최대» 기준선은 100% 라도 경고가 아니다 (말로도 구별한다)', async () => {
+/**
+ * 🔴 색의 기준을 **우리가 발명하지 않는다.** 그쪽이 `severity` 를 함께 주므로 그것을 따르고,
+ *   없을 때만 퍼센트로 정한다(70·90%). 위험하지 않은 것에 빨강을 쓰면 진짜 경고가 묻힌다 —
+ *   이 저장소가 반복해 고쳐 온 부류다.
+ */
+test('🔴 색은 그쪽이 준 severity 를 따른다 (경고 기준을 우리가 새로 만들지 않는다)', async () => {
   reply = {
     ok: true,
     body: report({
-      limits: [{
-        key: 'weekly7d', label: 'Weekly (7 day)', tokens: 3_689_000_000,
-        windowFrom: '2026-09-22 10:43:27', windowTo: '2026-09-29 10:43:27',
-        pct: 100,
-        baseline: { tokens: 3_689_000_000, at: '2026-09-29 10:43:27', source: 'survived', from: '제한 없이 넘긴 최대 창' },
-        why: '기준선은 2026-09-29 10:43:27 까지 **제한 없이 넘긴 가장 큰 창**입니다 — 한도는 그보다 높습니다. 100% 라도 한도에 닿았다는 뜻이 아닙니다.',
-      }],
+      limits: [
+        { key: 'session5h', label: 'Session (5hr)', pct: 12, resetsAt: null, resetsInMin: null, severity: 'critical', lockedReason: null, measured: null },
+        { key: 'weekly7d', label: 'Weekly (7 day)', pct: 95, resetsAt: null, resetsInMin: null, severity: 'normal', lockedReason: null, measured: null },
+      ],
     }),
   }
   await press()
-  assert.match(text(), /100% · 우리가 본 최대치/, '숫자만 두면 «한도 도달» 로 읽힌다')
-  assert.match(text(), /제한 없이 넘긴 최대 창/, '분모가 무엇인지 적어야 한다')
-  assert.match(text(), /한도에 닿았다는 뜻이 아닙니다/, '오해를 그 자리에서 막는다')
-  const pct = body().querySelectorAll('span.wpct')[0]
-  assert.ok(!/crit|warn/.test(String(pct.className)), `경고색을 주면 안 된다: ${pct.className}`)
-  const bar = body().querySelectorAll('div.meter')[0]
-  assert.ok(!/crit|warn/.test(String(bar.className)), `막대도 경고색이면 안 된다: ${bar.className}`)
+  const [a, b] = body().querySelectorAll('span.wpct')
+  assert.match(String(a.className), /crit/, '12% 여도 그쪽이 critical 이라면 critical 이다')
+  assert.ok(!/crit|warn/.test(String(b.className)), '95% 여도 그쪽이 normal 이라면 경고색을 주지 않는다')
+})
+
+test('제한이 잠긴 이유가 오면 그대로 보여준다 (우리가 고칠 수 없는 것은 그쪽 말을 옮긴다)', async () => {
+  reply = {
+    ok: true,
+    body: report({
+      limits: [{ key: 'session5h', label: 'Session (5hr)', pct: 100, resetsAt: null, resetsInMin: null, severity: 'critical', lockedReason: 'usage_limit_reached', measured: null }],
+    }),
+  }
+  await press()
+  assert.match(text(), /usage_limit_reached/)
 })

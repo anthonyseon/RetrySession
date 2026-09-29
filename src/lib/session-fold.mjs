@@ -33,8 +33,6 @@ export const emptyTotals = (sessionId, slug) => ({
   toolResults: 0,
   byModel: {},
   quota: null,
-  /** 창 종류별 마지막 제한 기록 — `{ five_hour: {...}, seven_day: {...} }`. 기준선을 배우는 자리 */
-  quotaByType: {},
   /**
    * 🔴 이 세션이 **사용량 제한에 잘려서** 멈췄는가.
    *
@@ -331,21 +329,6 @@ export function foldEntry(acc, j) {
   const q = findQuota(j)
   if (q && (acc.quota === null || (Number.isFinite(ts) && ts >= (acc.quota._at || 0)))) {
     acc.quota = { ...q, _at: Number.isFinite(ts) ? ts : Date.now() }
-  }
-  /**
-   * 🔴 **창 종류별로도 따로 남긴다** (실측 결함 2026-09-29).
-   *
-   *   `acc.quota` 는 «가장 최근 한 건» 이다 — 지금 걸려 있나를 묻는 자리라 그게 맞다.
-   *   그런데 창 사용률의 **기준선**은 종류마다 필요하다. 이 기계의 기록에는
-   *   `five_hour` 172건과 `seven_day` 7건이 있었는데(전수 확인), 최근 것만 남기니
-   *   seven_day 사건이 전부 five_hour 에 덮여 **주간 사용률이 영원히 「기준선 없음」** 이었다.
-   *   사용자가 「weekly 가 왜 안 나오나」라고 물은 것이 이것이다.
-   */
-  if (q?.rateLimitType) {
-    if (!acc.quotaByType) acc.quotaByType = {}
-    const cur = acc.quotaByType[q.rateLimitType]
-    const at = Number.isFinite(ts) ? ts : Date.now()
-    if (!cur || at >= (cur._at || 0)) acc.quotaByType[q.rateLimitType] = { ...q, _at: at }
   }
   return acc
 }

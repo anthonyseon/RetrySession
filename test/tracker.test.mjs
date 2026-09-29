@@ -6,7 +6,10 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { interpret, resumePrompt } from '../src/lib/tracker.mjs'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { interpret, resumePrompt, readTracker } from '../src/lib/tracker.mjs'
 
 const tracker = (steps, extra = {}) => ({
   _resumeContract: "status가 'doing'인 항목이 중단 지점이다.",
@@ -106,4 +109,31 @@ test('지시문 — doing 이 없으면 첫 todo 를 지점으로 말한다', ()
 test('지시문 — 추적기에 규약이 없으면 기본 규약을 넣는다', () => {
   const t = interpret({ steps: [{ id: 'A', status: 'doing' }] })
   assert.match(resumePrompt(t, { tracker: 't.json' }), /doing은 한 번에 하나만/)
+})
+
+/* ── 파일이 언제 바뀌었나 ───────────────────────────────────── */
+
+/**
+ * 🔴 사용자 질문 (2026-09-29): 「추적기는 갱신이 안되는가?」
+ *
+ *   읽기는 캐시가 없어 늘 최신이다(3초마다 파일을 새로 읽는다). 그런데 **파일 자체가
+ *   며칠째 그대로일 수 있다** — 실측으로 설정이 가리킨 장부가 9/9 done 이고 파일 수정
+ *   시각이 7일 전이었다. 그때 화면에 `9/9` 만 있으면 「지금 진행 중인 장부」로 읽힌다.
+ *   RetrySession 은 이 파일을 **쓰지 않는다**(읽기 전용) — 갱신은 재개된 세션이 한다.
+ *   그러니 최소한 «언제 바뀐 파일인가» 는 말해야 한다.
+ */
+test('🔴 읽을 때 파일의 수정 시각과 나이를 함께 돌려준다', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rs-tracker-age-'))
+  const p = join(dir, 't.json')
+  writeFileSync(p, JSON.stringify({ steps: [{ id: '1', status: 'done' }] }), 'utf8')
+  const t = readTracker(p)
+  assert.match(t.fileAt, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, '사람이 읽는 시각이어야 한다')
+  assert.ok(t.fileAgeMin >= 0 && t.fileAgeMin < 5, `방금 쓴 파일인데 ${t.fileAgeMin}분이라고 한다`)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('읽지 못한 경우에도 던지지 않는다 (나이를 몰라도 판정은 돌려준다)', () => {
+  const t = readTracker(join(tmpdir(), '없는파일-rs.json'))
+  assert.match(t.error, /읽을 수 없다/)
+  assert.equal(t.fileAt, undefined, '모르는 것을 지어내지 않는다')
 })
