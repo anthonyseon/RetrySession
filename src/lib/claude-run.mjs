@@ -106,7 +106,7 @@ export function runClaude({ sessionId, cwd, prompt, cfg, addDirs }) {
         spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
       } catch { /* 이미 죽었으면 됐다 */ }
       try { child.kill() } catch { /* 위와 같다 */ }
-    }, (cfg.timeoutMin ?? 30) * 60_000)
+    }, (cfg.timeoutMin ?? 60) * 60_000)
 
     const end = (code) => {
       clearTimeout(timer)

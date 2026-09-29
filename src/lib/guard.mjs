@@ -241,7 +241,20 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
    *   '제한' 은 옛 기록에 남아 있는 한글 값이다 — 읽을 때만 받아 준다(기록을 버리지 않는다).
    *   'auth' 는 차단하지 않는 대신 **경보로 올린다**(isAuthFailure 의 주석 참고).
    */
-  const notOurFault = result === 'limited' || result === '제한' || result === 'overload' || result === 'auth'
+  /**
+   * 🔴 **타임아웃도 우리 실패로 세지 않는다** (실측 2026-09-28).
+   *
+   *   `timeout · 1801초 · $0` 세 회차가 연속 3회로 회로를 차단했다. 그런데 트랜스크립트를
+   *   재 보니 세 회차 모두 **kill 직전까지 초 단위로 도구가 돌고 있었다**
+   *   (도구 56·58·75회 · 캐시읽기 56.7M·58.7M·102.4M — 같은 방법으로 잰 성공 회차의
+   *   1.5~3배다). 멈춘 것이 아니라 **일이 30분보다 길었던 것**이고, 그날 가장 많이 일한
+   *   회차들이 도구를 멈춰 세운 셈이다. 우리 인내심이 짧은 것을 고장으로 셀 수 없다.
+   *
+   *   대신 **세어서 말한다** — `timeoutByDay` 를 올리고 잦아지면 경보로 띄운다(alerts.mjs).
+   *   한 회차가 타임아웃분을 통째로 먹으므로 과부하보다 **적은 횟수에서** 말해야 한다.
+   */
+  const notOurFault = result === 'limited' || result === '제한' || result === 'overload'
+    || result === 'auth' || result === 'timeout'
   const failStreak = okCount ? 0 : notOurFault ? (state.failStreak || 0) : (state.failStreak || 0) + 1
   const limit = cfg.failStreakMax ?? 3
   const prevCost = (state.costByDay || {})[today] || 0
@@ -268,10 +281,24 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
     costByDay: { ...(state.costByDay || {}), [today]: +(prevCost + (costUSD || 0)).toFixed(4) },
     overloadByDay: bump(state.overloadByDay, result === 'overload'),
     authByDay: bump(state.authByDay, result === 'auth'),
+    timeoutByDay: bump(state.timeoutByDay, result === 'timeout'),
     failStreak,
+    /**
+     * 🔴 **성공하면 차단을 푼다** (실측 결함 2026-09-29).
+     *
+     *   차단은 «고칠 때까지 멈춰라»는 표시다. 그런데 예전에는 성공해도 `state.blocked` 를
+     *   그대로 물려받아, `ok · 590초 · 턴 17` 로 끝낸 다음에도 `차단 🔴 연속 3회 실패` 가
+     *   남아 있었다 — 그 뒤의 예약 회차는 전부 `회로 차단됨` 으로 건너뛴다. 사람이
+     *   `--rearm` 을 해줄 때까지 **증명된 멀쩡한 도구가 조용히 죽어 있는 것**이고,
+     *   이 저장소가 가장 여러 번 다친 방식이 바로 그것이다.
+     *
+     *   🔴 fail-open 이 아니다. 차단 중에는 예약 회차가 아예 안 도므로(판정이 막는다),
+     *   차단 상태에서 성공할 수 있는 것은 **사람이 띄운 회차**(`--now`·`--force`)뿐이다.
+     *   그 성공은 사람이 지켜보며 얻은 증거이니 `--rearm` 을 손으로 누르는 것과 같다.
+     */
     blocked: failStreak >= limit
       ? { at: localStamp(new Date(now)), reason: `연속 ${failStreak}회 실패` }
-      : state.blocked || null,
+      : okCount ? null : state.blocked || null,
   }
   delete next.corrupt // 정상 기록에 성공했으므로 손상 표시는 지운다
   return next

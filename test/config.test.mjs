@@ -149,3 +149,45 @@ test('🔴 설정에만 있고 아무도 안 부르는 문구가 없다 (걷어�
   assert.deepEqual(unused, [],
     `아무도 안 부르는 문구가 남아 있다 — 그 기능이 살아 있는 것처럼 보인다:\n  ${unused.join(', ')}`)
 })
+
+/* ── 값들끼리 앞뒤가 맞는가 ─────────────────────────────────── */
+
+/**
+ * 🔴 **락이 회차보다 먼저 낡으면 안 된다.**
+ *
+ *   `timeoutMin` 을 30 → 60 으로 올렸을 때(2026-09-29) `lockStaleMin` 은 60 이었다.
+ *   그러면 60분째에 도는 회차의 락이 «낡았다» 로 회수되고 **두 번째 재개가 같은 세션에
+ *   들어온다** — 두 회차가 같은 워킹트리를 고치면 서로의 편집을 덮어쓴다.
+ *   한 값을 올리면 다른 값이 따라와야 하는 관계는 사람 기억이 아니라 시험이 지켜야 한다.
+ */
+test('🔴 lockStaleMin 은 timeoutMin 보다 크다 (도는 회차의 락을 회수하면 중복이 된다)', () => {
+  const r = conf('projects.json').defaults.resume
+  assert.ok(r.lockStaleMin > r.timeoutMin,
+    `락 낡음 ${r.lockStaleMin}분 ≤ 회차 시간 ${r.timeoutMin}분 — 도는 회차의 락을 빼앗는다`)
+})
+
+/**
+ * 🔴 프로세스 단일 실행의 낡음 한계도 한 회차보다 길어야 한다.
+ *   짧으면 도는 재개를 «죽은 것» 으로 보고 두 번째 프로세스가 뜬다.
+ */
+test('🔴 재개 프로세스의 낡음 한계도 회차 시간보다 크다', () => {
+  const r = conf('projects.json').defaults.resume
+  const m = /singleInstance\('resume', \{ staleMin: (\d+) \}\)/.exec(
+    readFileSync(join(ROOT, 'src', 'resume.mjs'), 'utf8'))
+  assert.ok(m, 'singleInstance 호출을 못 찾았다')
+  assert.ok(Number(m[1]) > r.timeoutMin, `단일 실행 낡음 ${m[1]}분 ≤ 회차 ${r.timeoutMin}분`)
+})
+
+test('🔴 판정·실행의 기본값이 설정과 같다 (설정을 못 읽었을 때도 같게 돌아야 한다)', () => {
+  const r = conf('projects.json').defaults.resume
+  const pairs = [
+    ['src/lib/claude-run.mjs', /cfg\.timeoutMin \?\? (\d+)/, r.timeoutMin, 'timeoutMin'],
+    ['src/lib/resume-gate.mjs', /cfg\.timeoutMin \?\? (\d+)/, r.timeoutMin, 'timeoutMin'],
+    ['src/resume.mjs', /cfg\.lockStaleMin \?\? (\d+)/, r.lockStaleMin, 'lockStaleMin'],
+  ]
+  for (const [file, re, want, name] of pairs) {
+    const m = re.exec(readFileSync(join(ROOT, ...file.split('/')), 'utf8'))
+    assert.ok(m, `${file} 에서 ${name} 기본값을 못 찾았다`)
+    assert.equal(Number(m[1]), want, `${file} 의 ${name} 기본값 ${m[1]} ≠ 설정 ${want}`)
+  }
+})

@@ -28,6 +28,8 @@ export const emptyTotals = (sessionId, slug) => ({
   gitBranch: null, version: null, title: null,
   firstAt: null, lastAt: null,
   userMsgs: 0, assistantMsgs: 0, toolCalls: 0,
+  /** 도구 결과 엔트리 수 — `userMsgs` 와 갈라서 센다(도구 결과도 user 엔트리로 온다) */
+  toolResults: 0,
   byModel: {},
   quota: null,
   /**
@@ -67,7 +69,7 @@ export const emptyTotals = (sessionId, slug) => ({
    */
   day: null,
   dayByModel: {},
-  dayUserMsgs: 0, dayAssistantMsgs: 0, dayToolCalls: 0,
+  dayUserMsgs: 0, dayAssistantMsgs: 0, dayToolCalls: 0, dayToolResults: 0,
 
   /**
    * **아직 결과가 오지 않은 도구 호출 id.** 비어 있지 않으면 세션이 지금 일하는 중이다.
@@ -205,7 +207,7 @@ export function foldEntry(acc, j) {
   if (inDay && entryDay !== acc.day) {
     acc.day = entryDay
     acc.dayByModel = {}
-    acc.dayUserMsgs = 0; acc.dayAssistantMsgs = 0; acc.dayToolCalls = 0
+    acc.dayUserMsgs = 0; acc.dayAssistantMsgs = 0; acc.dayToolCalls = 0; acc.dayToolResults = 0
   }
   if (j.cwd) {
     const k = cwdKey(j.cwd)
@@ -220,19 +222,39 @@ export function foldEntry(acc, j) {
 
   // 사람이 다시 입력했으면 잘린 자리가 아니다 — 이어서 쓰고 있다는 뜻이다
   else if (j.type === 'user') {
-    acc.userMsgs++
-    acc.lastKind = 'user'
-    if (inDay) acc.dayUserMsgs++
-    acc.stoppedByLimit = false; acc.stoppedByInterrupt = false
     /**
-     * 🔴 도구 결과도 `user` 엔트리로 온다. 결과가 왔으면 그 호출은 끝난 것이다.
-     *   (그래서 이 분기의 `userMsgs` 는 사람의 입력 수가 아니라 "사용자 역할 엔트리" 수다 —
-     *    옛 성질이라 그대로 두고, 여기서는 미완결 목록만 정리한다.)
+     * 🔴 **도구 결과도 `user` 엔트리로 온다** — 그래서 둘을 갈라야 한다 (실측 2026-09-28).
+     *
+     *   예전에는 둘을 같이 세어 두 가지가 동시에 틀렸다:
+     *     ① `lastKind` 가 `'user'` 가 되어, 우리가 타임아웃으로 죽인 회차의 마지막
+     *        도구 결과를 **「마지막 차례가 사람이다」** 로 읽었다. 사람은 아무 말도 하지
+     *        않았는데 그 세션은 다음 30분(타임아웃분) 동안 «일하는 중» 으로 막혔다 —
+     *        실측으로 19:03 kill 뒤 다음 회차가 정확히 30.1분 뒤에야 돌았다.
+     *     ② `userMsgs` 가 부풀었다. 「사람 메시지 2031 · 도구 1919」 처럼 보였는데
+     *        사람이 2031번 입력한 것이 아니다 — 화면이 그 숫자를 그대로 보여주면 거짓이다.
+     *
+     *   판정 쪽에서 셋을 구별할 수 있어야 한다: 사람이 물었다(`user`) · 도구 결과가
+     *   돌아왔다(`tool`) · 모델이 답했다(`assistant`). resume-gate 가 이것을 쓴다.
      */
     const c = j.message?.content
-    if (Array.isArray(c) && acc.pendingTools?.length) {
-      for (const b of c) {
-        if (!b || b.type !== 'tool_result' || !b.tool_use_id) continue
+    const blocks = Array.isArray(c) ? c.filter(Boolean) : []
+    const isToolResult = blocks.length > 0 && blocks.every((b) => b.type === 'tool_result')
+
+    if (isToolResult) {
+      acc.toolResults++
+      acc.lastKind = 'tool'
+      if (inDay) acc.dayToolResults++
+    } else {
+      acc.userMsgs++
+      acc.lastKind = 'user'
+      if (inDay) acc.dayUserMsgs++
+    }
+    acc.stoppedByLimit = false; acc.stoppedByInterrupt = false
+
+    // 결과가 왔으면 그 호출은 끝난 것이다 — 미완결 목록에서 뺀다
+    if (blocks.length && acc.pendingTools?.length) {
+      for (const b of blocks) {
+        if (b.type !== 'tool_result' || !b.tool_use_id) continue
         const i = acc.pendingTools.indexOf(b.tool_use_id)
         if (i >= 0) acc.pendingTools.splice(i, 1)
       }
@@ -316,6 +338,7 @@ export function todayView(acc, today = dayKey()) {
     userMsgs: mine ? (acc.dayUserMsgs || 0) : 0,
     assistantMsgs: mine ? (acc.dayAssistantMsgs || 0) : 0,
     toolCalls: mine ? (acc.dayToolCalls || 0) : 0,
+    toolResults: mine ? (acc.dayToolResults || 0) : 0,
   }
 }
 

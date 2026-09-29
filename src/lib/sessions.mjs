@@ -29,7 +29,8 @@ const cacheFile = join(RS_HOME, 'state', 'sessions-cache.json')
  *   물려받아 "오늘 0" 으로 보였다. 판이 다르면 그 파일만 처음부터 다시 읽는다
  *   (전량 재스캔은 실측 186ms — 한 번 치를 값이다).
  */
-const ACC_VERSION = 3
+/** 4 — 도구 결과를 `lastKind:'tool'` 로 갈랐다(2026-09-29). 옛 캐시의 `lastKind` 는 못 믿는다 */
+const ACC_VERSION = 4
 
 /* ── 파일 읽기 (증분) ────────────────────────────────────────── */
 
@@ -138,6 +139,7 @@ export function scanSessions({ slugs = null, useCache = true } = {}) {
         todayUserMsgs: today.userMsgs,
         todayAssistantMsgs: today.assistantMsgs,
         todayToolCalls: today.toolCalls,
+        todayToolResults: today.toolResults,
       })
     }
   }

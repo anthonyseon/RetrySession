@@ -195,3 +195,32 @@ test('대기가 끝난 뒤에는 경보를 낸다 (봐주기가 영구적이면 
   assert.ok(hit, '대기 창이 끝나면 알려야 한다')
   assert.equal(hit.level, 'critical')
 })
+
+/* ── 타임아웃: 차단하지 않는 대신 말한다 ─────────────────────── */
+
+/**
+ * 🔴 실측 (2026-09-28): `timeout · 1801초 · $0` 세 회차가 회로를 차단했는데, 세 회차 모두
+ *   kill 직전까지 도구를 돌리고 있었다(도구 56·58·75회). 고장이 아니라 **일이 회차보다
+ *   컸다.** 그래서 실패로 세지 않는다 — 그러면 아무도 아무 말을 안 하게 되므로 여기서 센다.
+ *
+ *   과부하는 세 번부터지만 이것은 **두 번부터** 말한다: 한 회차가 타임아웃분을 통째로
+ *   먹고(30~60분) 그만큼 토큰도 태운다. 두 번이면 사람이 결정할 문제다.
+ */
+const timeoutSess = (restart) => fallback({ sessions: [sessions({ restart })] })
+
+test('🔴 타임아웃이 하루 두 번이면 경보로 올린다 (차단하지 않으므로)', () => {
+  const d = timeoutSess({ on: true, timeoutToday: 2 })
+  const hit = currentAlerts(d).find((a) => a.code === '타임아웃잦음')
+  assert.ok(hit, '차단도 안 하고 말도 안 하면 조용히 90분이 사라진다')
+  assert.equal(hit.level, 'warning', '고장이 아니라 결정을 구하는 것이다')
+  assert.match(hit.desc, /2회/)
+  assert.match(hit.desc, /timeoutMin|쪼개/, '무엇을 하면 되는지 말해야 한다')
+})
+
+test('한 번은 말하지 않는다 (한 번 잘린 것은 정상 범위다)', () => {
+  assert.equal(codes(timeoutSess({ on: true, timeoutToday: 1 })).includes('타임아웃잦음'), false)
+})
+
+test('재시작을 켜지 않은 세션은 말하지 않는다 (옛 기록으로 떠들지 않는다)', () => {
+  assert.equal(codes(timeoutSess({ on: false, timeoutToday: 9 })).includes('타임아웃잦음'), false)
+})

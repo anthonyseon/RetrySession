@@ -26,14 +26,22 @@ export function printStatus() {
     const b = project ? budgetVerdict(st, project.resume) : { runsToday: '?', costToday: '?', ok: false, why: '저장소 미해결' }
     const over = (st.overloadByDay || {})[dayKey()] || 0
     const auth = (st.authByDay || {})[dayKey()] || 0
+    // 🔴 타임아웃도 차단하지 않는다 — 그러니 여기서 세어 말한다(일하는 중에 잘렸을 수 있다)
+    const cut = (st.timeoutByDay || {})[dayKey()] || 0
     console.log(`── ${id.slice(0, 8)} ${v.title ? `· ${v.title.slice(0, 40)}` : ''}`)
     console.log(`   재시작 ${v.restart ? 'O' : 'X'} · 감시 ${v.watch ? 'O' : 'X'} · 권한 ${project?.resume.permissionMode || '-'}`)
     // 🔴 비용은 막지 않는다(통계) — 슬래시로 붙이면 상한으로 읽힌다
     console.log(`   오늘 ${b.runsToday}/${project?.resume.maxPerDay ?? '-'}회 · $${b.costToday} 씀(참고선 $${project?.resume.maxCostUSDPerDay ?? '-'})`
       + (over ? ` · 과부하로 막힘 ${over}회` : '')
-      + (auth ? ` · 로그인 끊겨 헛돔 ${auth}회` : ''))
+      + (auth ? ` · 로그인 끊겨 헛돔 ${auth}회` : '')
+      + (cut ? ` · 시간초과 ${cut}회` : ''))
     console.log(`   연속실패 ${st.failStreak || 0}/${project?.resume.failStreakMax ?? '-'} · 차단 ${st.blocked ? `🔴 ${st.blocked.reason}` : '없음'}`)
-    console.log(`   마지막 ${st.lastRun ? `${st.lastRun.at} · ${st.lastRun.result} · ${st.lastRun.tookSec}초 · $${st.lastRun.costUSD ?? 0}` : '없음'}`)
+    // 비용의 **출처**도 적는다 — 잘린 회차는 트랜스크립트에서 잰 값이다
+    const last = st.lastRun
+      ? `${st.lastRun.at} · ${st.lastRun.result} · ${st.lastRun.tookSec}초 · $${st.lastRun.costUSD ?? 0}`
+        + (st.lastRun.costFrom ? ` (${st.lastRun.costFrom})` : '')
+      : '없음'
+    console.log(`   마지막 ${last}`)
   }
 }
 

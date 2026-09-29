@@ -89,6 +89,11 @@ export function sessionView(s, registry, runMap, ideWins = [], procMap = new Map
       overloadToday: (st.overloadByDay || {})[dayKey()] || 0,
       /** 오늘 로그인이 끊겨 재개가 헛돈 횟수. 위와 같은 이유로 보여준다(차단은 안 한다) */
       authToday: (st.authByDay || {})[dayKey()] || 0,
+      /**
+       * 오늘 타임아웃으로 **잘린** 횟수. 차단하지 않는 대신 세어서 보여준다.
+       * 🔴 한 번이 타임아웃분을 통째로 먹으므로(30~60분) 과부하보다 적은 횟수에서 말한다.
+       */
+      timeoutToday: (st.timeoutByDay || {})[dayKey()] || 0,
       blocked: st.blocked || null,
       corrupt: st.corrupt || null,
       budgetOk: b.ok,

@@ -244,7 +244,7 @@ for (const target of items) {
   }
 
   const cfg = v.project.resume
-  const lock = acquireLock(v.P.resumeLock, cfg.lockStaleMin ?? 60)
+  const lock = acquireLock(v.P.resumeLock, cfg.lockStaleMin ?? 90)
   if (!lock.ok) {
     log(v.P, `${localStamp()} · SKIP · ${lock.why}`)
     console.log(`⛔ ${short} 건너뜀 — ${lock.why}`)
@@ -291,10 +291,33 @@ for (const target of items) {
     ].join('\n'))
     console.log(`▶ ${short} 재개 — ${again.why}`)
 
+    /** 띄우기 직전의 누적 비용 — 잘린 회차의 몫을 재려면 시작점이 있어야 한다(아래) */
+    const costBefore = ctx.sessionMap.get(target.sessionId)?.costUSD || 0
+
     const r = await runClaude({
       sessionId: target.sessionId, cwd, prompt: prompt2, cfg, addDirs,
     })
     const p = parseResult(r.stdout)
+
+    /**
+     * 🔴 **잘려 나간 회차도 비용을 남긴다** (실측 결함 2026-09-28).
+     *
+     *   `--output-format json` 은 **끝에 한 번** 출력한다. 그래서 타임아웃으로 kill 하면
+     *   비용·턴·요약이 통째로 사라지고 `$0 · 턴 ?` 로 기록됐다 — 실제로는 그 세 회차가
+     *   그날 가장 많이 태운 회차였다(같은 방법으로 재면 성공 회차의 1.5~3배).
+     *   장부에 없는 지출은 «안 썼다» 로 읽히고, 그 숫자를 보고 상한을 정하면 틀린다.
+     *
+     *   증인은 트랜스크립트다. 회차 전후의 누적 비용 차이를 쓴다 — 증분 스캔이라 싸다.
+     *   🔴 이 값은 «그 세션이 그 사이에 쓴 것» 이다. 판정이 조용한 세션만 띄우므로 보통
+     *   우리 회차의 몫이지만, 사람이 같은 세션에 끼어들었다면 그 몫도 섞인다.
+     *   그래서 어디서 얻은 값인지 로그에 **적는다** — 섞인 값을 모르고 쓰는 것이 더 나쁘다.
+     */
+    let costUSD = p.costUSD, costFrom = null
+    if (!(costUSD > 0)) {
+      refreshCtx(ctx)
+      const delta = +(((ctx.sessionMap.get(target.sessionId)?.costUSD || 0) - costBefore).toFixed(4))
+      if (delta > 0) { costUSD = delta; costFrom = '트랜스크립트 실측' }
+    }
     /**
      * 🔴 **우리 잘못이 아닌 실패**를 실패로 세면 세 번 만에 회로가 차단되고, 저쪽이
      *   멀쩡해진 뒤에도 사람이 --rearm 을 해줄 때까지 재개가 멎는다. 제한(때가 아닌 것) ·
@@ -304,8 +327,9 @@ for (const target of items) {
     const didFail = r.timedOut || r.code !== 0 || !p.ok
     const result = classifyRun({ timedOut: r.timedOut, failed: didFail, label: `${p.summary} ${r.stderr}` })
 
-    const next = recordRun(loadRunState(v.P.resumeState), {
-      result, summary: p.summary, tookSec: r.tookSec, costUSD: p.costUSD,
+    const prev = loadRunState(v.P.resumeState)
+    const next = recordRun(prev, {
+      result, summary: p.summary, tookSec: r.tookSec, costUSD, costFrom,
       turns: p.turns, sid: p.sid, permDenied: p.permDenied, exit: r.code,
       // 같은 자리를 두 번 이어 밀지 않으려면 **무엇을 이어서** 띄웠는지 남아야 한다
       point: again.point,
@@ -313,23 +337,32 @@ for (const target of items) {
     saveRunState(v.P.resumeState, next)
 
     log(v.P, [
-      `${localStamp()} · RUN 끝 · ${result} · ${r.tookSec}초 · $${p.costUSD} · 턴 ${p.turns ?? '?'} · exit ${r.code}` +
+      `${localStamp()} · RUN 끝 · ${result} · ${r.tookSec}초 · $${costUSD}${costFrom ? ` (${costFrom})` : ''}`
+        + ` · 턴 ${p.turns ?? '?'} · exit ${r.code}` +
         (p.permDenied ? ` · 권한거부 ${p.permDenied}건` : '') +
-        (r.timedOut ? ' · 🔴 타임아웃으로 강제 종료' : ''),
+        (r.timedOut ? ` · 🔴 타임아웃(${cfg.timeoutMin}분)으로 강제 종료 — 일하는 중이었을 수 있다` : ''),
       // 세션이 갈라졌는지 확인한다 — 같아야 정상이다
       p.sid && p.sid !== target.sessionId ? `  ⚠ 세션이 갈라졌다: ${p.sid}` : '',
       '  ── 요약 ──',
       (p.summary || '(없음)').split('\n').map((l) => '  ' + l).join('\n'),
       r.stderr.trim() ? '  ── stderr ──\n' + r.stderr.trim().split('\n').slice(-20).map((l) => '  ' + l).join('\n') : '',
-      next.blocked ? `  🔴 연속 ${next.failStreak}회 실패로 회로 차단됨 — 고친 뒤 --rearm` : '',
+      /**
+       * 🔴 차단의 **실제 이유**를 적는다 — `next.failStreak` 이 아니다.
+       *   성공은 연속실패를 0 으로 되돌리므로, 옛 코드는 성공 뒤에 남은 차단을
+       *   `연속 0회 실패로 회로 차단됨` 이라고 적었다(실측 2026-09-29). 읽는 사람이
+       *   숫자를 믿으면 «0회인데 왜 차단인가» 에서 멈춘다. 이유는 차단이 들고 있다.
+       */
+      next.blocked ? `  🔴 회로 차단됨 (${next.blocked.at}): ${next.blocked.reason} — 고친 뒤 --rearm` : '',
+      // 성공이 차단을 풀었으면 그 사실을 남긴다 — 조용히 풀면 아무도 모른다
+      prev.blocked && !next.blocked ? `  ✅ 성공했으므로 회로 차단을 풀었다 (이전: ${prev.blocked.reason})` : '',
     ].filter(Boolean).join('\n'))
 
-    // 🔴 제한·과부하·인증은 실패가 아니다 — 스케줄러 이력을 빨갛게 물들이지 않는다.
-    //   가드에 막힌 회차가 exit 0 인 것과 같은 이유다. 때가 아닌 것이지 고장이 아니다.
-    //   인증은 대신 경보로 나간다 — exit 0 이 "괜찮다"는 뜻이 되지 않게(alerts.mjs).
-    const notOurFault = result === 'limited' || result === 'overload' || result === 'auth'
+    // 🔴 제한·과부하·인증·타임아웃은 우리 실패가 아니다 — 스케줄러 이력을 빨갛게 물들이지
+    //   않는다. 가드에 막힌 회차가 exit 0 인 것과 같은 이유다. 때가 아닌 것이지 고장이 아니다.
+    //   대신 경보로 나간다 — exit 0 이 "괜찮다"는 뜻이 되지 않게(alerts.mjs).
+    const notOurFault = result === 'limited' || result === 'overload' || result === 'auth' || result === 'timeout'
     const shown = result === 'ok' ? '✅' : notOurFault ? '◔' : '✖'
-    console.log(`${shown} ${short} — ${result} · ${r.tookSec}초 · $${p.costUSD}`)
+    console.log(`${shown} ${short} — ${result} · ${r.tookSec}초 · $${costUSD}`)
     if (result !== 'ok' && !notOurFault) exitCode = 1
   } finally {
     releaseLock(v.P.resumeLock)

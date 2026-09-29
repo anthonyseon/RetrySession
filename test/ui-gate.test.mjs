@@ -147,6 +147,24 @@ test('오늘 과부하로 막힌 횟수를 보여준다 (차단하지 않으므�
   assert.ok(txt.includes('4회'), '몇 번인지 말해야 한다')
 })
 
+/**
+ * 🔴 타임아웃도 같은 대접 — 실패로 세지 않는 대신 **보여준다**(실측 2026-09-28: 세 회차가
+ *   일하는 중에 잘렸고, 그 기록은 $0 이었다). 색은 두 번부터 준다(하루 2회면 경보).
+ */
+test('오늘 타임아웃으로 잘린 횟수를 보여준다 (실패로 세지 않으므로)', () => {
+  const s = session({ go: true, point: '재개지시', why: 'x' })
+  s.restart.timeoutToday = 2
+  const txt = drawList(s)
+  assert.ok(txt.includes('시간초과'), txt)
+  assert.ok(txt.includes('2회'), '몇 번인지 말해야 한다')
+})
+
+test('잘린 적이 없으면 그 배지는 없다 (0회를 보여주면 눈이 지친다)', () => {
+  const s = session({ go: true, point: '재개지시', why: 'x' })
+  s.restart.timeoutToday = 0
+  assert.ok(!drawList(s).includes('시간초과'))
+})
+
 /* ── 사용량: 오늘과 누적 ─────────────────────────────────────── */
 
 /**

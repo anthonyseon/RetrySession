@@ -145,7 +145,7 @@ export function resumeGate(input) {
   if (!knownQuiet) {
     return no(GATE.unknown, '마지막 활동 시각을 알 수 없다 — 그 세션을 쓰는 중인지 판정할 수 없다')
   }
-  const stale = quiet >= (cfg.timeoutMin ?? 30)
+  const stale = quiet >= (cfg.timeoutMin ?? 60)
   if (!stale) {
     const open = session.openTools || 0
     if (open > 0) {
@@ -153,6 +153,25 @@ export function resumeGate(input) {
     }
     if (session.lastKind === 'user') {
       return no(GATE.busy, '마지막 차례가 사람이다 — 답이 아직 나오지 않았으므로 일하는 중이다')
+    }
+    /**
+     * 🔴 마지막이 **도구 결과**면 기다리는 창을 짧게 둔다 (실측 결함 2026-09-28).
+     *
+     *   도구 결과는 트랜스크립트에 `user` 엔트리로 들어온다. 그래서 예전에는 우리가
+     *   타임아웃으로 죽인 회차의 마지막 도구 결과를 「마지막 차례가 사람이다」로 읽고
+     *   **다음 타임아웃분(30~60분) 동안** 그 세션을 «일하는 중» 으로 막았다. 사람은 아무
+     *   말도 하지 않았는데. 실측: 19:03 kill → 다음 회차가 정확히 30.1분 뒤.
+     *
+     *   살아 있는 모델은 도구 결과가 오면 **몇 초 안에** 다음 줄을 남긴다. 그러니
+     *   결과 뒤 몇 분이 조용하면 그 회차는 죽은 것이다 — 그때가 이어받을 자리다.
+     *   창은 «방금 활동»(sessionActiveMin) 과 같거나 조금 넉넉하게 5분으로 둔다.
+     *   새 설정 칸을 만들지 않는다 — 고칠 곳이 늘면 둘이 갈린다.
+     */
+    if (session.lastKind === 'tool') {
+      const wait = Math.max(cfg.sessionActiveMin ?? 3, 5)
+      if (quiet < wait) {
+        return no(GATE.busy, `도구 결과가 막 돌아왔다 (${session.activeMin}분 전, 한계 ${wait}분) — 모델이 이어서 답하는 중이다`)
+      }
     }
   }
   if (!force) {

@@ -103,6 +103,21 @@ const authBadge = (s) => {
     : null
 }
 
+/**
+ * 오늘 타임아웃으로 **잘린** 횟수.
+ *
+ * 🔴 «실패» 로 세지 않는다 — 실측(2026-09-28)으로 잘린 회차들은 kill 직전까지 일하고
+ *   있었다. 고장이 아니라 **일이 회차보다 컸다**는 신호이므로, 색은 두 번부터 준다.
+ */
+const timeoutBadge = (s) => {
+  const nth = s.restart?.timeoutToday || 0
+  return nth
+    ? badge(nth >= 2 ? 'warn' : 'off', '⏱', `시간초과 ${nth}회`,
+      `오늘 ${nth}회 타임아웃으로 잘렸습니다. 일하는 중이었을 수 있습니다 — 연속실패로 세지 않습니다. `
+      + 'timeoutMin 을 올리거나 재개지시를 더 작게 쪼개세요.')
+    : null
+}
+
 
 /**
  * 사용량을 **오늘(로컬)과 누적으로 갈라** 두 줄로 보여준다.
@@ -265,7 +280,7 @@ function items(d) {
 
     const bb = el('div', 'sbadges')
     bb.append(watchBadge(s), resumeBadge(s))
-    for (const b of [limitBadge(s), interruptBadge(s), overloadBadge(s), authBadge(s)]) if (b) bb.append(b)
+    for (const b of [limitBadge(s), interruptBadge(s), overloadBadge(s), authBadge(s), timeoutBadge(s)]) if (b) bb.append(b)
     if (s.tracker.exists) {
       bb.append(badge(s.tracker.allDone ? 'good' : 'off', '▤',
         `추적기 ${s.tracker.doneMark}${s.tracker.doing ? ` · doing ${s.tracker.doing.id}` : ''}`))

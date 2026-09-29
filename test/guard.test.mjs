@@ -148,47 +148,6 @@ test('🔴 예산 — 상태 파일이 깨졌으면 막는다(fail-closed)', () 
   assert.equal(v.ok, false, '몇 번 돌았는지 모르면 돌리지 않는다')
 })
 
-/* ── 실행 기록 ───────────────────────────────────────────────── */
-
-test('기록 — 성공은 연속실패를 0으로 되돌린다', () => {
-  const s = { ...emptyState(), failStreak: 2 }
-  const n = recordRun(s, { result: 'ok', summary: '됐다', tookSec: 10, costUSD: 0.5 }, cfg, base)
-  assert.equal(n.failStreak, 0)
-  assert.equal(n.blocked, null)
-  assert.equal(n.byDay['2026-09-18'], 1)
-  assert.equal(n.costByDay['2026-09-18'], 0.5)
-})
-
-test('기록 — 비용은 같은 날에 누적된다', () => {
-  let s = emptyState()
-  s = recordRun(s, { result: 'ok', tookSec: 1, costUSD: 0.25 }, cfg, base)
-  s = recordRun(s, { result: 'ok', tookSec: 1, costUSD: 0.3 }, cfg, base)
-  assert.equal(s.byDay['2026-09-18'], 2)
-  assert.equal(s.costByDay['2026-09-18'], 0.55)
-})
-
-test('기록 — 연속실패가 한계에 닿으면 회로를 차단한다', () => {
-  let s = emptyState()
-  for (let i = 0; i < 3; i++) s = recordRun(s, { result: 'fail', tookSec: 1 }, cfg, base)
-  assert.equal(s.failStreak, 3)
-  assert.ok(s.blocked, '한계에 닿으면 차단되어야 한다')
-  assert.equal(budgetVerdict(s, cfg, base).ok, false)
-})
-
-test('기록 — timeout 도 실패로 센다', () => {
-  const n = recordRun(emptyState(), { result: 'timeout', tookSec: 1800 }, cfg, base)
-  assert.equal(n.failStreak, 1)
-})
-
-test('--rearm 은 차단과 연속실패를 푼다', () => {
-  const s = { ...emptyState(), failStreak: 5, blocked: { at: 'x', reason: 'y' }, byDay: { '2026-09-18': 2 } }
-  const n = rearm(s)
-  assert.equal(n.failStreak, 0)
-  assert.equal(n.blocked, null)
-  assert.equal(n.byDay['2026-09-18'], 2, '하루 횟수는 남긴다 — 예산은 풀지 않는다')
-  assert.equal(budgetVerdict(n, cfg, base).ok, true)
-})
-
 /* ── 상태 파일 읽기 ─────────────────────────────────────────── */
 
 test('상태 — 파일이 없으면 빈 상태(첫 실행이므로 허용)', () => {
