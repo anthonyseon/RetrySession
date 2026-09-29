@@ -120,6 +120,31 @@ const timeoutBadge = (s) => {
 
 
 /**
+ * 추적기 배지 — **재개 지점을 정하는 장부**다.
+ *
+ * 🔴 툴팁이 없었다(사용자 지적 2026-09-29). 다른 배지는 전부 `why` 를 넘기는데 이것만
+ *   빠져 있었다. 그래서 `추적기 9/9` 의 **숫자가 무엇인지 화면에 설명이 없었다** —
+ *   `done/전체 단계` 인데, 아는 사람만 아는 상태였다. 배지는 단어로 짧게, 뜻은 툴팁으로.
+ *
+ * 숫자: `config/projects.json` 의 `tracker` 가 가리키는 JSON 의 `steps` 중
+ *   `status: 'done'` 개수 / 전체 개수(`lib/tracker.mjs` 의 `doneMark`).
+ */
+function trackerBadge(s) {
+  const t = s.tracker
+  const point = t.doing ? `doing ${t.doing.id}` : t.nextTodo ? `todo ${t.nextTodo.id}` : null
+  const why = [
+    `진행 장부(추적기)입니다 — 재시작이 "무엇을 이어서 할지" 여기서 고릅니다.`,
+    `숫자 ${t.doneMark} = 끝난 단계 / 전체 단계 (status 가 done 인 것을 셉니다).`,
+    point ? `지금 재개 지점: ${point}${t.doing?.title ? ` — ${t.doing.title}` : ''}`
+      : t.allDone ? '전부 done — 이어서 할 것이 없습니다. 재개지시를 넣으면 그것이 이깁니다.'
+        : 'doing 도 todo 도 없습니다 — 재개 지점을 말해주지 않습니다.',
+    t.error ? `🔴 읽을 수 없습니다: ${t.error}` : '파일 경로는 상세 → 처리 상황 탭에 있습니다.',
+  ].join('\n')
+  return badge(t.allDone ? 'good' : 'off', '▤',
+    `추적기 ${t.doneMark}${t.doing ? ` · doing ${t.doing.id}` : ''}`, why)
+}
+
+/**
  * 사용량을 **오늘(로컬)과 누적으로 갈라** 두 줄로 보여준다.
  *
  * 🔴 왜 한 줄에 `330M / 1.8G` 로 붙이지 않았나 — 목록은 열세 줄을 훑는 자리다.
@@ -281,10 +306,7 @@ function items(d) {
     const bb = el('div', 'sbadges')
     bb.append(watchBadge(s), resumeBadge(s))
     for (const b of [limitBadge(s), interruptBadge(s), overloadBadge(s), authBadge(s), timeoutBadge(s)]) if (b) bb.append(b)
-    if (s.tracker.exists) {
-      bb.append(badge(s.tracker.allDone ? 'good' : 'off', '▤',
-        `추적기 ${s.tracker.doneMark}${s.tracker.doing ? ` · doing ${s.tracker.doing.id}` : ''}`))
-    }
+    if (s.tracker.exists) bb.append(trackerBadge(s))
     if (s.tracker.doingViolations) bb.append(badge('warn', '▲', `doing ${s.tracker.doingViolations.length}개`))
     // 프로세스에서만 알 수 있는 것 — 사람이 알아야 하는 쪽부터
     // 🔴 이것도 단어로 — 설정 배지와 같은 줄에 있어서 길면 설정 상태를 밀어낸다.

@@ -87,7 +87,8 @@ function drawDetail() {
     now.append(el('h3', null, ''))
     const t2 = el('dl', 'kv')
     const kv2 = (k, v) => { t2.append(el('dt', null, k), el('dd', null, v ?? '-')) }
-    kv2('추적기', `${d.restart?.trackerFile || ''} · ${d.tracker.doneMark}`)
+    // 🔴 숫자의 뜻을 **화면에** 적는다 — `9/9` 만 있으면 아는 사람만 읽는다(사용자 지적)
+    kv2('추적기', `${d.restart?.trackerFile || ''} · 단계 ${d.tracker.doneMark} 완료 (끝난 단계/전체 단계)`)
     kv2('재개 지점', d.tracker.doing ? `doing ${d.tracker.doing.id} — ${d.tracker.doing.title || ''}`
       : d.tracker.nextTodo ? `todo ${d.tracker.nextTodo.id} — ${d.tracker.nextTodo.title || ''}`
       : d.tracker.allDone ? '전부 done — 재개할 것이 없다' : '없음')

@@ -10,11 +10,17 @@
  * 🔴 파싱이 깨져도 **원문을 함께 돌려준다.** 서식이 바뀌면 숫자는 못 뽑아도 사람은 읽을 수
  *   있어야 한다 — 파싱 실패를 "사용량 0" 으로 보여주는 것이 최악이다.
  */
+import { join } from 'node:path'
+import { readFileSync, mkdirSync } from 'node:fs'
 import { account, claudeUsage } from './cli.mjs'
 import { scanSessions } from './sessions.mjs'
 import { totalCost } from './pricing.mjs'
 import { sumTokens } from './session-fold.mjs'
+import { mergeHours } from './hours.mjs'
+import { learnBaseline, windowViews } from './limit-window.mjs'
 import { limitState } from './guard.mjs'
+import { RS_HOME } from './config.mjs'
+import { writeJsonAtomic } from './io.mjs'
 import { localStamp, dayKey } from './stamp.mjs'
 
 /**
@@ -90,6 +96,28 @@ function quotaDetail(quota, now = Date.now()) {
   }
 }
 
+/* ── 창 기준선 (배운 것을 남긴다) ───────────────────────────── */
+
+/**
+ * 🔴 기준선은 **기록으로 남는다.** 제한에 걸린 사건은 드물고(며칠에 한 번), 시간 통은
+ *   8일치만 들고 있다. 그때 배운 것을 적어 두지 않으면 통이 밀려 나가는 순간 잊고,
+ *   화면은 다시 「기준선 없음」으로 돌아간다 — 한 번 안 것을 잊는 것은 결함이다.
+ */
+const baselineFile = () => {
+  const d = join(RS_HOME, 'state')
+  mkdirSync(d, { recursive: true })
+  return join(d, 'limits.json')
+}
+
+function loadBaseline() {
+  try { return JSON.parse(readFileSync(baselineFile(), 'utf8')) } catch { return {} }
+}
+
+/** 🔴 쓰기 실패가 보고를 막지 않는다 — 다음 회차에 다시 배운다 */
+function saveBaseline(next) {
+  try { writeJsonAtomic(baselineFile(), next) } catch { /* 기록 실패로 화면을 비우지 않는다 */ }
+}
+
 /** 모델별 오늘·누적을 합친다 (세션을 넘어서) */
 function mergeByModel(sessions, pick) {
   const out = {}
@@ -119,6 +147,14 @@ export function usageReport({ fresh = false } = {}) {
   const todayCost = totalCost(today)
   const allCost = totalCost(all)
 
+  /**
+   * 굴러가는 창 — 「Session (5hr)」·「Weekly (7 day)」.
+   * 🔴 퍼센트는 **제한에 걸린 사건에서 배운 기준선**이 있을 때만 만든다(limit-window.mjs).
+   */
+  const hours = mergeHours(sessions.map((s) => s.hours))
+  const baseline = learnBaseline(hours, scan.quota, loadBaseline())
+  saveBaseline(baseline)
+
   return {
     at: localStamp(),
     atEpoch: Date.now(),
@@ -130,6 +166,11 @@ export function usageReport({ fresh = false } = {}) {
     /** `/usage` 가 말하는 것 — 못 읽었으면 `error` 와 `raw` 가 남는다 */
     claude: { ok: cli.ok, error: cli.error, ...parseUsageText(cli.text) },
     quota: quotaDetail(scan.quota),
+    /**
+     * 🔴 그쪽(`/usage` 화면)의 백분율이 아니다 — 헤드리스로는 그 숫자를 받을 수 없다.
+     *   우리가 잰 창 합이고, 기준선이 없으면 `pct: null` 로 둔다. 화면이 그렇게 말한다.
+     */
+    limits: windowViews(hours, baseline),
     /** 우리 실측 집계. 오늘은 **로컬 자정** 기준이고 언제나 누적 이하다 */
     measured: {
       dayKey: dayKey(),

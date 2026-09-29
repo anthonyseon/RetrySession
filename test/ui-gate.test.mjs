@@ -314,3 +314,30 @@ test('재시작이 꺼져 있으면 켜는 법을 말한다', () => {
   const box = drawPanel(s)
   assert.match(box.textContent, /재시작 시작/, '어디를 누르면 되는지 말해야 한다')
 })
+
+/* ── 추적기 배지 ─────────────────────────────────────────────── */
+
+/**
+ * 🔴 툴팁이 없었다(사용자 지적 2026-09-29). 다른 배지는 전부 `why` 를 넘기는데 이것만
+ *   빠져 있어서 **`9/9` 의 숫자가 무엇인지 화면에 설명이 없었다.** 배지는 단어로 짧게,
+ *   뜻은 툴팁으로 — 그 규칙에서 이 배지만 빠져 있던 것이다.
+ */
+test('🔴 추적기 배지에 툴팁이 있고, 숫자의 뜻을 설명한다', () => {
+  const s = session({ go: true, point: 'doing 07', why: 'x' })
+  s.tracker = { exists: true, doneMark: '3/9', allDone: false, doing: { id: '07', title: '코드 인용 판정' } }
+  drawList(s)
+  const b = [...badgeTitles(), cell.get('slist').textContent].join(' | ')
+  assert.match(b, /추적기 3\/9/, '배지 글자는 짧게')
+  assert.match(b, /끝난 단계 \/ 전체 단계/, '숫자의 뜻을 말해야 한다')
+  assert.match(b, /재시작이 "무엇을 이어서 할지" 여기서 고릅니다/, '역할을 말해야 한다')
+  assert.match(b, /doing 07/, '지금 재개 지점을 말해야 한다')
+})
+
+test('전부 done 이면 «이어서 할 것이 없다» 와 다음 수단을 말한다', () => {
+  const s = session({ go: false, stage: 'tracker', why: '할 일이 없다' })
+  s.tracker = { exists: true, doneMark: '9/9', allDone: true }
+  drawList(s)
+  const b = [...badgeTitles(), cell.get('slist').textContent].join(' | ')
+  assert.match(b, /전부 done/)
+  assert.match(b, /재개지시를 넣으면 그것이 이깁니다/, '막다른 길로 두지 않는다')
+})

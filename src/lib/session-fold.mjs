@@ -16,6 +16,7 @@
 import { pathKey } from './config.mjs'
 import { emptyTokens, normalizeModel } from './pricing.mjs'
 import { dayKey } from './stamp.mjs'
+import { putHour } from './hours.mjs'
 /* ── 한 줄씩 접기 (순수) ─────────────────────────────────────── */
 
 export const emptyTotals = (sessionId, slug) => ({
@@ -70,6 +71,19 @@ export const emptyTotals = (sessionId, slug) => ({
   day: null,
   dayByModel: {},
   dayUserMsgs: 0, dayAssistantMsgs: 0, dayToolCalls: 0, dayToolResults: 0,
+
+  /**
+   * **시간 단위 토큰 통** — `{ '<epoch시각>': 토큰수 }`. 굴러가는 창(5시간·7일)을 재는 유일한 길이다.
+   *
+   * 🔴 왜 날짜 통으로는 안 되나 — 「Session (5hr)」 은 **지금부터 5시간 전까지**이고,
+   *   「Weekly (7 day)」 는 7일 전까지다. 둘 다 자정과 무관하므로 날짜 통으로는 답이 안 나온다.
+   *   반대로 엔트리를 그때그때 훑는 것도 안 된다 — 7일이면 트랜스크립트를 거의 전부 읽는다
+   *   (실측: 세션 하나가 47MB). 시간 통은 증분 접기에 그대로 얹힌다.
+   *
+   * 🔴 **한 통에 한 시간, 8일치만.** 무한히 쌓이면 캐시가 세션 수명만큼 커진다
+   *   (7일 창을 재려면 7일이 필요하고, 자정·시계 어긋남 여유로 하루를 더 둔다).
+   */
+  hours: {},
 
   /**
    * **아직 결과가 오지 않은 도구 호출 id.** 비어 있지 않으면 세션이 지금 일하는 중이다.
@@ -302,6 +316,12 @@ export function foldEntry(acc, j) {
         for (const k of Object.keys(cur)) cur[k] += t[k] || 0
         bin[id] = cur
       }
+      /**
+       * 시간 통에도 같은 토큰을 더한다 — 굴러가는 창(5시간·7일)은 이것으로만 잴 수 있다.
+       * 🔴 시각이 없는 엔트리는 **어느 통에도 넣지 않는다.** 모르는 것을 지금으로 몰면
+       *   창이 부풀고, 부푼 창은 「얼마나 남았나」에 거짓으로 답한다.
+       */
+      if (Number.isFinite(ts)) putHour(acc, ts, sumTokens({ x: t }))
     }
   }
 

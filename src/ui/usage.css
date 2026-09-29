@@ -34,3 +34,15 @@
 @media (max-width:1100px){
   #usageMain{max-height:none; overflow:visible}
 }
+
+/* ── 창 사용률 (Session 5hr · Weekly 7day) ──
+   🔴 퍼센트는 **우리 실측 ÷ 배운 기준선**이다. 색만으로 말하지 않는다 —
+      숫자 뒤에 「이상」을 붙여 최소값임을 글자로도 적는다(limit-window.mjs 참고). */
+.usage .wlimit{gap:10px; margin:6px 0 0}
+.usage .wlimit b{min-width:120px}
+.usage .wpct{font-variant-numeric:tabular-nums; font-weight:600; color:var(--accent)}
+.usage .wpct.warn{color:var(--warn)}
+.usage .wpct.crit{color:var(--crit)}
+/* 기준선이 없을 때 — 0% 처럼 보이면 안 된다. 흐린 글자로 «모른다» 를 말한다 */
+.usage .wpct.unknown{color:var(--muted); font-weight:500}
+.usage .meter{margin-top:4px}

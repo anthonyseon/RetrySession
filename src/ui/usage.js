@@ -93,19 +93,56 @@ function drawUsage() {
       + ` · 세션 ${n(U.measured?.sessionCount || 0)}개를 셌습니다`
   }
   digest.textContent = digestLine(U)
-  body.append(...accountBlock(U), ...claudeBlock(U), ...quotaBlock(U), ...measuredBlock(U))
+  body.append(...limitsBlock(U), ...accountBlock(U), ...claudeBlock(U), ...quotaBlock(U), ...measuredBlock(U))
 }
 
-/** 접힌 채로도 보이는 한 줄 — 오늘 몫과 요청 수, 제한 상태 */
+/** 접힌 채로도 보이는 한 줄 — 창 사용률, 오늘 몫, 제한 상태 */
 function digestLine(u) {
   const t = u.measured?.today || {}
-  const w = (u.claude?.windows || [])[0]
   const q = u.quota || {}
+  // 🔴 창 사용률을 맨 앞에 — 사람이 가장 먼저 묻는 것이 「얼마나 남았나」다
+  const wins = (u.limits || []).map((w) => `${w.label} ${w.pct === null ? '?' : w.pct + '%'}`)
   return [
+    ...wins,
     `오늘 토큰 ${compact(t.tokens || 0)} · 정가 $${(t.usd || 0).toFixed(2)}`,
-    w ? `${windowName(w.label)} 요청 ${n(w.requests)} · 세션 ${n(w.sessions)}` : null,
     q.exists ? (q.limited ? `🔴 제한 중 (${q.leftMin}분 남음)` : '제한 없음') : '제한 기록 없음',
   ].filter(Boolean).join(' · ')
+}
+
+/* ── 굴러가는 창: Session (5hr) · Weekly (7 day) ─────────────── */
+
+/**
+ * 🔴 **이 백분율은 그쪽 숫자가 아니다.** 대화 안의 `/usage` 화면에만 있는 값이고 헤드리스로는
+ *   받을 수 없다(기록에도 없다 — `quotaLimits` 에 사용률 칸이 아예 없다). 그래서 우리가 잰
+ *   창 합을, **제한에 실제로 걸린 순간**의 같은 창(=100%)으로 나눈다.
+ *
+ * 🔴 기준선이 없으면 퍼센트를 **만들지 않는다.** 분모를 지어내면 「여유 있다」가 거짓이 되고
+ *   사람이 그 숫자로 일을 계획한다. 그때는 절대량과 «왜 없는지» 만 적는다.
+ *
+ * 🔴 그리고 이 값은 **최소값**이다 — 우리 실측은 이 기계의 로컬 세션만 본다.
+ */
+function limitsBlock(u) {
+  const list = u.limits || []
+  if (!list.length) return []
+  const out = [el('h3', null, '창 사용률 (우리 실측 기준)')]
+  for (const w of list) {
+    const row = el('div', 'urow wlimit')
+    row.append(el('b', null, w.label))
+    row.append(el('span', 'wpct' + (w.pct === null ? ' unknown' : w.pct >= 90 ? ' crit' : w.pct >= 70 ? ' warn' : ''),
+      w.pct === null ? '기준선 없음' : `${w.pct}% 이상`))
+    row.append(el('span', 'muted', `토큰 ${compact(w.tokens)}`
+      + (w.baseline ? ` / 기준선 ${compact(w.baseline.tokens)}` : '')
+      + ` · ${w.windowFrom} ~ ${w.windowTo}`))
+    row.title = w.why
+    out.push(row)
+    if (w.pct !== null) {
+      const m = el('div', 'meter' + (w.pct >= 90 ? ' crit' : w.pct >= 70 ? ' warn' : ''))
+      const i = el('i'); i.style.width = Math.min(100, w.pct) + '%'
+      m.append(i); out.push(m)
+    }
+    out.push(el('div', 'note', w.why))
+  }
+  return out
 }
 
 function accountBlock(u) {
