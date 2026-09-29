@@ -307,6 +307,8 @@ function drawGate(s) {
     + (r.overloadToday ? ` · API 과부하로 막힘 ${r.overloadToday}회` : '')
     // 연속실패로 세지 않는 것들은 여기서라도 세어 보여야 "왜 안 돌았나"가 보인다
     + (r.authToday ? ` · 로그인 끊겨 헛돔 ${r.authToday}회` : '')
+    // 🔴 잘린 회차 — 실패로 세지 않는다(일하는 중이었을 수 있다). 하루 2회면 경보다
+    + (r.timeoutToday ? ` · 시간초과로 잘림 ${r.timeoutToday}회` : '')
     + (r.permissionMode ? ` · 권한 ${r.permissionMode}` : '')
   box.append(nums)
 
