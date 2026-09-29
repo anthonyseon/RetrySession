@@ -13,7 +13,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { putHour, windowSum, mergeHours, hourKey, HOUR_MS } from '../src/lib/hours.mjs'
-import { learnBaseline, windowView, WINDOWS } from '../src/lib/limit-window.mjs'
+import { learnBaseline, reconcileBaseline, windowView, WINDOWS } from '../src/lib/limit-window.mjs'
 
 const T = new Date('2026-09-29T09:00:00').getTime()
 const hoursAt = (pairs) => {
@@ -47,9 +47,15 @@ test('🔴 오래된 통은 버리되 기준은 **통에 든 가장 늦은 시�
   putHour(acc, old, 7)
   putHour(acc, old + HOUR_MS, 3)
   assert.equal(windowSum(acc.hours, old - HOUR_MS, old + 2 * HOUR_MS), 10)
-  // 8일보다 더 오래된 것은 새 통이 들어올 때 빠진다
-  putHour(acc, old + 9 * 24 * HOUR_MS, 1)
-  assert.equal(windowSum(acc.hours, old - HOUR_MS, old + 2 * HOUR_MS), 0)
+  /**
+   * 🔴 보관은 **31일**이다(2026-09-29에 8일에서 늘렸다). 8일이면 «지금의 창» 은 재지만
+   *   기준선을 배울 수 없다 — 제한 사건이 며칠 전이면 그 사건보다 7일 더 앞선 통이
+   *   필요하기 때문이다. 실측으로 주간 사건이 11일 전이라 배우지 못했다.
+   */
+  putHour(acc, old + 20 * 24 * HOUR_MS, 1)
+  assert.equal(windowSum(acc.hours, old - HOUR_MS, old + 2 * HOUR_MS), 10, '20일 전 기록은 아직 남아야 한다')
+  putHour(acc, old + 32 * 24 * HOUR_MS, 1)
+  assert.equal(windowSum(acc.hours, old - HOUR_MS, old + 2 * HOUR_MS), 0, '31일을 넘기면 버린다')
 })
 
 test('창 합은 [from, to) 다 — 경계 통은 **넣는다**(적게 보이는 쪽으로 기울지 않는다)', () => {
@@ -66,42 +72,108 @@ test('여러 세션의 통을 합친다 (창은 계정 단위로 묻는다)', ()
 
 /* ── 기준선 배우기 ──────────────────────────────────────────── */
 
-const quota = (over = {}) => ({ rateLimitType: 'five_hour', status: 'rejected', _at: T - 2 * HOUR_MS, ...over })
+const q5 = (over = {}) => ({ rateLimitType: 'five_hour', status: 'rejected', _at: T - 2 * HOUR_MS, ...over })
+const q7 = (over = {}) => ({ rateLimitType: 'seven_day', status: 'rejected', _at: T - 2 * HOUR_MS, ...over })
+/** 🔴 **종류별로** 받는다 — 한 종류의 새 사건이 다른 종류의 배움을 지우면 안 된다 */
+const byType = (...qs) => Object.fromEntries(qs.map((q) => [q.rateLimitType, q]))
 
 test('🔴 제한에 걸린 순간의 창 합을 기준선으로 배운다 (그 순간이 100% 다)', () => {
   const hours = hoursAt([[6, 100], [4, 400], [3, 300], [1, 50]])
-  const b = learnBaseline(hours, quota(), {})
+  const b = learnBaseline(hours, byType(q5()), {})
   // 제한 시각(T-2h) 기준 5시간 창 = [T-7h, T-2h) → 6·4·3시간 전이 들어온다
   assert.equal(b.session5h.tokens, 800)
   assert.equal(b.session5h.atEpoch, T - 2 * HOUR_MS)
+  assert.equal(b.session5h.source, 'limit', '어디서 얻은 값인지 남겨야 한다')
+})
+
+/**
+ * 🔴 **사용자가 물은 결함이 이것이다** (2026-09-29: 「weekly 사용량(%)이 왜 제대로 출력되지
+ *   않는가」). 기록에는 `five_hour` 172건과 `seven_day` 7건이 있었는데, 우리는 «가장 최근
+ *   한 건» 만 들고 있었다. 최근 것은 늘 five_hour 라 주간 사건이 통째로 가려졌고,
+ *   주간 사용률은 영원히 「기준선 없음」이었다.
+ */
+test('🔴 주간 사건이 5시간 사건에 가려지지 않는다 (종류별로 배운다)', () => {
+  const hours = hoursAt([[100, 900], [4, 400]])
+  const b = learnBaseline(hours, byType(q5(), q7({ _at: T - 3 * HOUR_MS })), {})
+  assert.ok(b.session5h, '5시간 기준선을 배워야 한다')
+  assert.ok(b.weekly7d, '🔴 주간 기준선도 배워야 한다 — 가려지면 % 가 영원히 안 나온다')
+  assert.ok(b.weekly7d.tokens >= 1300, `주간 창은 7일이므로 100시간 전 기록도 든다: ${b.weekly7d.tokens}`)
+})
+
+test('🔴 새 5시간 사건이 이미 배운 주간 기준선을 지우지 않는다', () => {
+  const hours = hoursAt([[100, 900], [4, 400]])
+  const learned = learnBaseline(hours, byType(q7({ _at: T - 3 * HOUR_MS })), {})
+  const after = learnBaseline(hours, byType(q5({ _at: T })), learned)
+  assert.deepEqual(after.weekly7d, learned.weekly7d, '다른 종류의 배움은 그대로 남아야 한다')
+  assert.ok(after.session5h, '새 종류도 배워야 한다')
 })
 
 test('🔴 같은 사건으로 두 번 배우지 않는다 (덮어쓰면 창이 자라는 동안 기준선도 자란다)', () => {
   const hours = hoursAt([[4, 400]])
-  const first = learnBaseline(hours, quota(), {})
+  const first = learnBaseline(hours, byType(q5()), {})
   const grown = hoursAt([[4, 400], [1, 900]])            // 그 뒤로 더 썼다
-  const second = learnBaseline(grown, quota(), first)
+  const second = learnBaseline(grown, byType(q5()), first)
   assert.equal(second.session5h.tokens, first.session5h.tokens, '같은 시각의 사건은 한 번만')
 })
 
 test('새 제한 사건이 오면 **최근 것으로** 갈아친다 (요금제가 바뀌면 한도도 바뀐다)', () => {
   const hours = hoursAt([[4, 400], [1, 900]])
-  const old = learnBaseline(hoursAt([[4, 400]]), quota(), {})
-  const next = learnBaseline(hours, quota({ _at: T }), old)
+  const old = learnBaseline(hoursAt([[4, 400]]), byType(q5()), {})
+  const next = learnBaseline(hours, byType(q5({ _at: T })), old)
   assert.notEqual(next.session5h.tokens, old.session5h.tokens)
   assert.equal(next.session5h.seen.length, 1, '옛 값도 남긴다 — 기준선이 흔들리는지 봐야 한다')
 })
 
 test('🔴 모르는 창 종류·시각 없는 기록으로는 배우지 않는다', () => {
   const hours = hoursAt([[1, 100]])
-  assert.deepEqual(learnBaseline(hours, quota({ rateLimitType: 'monthly' }), {}), {})
-  assert.deepEqual(learnBaseline(hours, quota({ _at: null }), {}), {})
+  assert.deepEqual(learnBaseline(hours, byType(q5({ rateLimitType: 'monthly' })), {}), {})
+  assert.deepEqual(learnBaseline(hours, byType(q5({ _at: null })), {}), {})
   assert.deepEqual(learnBaseline(hours, null, {}), {})
+  assert.deepEqual(learnBaseline(hours, {}, {}), {})
 })
 
 test('그 창에 우리 기록이 없으면 배우지 않는다 (다른 기기에서 쓴 것이다)', () => {
-  const hours = hoursAt([[100, 500]])        // 창 밖의 기록뿐
-  assert.deepEqual(learnBaseline(hours, quota(), {}), {})
+  const hours = hoursAt([[300, 500]])        // 창 밖의 기록뿐 (5시간·7일 창 모두 밖)
+  assert.deepEqual(learnBaseline(hours, byType(q5()), {}), {})
+})
+
+/* ── 관측과 어긋나면 스스로 고친다 ──────────────────────────── */
+
+/**
+ * 🔴 실측(2026-09-29): 주간 기준선을 11일 전 사건에서 배우자 화면에 **215%** 가 떴다.
+ *   그때 우리는 주간 제한에 걸려 있지 **않았다** — 「그 창을 넘겼는데 멀쩡하다」는 관측이
+ *   기준선이 틀렸다는 증거다. 틀린 분모로 만든 백분율을 보여주면 사람이 그것으로 판단한다.
+ */
+test('🔴 제한 없이 기준선을 넘겼으면 기준선을 올린다 (100% 넘는 거짓말을 없앤다)', () => {
+  const hours = hoursAt([[1, 2000]])
+  const before = { session5h: { tokens: 1000, atEpoch: T - 99 * HOUR_MS, at: '옛날', source: 'limit' } }
+  const after = reconcileBaseline(hours, before, { five_hour: false }, T)
+  assert.equal(after.session5h.tokens, 2000, '넘긴 만큼이 새 하한선이다')
+  assert.equal(after.session5h.source, 'survived', '출처가 바뀌어야 뜻도 바뀐다')
+  assert.equal(after.session5h.seen.length, 1, '옛 기준선을 버리지 않는다')
+  assert.equal(windowView('session5h', hours, after, T).pct, 100, '이제 100% 를 넘지 않는다')
+})
+
+test('🔴 지금 그 종류로 제한 중이면 올리지 않는다 (그때는 기준선이 맞고 창이 꽉 찬 것이다)', () => {
+  const hours = hoursAt([[1, 2000]])
+  const before = { session5h: { tokens: 1000, atEpoch: T - 99 * HOUR_MS, at: '옛날', source: 'limit' } }
+  const after = reconcileBaseline(hours, before, { five_hour: true }, T)
+  assert.equal(after.session5h.tokens, 1000, '제한 중이라면 넘긴 것이 아니다')
+})
+
+test('기준선보다 적게 썼으면 아무것도 바꾸지 않는다', () => {
+  const hours = hoursAt([[1, 300]])
+  const before = { session5h: { tokens: 1000, atEpoch: T, at: 'x', source: 'limit' } }
+  assert.deepEqual(reconcileBaseline(hours, before, {}, T), before)
+})
+
+test('출처가 «넘긴 최대» 면 화면 문구가 «한도는 더 높다» 로 바뀐다', () => {
+  const v = windowView('weekly7d', hoursAt([[1, 500]]),
+    { weekly7d: { tokens: 500, at: '오늘', source: 'survived' } }, T)
+  assert.equal(v.pct, 100)
+  assert.match(v.why, /제한 없이 넘긴 가장 큰 창/)
+  assert.match(v.why, /한도에 닿았다는 뜻이 아닙니다/, '🔴 100% 를 위험으로 읽게 두면 늑대 외치기다')
+  assert.equal(v.baseline.from, '제한 없이 넘긴 최대 창')
 })
 
 /* ── 보여주기 ───────────────────────────────────────────────── */

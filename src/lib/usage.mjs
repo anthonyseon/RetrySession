@@ -17,7 +17,7 @@ import { scanSessions } from './sessions.mjs'
 import { totalCost } from './pricing.mjs'
 import { sumTokens } from './session-fold.mjs'
 import { mergeHours } from './hours.mjs'
-import { learnBaseline, windowViews } from './limit-window.mjs'
+import { learnBaseline, reconcileBaseline, windowViews } from './limit-window.mjs'
 import { limitState } from './guard.mjs'
 import { RS_HOME } from './config.mjs'
 import { writeJsonAtomic } from './io.mjs'
@@ -118,6 +118,20 @@ function saveBaseline(next) {
   try { writeJsonAtomic(baselineFile(), next) } catch { /* 기록 실패로 화면을 비우지 않는다 */ }
 }
 
+/**
+ * 창 종류별 마지막 제한 기록을 **세션을 넘어** 합친다.
+ * 🔴 창은 계정 단위다 — 어느 세션에서 걸렸든 그 사건은 같은 한도의 사건이다.
+ */
+function mergeQuotaByType(sessions) {
+  const out = {}
+  for (const s of sessions) {
+    for (const [type, q] of Object.entries(s.quotaByType || {})) {
+      if (!out[type] || (q?._at || 0) >= (out[type]._at || 0)) out[type] = q
+    }
+  }
+  return out
+}
+
 /** 모델별 오늘·누적을 합친다 (세션을 넘어서) */
 function mergeByModel(sessions, pick) {
   const out = {}
@@ -152,7 +166,15 @@ export function usageReport({ fresh = false } = {}) {
    * 🔴 퍼센트는 **제한에 걸린 사건에서 배운 기준선**이 있을 때만 만든다(limit-window.mjs).
    */
   const hours = mergeHours(sessions.map((s) => s.hours))
-  const baseline = learnBaseline(hours, scan.quota, loadBaseline())
+  const byType = mergeQuotaByType(sessions)
+  /**
+   * 🔴 배우고 **어긋난 것은 고친다.** 제한 사건에서 배운 기준선이 실제와 맞지 않을 수 있다
+   *   (실측: 주간 기준선으로 215% 가 나왔는데 제한에 걸려 있지 않았다 — 기준선이 틀린 것이다).
+   *   「그 창을 넘겼는데 멀쩡하다」는 관측도 증거이므로 그만큼 기준선을 올린다.
+   */
+  const limitedNow = {}
+  for (const [type, q] of Object.entries(byType)) limitedNow[type] = limitState(q).limited
+  const baseline = reconcileBaseline(hours, learnBaseline(hours, byType, loadBaseline()), limitedNow)
   saveBaseline(baseline)
 
   return {

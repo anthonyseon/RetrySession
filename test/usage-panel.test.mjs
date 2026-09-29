@@ -249,3 +249,33 @@ test('제한 기록이 아예 없을 때 «0» 이 아니라 «기록 없음» �
   assert.match(digest(), /제한 기록 없음/, '모르는 것과 없는 것을 갈라 말해야 한다')
   assert.match(text(), /아직 제한에 걸린 기록이 없다/, '서버가 준 이유를 그대로 적는다')
 })
+
+/**
+ * 🔴 기준선의 **출처**가 백분율의 뜻을 바꾼다 (실측 2026-09-29).
+ *   주간 기준선을 11일 전 사건에서 배우자 215% 가 떴는데 제한에 걸려 있지 않았다 —
+ *   그러면 기준선을 「제한 없이 넘긴 최대 창」으로 올린다(lib/limit-window.reconcileBaseline).
+ *   그때 100% 는 «한도에 닿았다» 가 아니라 «우리 최고 기록» 이다. 화면이 그렇게 말해야 하고,
+ *   **경고색을 주면 안 된다** — 위험이 아닌 것에 빨강을 쓰면 진짜 경고가 묻힌다.
+ */
+test('🔴 «제한 없이 넘긴 최대» 기준선은 100% 라도 경고가 아니다 (말로도 구별한다)', async () => {
+  reply = {
+    ok: true,
+    body: report({
+      limits: [{
+        key: 'weekly7d', label: 'Weekly (7 day)', tokens: 3_689_000_000,
+        windowFrom: '2026-09-22 10:43:27', windowTo: '2026-09-29 10:43:27',
+        pct: 100,
+        baseline: { tokens: 3_689_000_000, at: '2026-09-29 10:43:27', source: 'survived', from: '제한 없이 넘긴 최대 창' },
+        why: '기준선은 2026-09-29 10:43:27 까지 **제한 없이 넘긴 가장 큰 창**입니다 — 한도는 그보다 높습니다. 100% 라도 한도에 닿았다는 뜻이 아닙니다.',
+      }],
+    }),
+  }
+  await press()
+  assert.match(text(), /100% · 우리가 본 최대치/, '숫자만 두면 «한도 도달» 로 읽힌다')
+  assert.match(text(), /제한 없이 넘긴 최대 창/, '분모가 무엇인지 적어야 한다')
+  assert.match(text(), /한도에 닿았다는 뜻이 아닙니다/, '오해를 그 자리에서 막는다')
+  const pct = body().querySelectorAll('span.wpct')[0]
+  assert.ok(!/crit|warn/.test(String(pct.className)), `경고색을 주면 안 된다: ${pct.className}`)
+  const bar = body().querySelectorAll('div.meter')[0]
+  assert.ok(!/crit|warn/.test(String(bar.className)), `막대도 경고색이면 안 된다: ${bar.className}`)
+})

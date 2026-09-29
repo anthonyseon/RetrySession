@@ -126,17 +126,25 @@ function limitsBlock(u) {
   if (!list.length) return []
   const out = [el('h3', null, '창 사용률 (우리 실측 기준)')]
   for (const w of list) {
+    /**
+     * 🔴 **기준선의 출처가 백분율의 뜻을 바꾼다.**
+     *   `제한에 걸린 창` → 한도에 가까운 값이므로 70·90% 에서 색이 바뀌어야 한다.
+     *   `제한 없이 넘긴 최대 창` → 한도가 아니라 **우리 최고 기록**이다. 100% 라도 위험이
+     *     아니므로 경고색을 주지 않는다 — 여기에 빨강을 쓰면 늑대를 외치는 것이다.
+     */
+    const soft = w.baseline?.source === 'survived'
+    const tone = w.pct === null ? ' unknown' : soft ? '' : w.pct >= 90 ? ' crit' : w.pct >= 70 ? ' warn' : ''
     const row = el('div', 'urow wlimit')
     row.append(el('b', null, w.label))
-    row.append(el('span', 'wpct' + (w.pct === null ? ' unknown' : w.pct >= 90 ? ' crit' : w.pct >= 70 ? ' warn' : ''),
-      w.pct === null ? '기준선 없음' : `${w.pct}% 이상`))
+    row.append(el('span', 'wpct' + tone,
+      w.pct === null ? '기준선 없음' : soft ? `${w.pct}% · 우리가 본 최대치` : `${w.pct}% 이상`))
     row.append(el('span', 'muted', `토큰 ${compact(w.tokens)}`
-      + (w.baseline ? ` / 기준선 ${compact(w.baseline.tokens)}` : '')
+      + (w.baseline ? ` / 기준선 ${compact(w.baseline.tokens)} (${w.baseline.from})` : '')
       + ` · ${w.windowFrom} ~ ${w.windowTo}`))
     row.title = w.why
     out.push(row)
     if (w.pct !== null) {
-      const m = el('div', 'meter' + (w.pct >= 90 ? ' crit' : w.pct >= 70 ? ' warn' : ''))
+      const m = el('div', 'meter' + tone)
       const i = el('i'); i.style.width = Math.min(100, w.pct) + '%'
       m.append(i); out.push(m)
     }
