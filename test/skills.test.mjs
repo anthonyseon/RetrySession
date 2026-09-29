@@ -197,3 +197,35 @@ test('🔴 검사기가 헛돌지 않는다 (없는 파일을 넣으면 잡아�
   assert.equal(existsSync(join(ROOT, 'src', 'lib', 'nosuch-gate.mjs')), false)
   assert.equal(existsSync(join(ROOT, 'config', 'nosuch.json')), false)
 })
+
+/**
+ * 🔴 스킬이 **곁 파일**을 가리키면 그 파일이 실재해야 한다.
+ *
+ *   실측 (2026-09-29): `retrysession-change/SKILL.md` 가 404줄이 되어(규칙 400) 창 함정
+ *   세 항목을 `windows-traps.md` 로 갈랐다. 이렇게 쪼갤 때 링크를 잘못 적으면 읽는 쪽은
+ *   «있다고 하는데 없는 문서» 를 찾게 되고, 그때부터 스킬 전체를 불신한다.
+ *   같은 부류로 이미 다쳤다 — 없는 npm 명령을 적어 둔 적이 있다(위 시험이 그래서 있다).
+ */
+test('🔴 스킬이 가리키는 곁 파일이 실재한다 (쪼갤 때 링크가 깨진다)', () => {
+  for (const s of skills()) {
+    const src = readFileSync(s.path, 'utf8')
+    const dir = join(skillDir, s.name)
+    for (const m of src.matchAll(/\]\(\.\/([A-Za-z0-9_-]+\.md)\)/g)) {
+      assert.ok(existsSync(join(dir, m[1])),
+        `${s.name} 이 ./${m[1]} 을 가리키는데 그 파일이 없다 — 읽는 쪽은 스킬을 불신한다`)
+    }
+  }
+})
+
+test('🔴 갈라낸 곁 파일도 400줄 규칙 안에 있고, 본문이 그것을 가리킨다', () => {
+  for (const s of skills()) {
+    const dir = join(skillDir, s.name)
+    const src = readFileSync(s.path, 'utf8')
+    for (const f of readdirSync(dir).filter((x) => x.endsWith('.md') && x !== 'SKILL.md')) {
+      const n = readFileSync(join(dir, f), 'utf8').split('\n').length
+      assert.ok(n <= 400, `${s.name}/${f} 가 ${n}줄이다 — 쪼갠 조각도 규칙 안이다`)
+      assert.ok(src.includes(`./${f}`),
+        `${s.name}/${f} 를 아무도 가리키지 않는다 — 읽히지 않는 절차는 없는 절차다`)
+    }
+  }
+})
