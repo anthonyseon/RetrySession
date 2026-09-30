@@ -352,6 +352,33 @@ curl -s -H "Origin: http://127.0.0.1:7345" "http://127.0.0.1:7345/api/usage?fres
 node -e "const c=require('./config/projects.json');const p=require('path'),f=require('fs');for(const x of c.projects){if(!x.tracker)continue;const q=p.join(x.repo,x.tracker);console.log(x.id,x.tracker,f.existsSync(q)?f.statSync(q).mtime.toLocaleString('ko-KR'):'없음')}"
 ```
 
+## 증상 11 — 회차가 **몇 초 만에** `400 does not support this model` 로 끝난다
+
+```text
+RUN 끝 · fail · 7초 · $0 · 턴 1 · exit 1
+  API Error: 400 Claude Code 2.1.246 does not support this model;
+  version 2.1.280 or newer is required. Run 'claude update' …
+```
+
+🔴 **우리가 띄운 CLI 가 그 세션의 모델을 모른다.** 이 기계에는 설치본이 둘 있을 수 있고
+(npm 전역 · VS Code 확장 번들) 사람의 세션은 보통 **확장 것**으로 돈다. 실측(2026-09-30):
+npm 2.1.246 · 확장 2.1.283 · 그 세션 모델 `claude-opus-5-5` → 낡은 쪽이 400 으로 거부했다.
+대조군으로 확인했다 — 같은 모델을 2.1.246 은 거부하고 2.1.283 은 답했다.
+
+무엇을 띄우고 있고 그 세션은 무엇으로 돌았나:
+
+```bash
+npm run cli:which          # 설치본 목록(버전은 실행 없이 읽는다) + 고른 것
+npm run resume:status      # 예산·차단·CLI낡음 횟수 (세션 줄의 `cliVer` 는 위 명령이 함께 보여준다)
+```
+
+- `claudeBin()` 은 설치본 중 **가장 새것**을 고른다(2026-09-30부터). 그래도 낡았다면
+  `claude update`, 또는 VS Code 확장을 갱신한다.
+- 이 실패는 `outdated` 로 갈리고 **연속실패를 올리지 않는다** — 재시도로 낫지 않기 때문이다.
+  대신 «CLI낡음» 치명 경보로 올라오고, 어긋남은 튕기기 **전에** «CLI어긋남» 경고로 뜬다.
+- 🔴 `RUN 끝 · fail` 인데 요약이 이 문구라면 **옛 버전이 남긴 기록**이다(그때는 fail 로 셌다).
+  그 회차가 올린 연속실패는 실제 고장이 아니므로 [차단 해제] 로 풀어도 된다.
+
 ## 마지막 수단 — 전부 다시 세운다
 
 ```powershell

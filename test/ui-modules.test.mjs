@@ -113,19 +113,46 @@ test('🔴 조각이 정의되지 않은 이름을 부르지 않는다 (나눌 �
   }
 })
 
-test('의존 방향이 한 쪽이다 — app -> 조각 -> common', () => {
+/**
+ * 🔴 지키려는 것은 «한 겹» 이 아니라 **순환과 순서 의존이 없는 것**이다.
+ *
+ *   예전에는 «조각은 common.js 만 import 한다» 로 못박았다. 2026-09-30 에 배지 표를
+ *   `counted.js` 로 갈랐을 때(list.js 가 402줄 — 규칙 400) 그 시험이 깨졌다. 읽어 보니
+ *   이유는 «조각끼리 엮이면 순서에 기대게 된다» 였고, `counted.js` 는 **common 만 가져오고
+ *   상태를 갖지 않는 잎**이라 그 위험이 없다 — 규칙이 이유보다 넓었던 것이다.
+ *
+ *   그래서 규칙을 이유에 맞춘다: 조각은 `common.js` 와 **잎 조각**만 가져올 수 있고,
+ *   잎은 `common.js` 만 가져온다. 그리고 **순환은 어떤 모양이든 금지**한다(그게 진짜 위험).
+ *   🔴 시험을 통과하게 맞추려고 느슨하게 한 것이 아니다 — 잎 조건을 새로 세어서 좁혔다.
+ */
+test('의존 방향이 한 쪽이다 — app -> 조각 -> (잎 조각) -> common', () => {
   // common 은 아무것도 import 하지 않는다(가장 아래다)
   assert.equal(imports(readPs('common.js')).filter((x) => x.path.startsWith('.')).length, 0,
     'common.js 가 다른 조각을 import 하면 순환의 시작이다')
 
-  // 조각들은 common 만 import 한다
+  /** 잎 = common.js 만 가져오는 조각. 그리기 상태가 없어 순서에 기대지 않는다 */
+  const local = (f) => imports(readPs(f)).map((x) => x.path).filter((p) => p.startsWith('.'))
+  const isLeaf = (f) => local(f).every((p) => p === './common.js')
+
   for (const f of drawingPieces) {
-    for (const { path } of imports(readPs(f))) {
-      if (!path.startsWith('.')) continue
-      assert.equal(path, './common.js',
-        `${f} 가 ${path} 를 import 한다 — 조각끼리 엮이면 순서에 기대게 된다`)
+    for (const path of local(f)) {
+      if (path === './common.js') continue
+      const target = path.replace(/^\.\//, '')
+      assert.ok(modules.includes(target), `${f} 가 화면 조각이 아닌 ${path} 를 가져온다`)
+      assert.ok(isLeaf(target),
+        `${f} 가 ${path} 를 가져오는데 그쪽도 다른 조각을 가져온다 — 두 겹이면 순서에 기대게 된다`)
     }
   }
+
+  // 🔴 순환은 어떤 모양이든 금지 — 브라우저는 순환 import 에서 한쪽을 undefined 로 준다
+  const seen = new Set()
+  const walk = (f, chain) => {
+    if (chain.includes(f)) assert.fail(`순환 import: ${[...chain, f].join(' -> ')}`)
+    if (seen.has(f)) return
+    seen.add(f)
+    for (const path of local(f)) walk(path.replace(/^\.\//, ''), [...chain, f])
+  }
+  for (const f of modules) walk(f, [])
 })
 
 /**

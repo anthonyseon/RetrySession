@@ -17,6 +17,7 @@ import { readFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { RS_HOME } from './config.mjs'
 import { localStamp } from './stamp.mjs'
+import { newerVersion } from './cli.mjs'
 import { writeJsonAtomic, appendLine } from './io.mjs'
 import { taskEntries } from './scheduler.mjs'
 
@@ -152,6 +153,48 @@ export function currentAlerts(d) {
      *     회차가 90분과 성공 회차의 1.5~3배 토큰을 썼고 기록에는 $0 으로 남았다.
      *     두 번 잘렸다면 일 단위가 회차보다 큰 것이니 사람이 결정할 문제다.
      */
+    /**
+     * 🔴 **우리가 띄운 CLI 가 낡아 재개가 튕긴다.**
+     *
+     *   실측(2026-09-30): `API Error: 400 Claude Code 2.1.246 does not support this model;
+     *   version 2.1.280 or newer is required` — 7초에 끝났다. 이 기계에는 설치본이 둘이었고
+     *   (npm 2.1.246 · VS Code 확장 2.1.283) 사람의 세션은 전부 새것으로, 우리만 낡은 것으로
+     *   돌고 있었다. 지금은 `claudeBin()` 이 가장 새것을 고르지만, 그래도 모자라면 **사람이
+     *   고쳐야** 하고 고치기 전까지 재개는 **한 번도** 못 돈다.
+     *
+     *   그래서 **한 번부터 치명**이다 — 과부하(3회)·타임아웃(2회)과 다르다. 기다려서 낫는
+     *   일이 아니고, 매 회차가 7초에 튕기며 조용히 하루를 버린다.
+     */
+    /**
+     * 🔴 **회차를 태우기 전에** 버전 어긋남을 말한다 (실측 2026-09-30).
+     *
+     *   위의 `CLI낡음` 은 «이미 튕긴 뒤» 다. 그런데 어긋남은 **띄우기 전에 알 수 있다** —
+     *   그 세션의 트랜스크립트에 «마지막으로 쓴 CLI 버전» 이 적혀 있다(`cliVer`).
+     *   우리 것이 더 낡았으면 그 세션의 모델을 모를 수 있고, 그러면 회차는 7초에 튕긴다.
+     *   실측: 세션 2.1.283 · 우리 2.1.246 · 그 세션 모델 `claude-opus-5-5` → 400.
+     *   대조군으로 확인했다 — 같은 모델을 2.1.246 은 거부하고 2.1.283 은 답했다.
+     *
+     *   🔴 같거나 우리가 더 새것이면 말하지 않는다. 늑대를 외치면 진짜 늑대를 놓친다.
+     */
+    if (s.restart?.on && s.cliVer && d.cli?.version) {
+      const ours = String(d.cli.version).match(/\d+\.\d+\.\d+/)?.[0] || null
+      const theirs = String(s.cliVer).match(/\d+\.\d+\.\d+/)?.[0] || null
+      if (ours && theirs && newerVersion(theirs, ours) === theirs && theirs !== ours) {
+        push('CLI어긋남', 'warning', '재시작이 쓰는 Claude Code 가 그 세션보다 낡았습니다',
+          `${s.title || s.shortId} — 그 세션은 ${theirs} 로 돌았고 우리는 ${ours} 를 띄웁니다. ` +
+          '그 세션의 모델을 모르면 회차가 몇 초 만에 400 으로 튕깁니다. `claude update` 로 올리세요.',
+          s.sessionId)
+      }
+    }
+
+    if (s.restart?.on && (s.restart.outdatedToday || 0) >= 1) {
+      push('CLI낡음', 'critical', '재시작이 쓰는 Claude Code 가 낡았습니다',
+        `${s.title || s.shortId} — 오늘 ${s.restart.outdatedToday}회 모델 미지원(400)으로 튕겼습니다. ` +
+        `${d.cli?.version ? `우리가 띄우는 것 ${d.cli.version} · ` : ''}` +
+        '`claude update` 로 올리거나, VS Code 확장이 더 새 버전을 들고 있으면 그것을 쓰도록 고치세요. ' +
+        '고치기 전까지 재개는 한 번도 돌지 않습니다.', s.sessionId)
+    }
+
     if (s.restart?.on && (s.restart.timeoutToday || 0) >= 2) {
       push('타임아웃잦음', 'warning', '재시작 회차가 시간 안에 못 끝납니다',
         `${s.title || s.shortId} — 오늘 ${s.restart.timeoutToday}회 잘렸습니다. 일하는 중에 끊은 것일 수 있습니다. ` +

@@ -3,6 +3,7 @@
  */
 'use strict'
 import { $, el, n, compact, shortPath, S, badge, actions } from './common.js'
+import { countedBadges } from './counted.js'
 
 /* ── 세션 배지 (목록 전용) ──────────────────────────────────── */
 /**
@@ -79,45 +80,6 @@ const resumeBadge = (s) => {
   return badge(crit ? 'crit' : 'warn', crit ? '▲' : '◔',
     crit ? `재시작 켬 · 차단 (${word})` : `재시작 켬 · 대기 (${word})`, g.why, 'on')
 }
-
-/** 오늘 과부하로 막힌 횟수 — 차단하지 않으므로 여기서라도 보여야 한다 */
-const overloadBadge = (s) => {
-  const nth = s.restart?.overloadToday || 0
-  return nth
-    ? badge(nth >= 3 ? 'warn' : 'off', '⇅', `과부하 ${nth}회`,
-      `오늘 API 과부하(529·5xx)로 ${nth}회 막혔습니다. 저쪽 문제라 연속실패로 세지 않습니다.`)
-    : null
-}
-
-/**
- * 오늘 로그인이 끊겨 재개가 헛돈 횟수.
- *
- * 🔴 과부하와 달리 **한 번부터** 보여준다 — 저쪽이 흔들린 것이 아니라 우리 쪽
- *   전제(로그인된 계정)가 사라진 것이고, 사람이 다시 로그인해야 할 수도 있다.
- */
-const authBadge = (s) => {
-  const nth = s.restart?.authToday || 0
-  return nth
-    ? badge('warn', '⚿', `로그인끊김 ${nth}회`,
-      `오늘 로그인이 끊겨 재개가 ${nth}회 헛돌았습니다. 연속실패로 세지 않으니 로그인이 살아나면 저절로 다시 돕니다.`)
-    : null
-}
-
-/**
- * 오늘 타임아웃으로 **잘린** 횟수.
- *
- * 🔴 «실패» 로 세지 않는다 — 실측(2026-09-28)으로 잘린 회차들은 kill 직전까지 일하고
- *   있었다. 고장이 아니라 **일이 회차보다 컸다**는 신호이므로, 색은 두 번부터 준다.
- */
-const timeoutBadge = (s) => {
-  const nth = s.restart?.timeoutToday || 0
-  return nth
-    ? badge(nth >= 2 ? 'warn' : 'off', '⏱', `시간초과 ${nth}회`,
-      `오늘 ${nth}회 타임아웃으로 잘렸습니다. 일하는 중이었을 수 있습니다 — 연속실패로 세지 않습니다. `
-      + 'timeoutMin 을 올리거나 재개지시를 더 작게 쪼개세요.')
-    : null
-}
-
 
 /**
  * 추적기 배지 — **재개 지점을 정하는 장부**다.
@@ -321,7 +283,8 @@ function items(d) {
 
     const bb = el('div', 'sbadges')
     bb.append(watchBadge(s), resumeBadge(s))
-    for (const b of [limitBadge(s), interruptBadge(s), overloadBadge(s), authBadge(s), timeoutBadge(s)]) if (b) bb.append(b)
+    // 차단하지 않는 것들(과부하·로그인끊김·시간초과·CLI낡음)은 표 하나에서 나온다 — counted.js
+    for (const b of [limitBadge(s), interruptBadge(s), ...countedBadges(s)]) if (b) bb.append(b)
     if (s.tracker.exists) bb.append(trackerBadge(s))
     if (s.tracker.doingViolations) bb.append(badge('warn', '▲', `doing ${s.tracker.doingViolations.length}개`))
     // 프로세스에서만 알 수 있는 것 — 사람이 알아야 하는 쪽부터

@@ -360,7 +360,8 @@ for (const target of items) {
     // 🔴 제한·과부하·인증·타임아웃은 우리 실패가 아니다 — 스케줄러 이력을 빨갛게 물들이지
     //   않는다. 가드에 막힌 회차가 exit 0 인 것과 같은 이유다. 때가 아닌 것이지 고장이 아니다.
     //   대신 경보로 나간다 — exit 0 이 "괜찮다"는 뜻이 되지 않게(alerts.mjs).
-    const notOurFault = result === 'limited' || result === 'overload' || result === 'auth' || result === 'timeout'
+    const notOurFault = result === 'limited' || result === 'overload' || result === 'auth'
+      || result === 'timeout' || result === 'outdated'
     const shown = result === 'ok' ? '✅' : notOurFault ? '◔' : '✖'
     console.log(`${shown} ${short} — ${result} · ${r.tookSec}초 · $${costUSD}`)
     if (result !== 'ok' && !notOurFault) exitCode = 1

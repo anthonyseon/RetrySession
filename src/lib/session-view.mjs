@@ -94,6 +94,8 @@ export function sessionView(s, registry, runMap, ideWins = [], procMap = new Map
        * 🔴 한 번이 타임아웃분을 통째로 먹으므로(30~60분) 과부하보다 적은 횟수에서 말한다.
        */
       timeoutToday: (st.timeoutByDay || {})[dayKey()] || 0,
+      /** 우리가 띄운 CLI 가 낡아 튕긴 횟수 — 고치기 전까지 재개는 한 번도 못 돈다 */
+      outdatedToday: (st.outdatedByDay || {})[dayKey()] || 0,
       blocked: st.blocked || null,
       corrupt: st.corrupt || null,
       budgetOk: b.ok,

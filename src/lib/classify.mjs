@@ -83,6 +83,38 @@ export function isAuthFailure(label) {
 }
 
 /**
+ * 이 실패는 **우리가 띄운 CLI 가 낡아서** 인가.
+ *
+ * 🔴 실측 결함 (2026-09-30): 무인 재개가 7초에 튕겼다 —
+ *     `API Error: 400 Claude Code 2.1.246 does not support this model;
+ *      version 2.1.280 or newer is required. Run 'claude update' …`
+ *   `isTransientFailure` 는 400 을 영구 오류로 배제하므로(그게 맞다) 이것은 `fail` 이 되고,
+ *   세 번이면 회로가 차단된다. **그런데 우리 잘못이 아니고, 재시도로도 안 풀린다** —
+ *   기계에 설치본이 둘 있었고(npm 2.1.246 · VS Code 확장 2.1.283) 우리만 낡은 것을 불렀다.
+ *   제한·과부하·인증에서 세 번 고친 그 실패 방식의 네 번째 얼굴이다.
+ *
+ * 🔴 차단하지 않는 대신 **가장 시끄럽게 말한다.** 기다려서 낫는 일이 아니라 사람이
+ *   고쳐야 하는 일이고, 고치기 전까지 재개는 한 번도 못 돈다(alerts 의 `CLI낡음`).
+ *   지금은 `claudeBin()` 이 설치본 중 **가장 새것**을 고르므로 대개 저절로 맞는다.
+ */
+export function isOutdatedFailure(label) {
+  const s = String(label || '')
+  if (!s) return false
+  if (/does not support this model/i.test(s) && /version\s+\d+\.\d+\.\d+\s+or newer/i.test(s)) return true
+  if (/claude code \d+\.\d+\.\d+ does not support/i.test(s)) return true
+  return /run '?claude update'?/i.test(s) && /version|newer|update/i.test(s)
+}
+
+/** 문구에서 «필요한 버전»·«우리 버전» 을 뽑는다 — 경보가 숫자를 그대로 보여줘야 한다 */
+export function outdatedVersions(label) {
+  const s = String(label || '')
+  return {
+    ours: (/claude code (\d+\.\d+\.\d+)/i.exec(s) || [])[1] || null,
+    needed: (/version\s+(\d+\.\d+\.\d+)\s+or newer/i.exec(s) || [])[1] || null,
+  }
+}
+
+/**
  * 실행 1회의 결과를 **하나의 이름**으로 정한다.
  *
  * 🔴 왜 함수로 떼어냈나 — 이 연쇄가 resume.mjs 안의 삼항식으로만 있어서 **시험이
@@ -107,6 +139,8 @@ export function classifyRun({ timedOut = false, failed = false, label = '' } = {
   if (timedOut) return 'timeout'
   if (!failed) return 'ok'
   if (isLimitFailure(label)) return 'limited'   // 때가 아닌 것 — 저절로 풀린다
+  // 🔴 CLI 낡음이 인증보다 먼저다 — 400 문구에 update·login 이 함께 오면 고칠 것은 버전이다
+  if (isOutdatedFailure(label)) return 'outdated'
   if (isAuthFailure(label)) return 'auth'       // 전제가 사라진 것 — 경보로 올린다
   if (isTransientFailure(label)) return 'overload' // 저쪽이 흔들린 것
   return 'fail'                                 // 우리 잘못 — 이것만 차단기를 태운다

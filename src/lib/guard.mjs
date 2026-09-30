@@ -254,7 +254,7 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
    *   한 회차가 타임아웃분을 통째로 먹으므로 과부하보다 **적은 횟수에서** 말해야 한다.
    */
   const notOurFault = result === 'limited' || result === '제한' || result === 'overload'
-    || result === 'auth' || result === 'timeout'
+    || result === 'auth' || result === 'timeout' || result === 'outdated'
   const failStreak = okCount ? 0 : notOurFault ? (state.failStreak || 0) : (state.failStreak || 0) + 1
   const limit = cfg.failStreakMax ?? 3
   const prevCost = (state.costByDay || {})[today] || 0
@@ -282,6 +282,8 @@ export function recordRun(state, detail, cfg = {}, now = Date.now()) {
     overloadByDay: bump(state.overloadByDay, result === 'overload'),
     authByDay: bump(state.authByDay, result === 'auth'),
     timeoutByDay: bump(state.timeoutByDay, result === 'timeout'),
+    /** 🔴 우리가 띄운 CLI 가 낡아 튕긴 횟수 — 차단하지 않는 대신 센다(고쳐야 낫는다) */
+    outdatedByDay: bump(state.outdatedByDay, result === 'outdated'),
     failStreak,
     /**
      * 🔴 **성공하면 차단을 푼다** (실측 결함 2026-09-29).

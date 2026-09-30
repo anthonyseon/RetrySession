@@ -28,13 +28,15 @@ export function printStatus() {
     const auth = (st.authByDay || {})[dayKey()] || 0
     // 🔴 타임아웃도 차단하지 않는다 — 그러니 여기서 세어 말한다(일하는 중에 잘렸을 수 있다)
     const cut = (st.timeoutByDay || {})[dayKey()] || 0
+    const old = (st.outdatedByDay || {})[dayKey()] || 0
     console.log(`── ${id.slice(0, 8)} ${v.title ? `· ${v.title.slice(0, 40)}` : ''}`)
     console.log(`   재시작 ${v.restart ? 'O' : 'X'} · 감시 ${v.watch ? 'O' : 'X'} · 권한 ${project?.resume.permissionMode || '-'}`)
     // 🔴 비용은 막지 않는다(통계) — 슬래시로 붙이면 상한으로 읽힌다
     console.log(`   오늘 ${b.runsToday}/${project?.resume.maxPerDay ?? '-'}회 · $${b.costToday} 씀(참고선 $${project?.resume.maxCostUSDPerDay ?? '-'})`
       + (over ? ` · 과부하로 막힘 ${over}회` : '')
       + (auth ? ` · 로그인 끊겨 헛돔 ${auth}회` : '')
-      + (cut ? ` · 시간초과 ${cut}회` : ''))
+      + (cut ? ` · 시간초과 ${cut}회` : '')
+      + (old ? ` · 🔴 CLI낡음 ${old}회` : ''))
     console.log(`   연속실패 ${st.failStreak || 0}/${project?.resume.failStreakMax ?? '-'} · 차단 ${st.blocked ? `🔴 ${st.blocked.reason}` : '없음'}`)
     // 비용의 **출처**도 적는다 — 잘린 회차는 트랜스크립트에서 잰 값이다
     const last = st.lastRun

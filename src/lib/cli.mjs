@@ -15,7 +15,7 @@
  *   **비운다** — 설정돼 있으면 계정 프로필을 가려 다른 주체로 청구될 수 있다.
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
@@ -30,16 +30,74 @@ import { join } from 'node:path'
  *     · 프로세스 트리가 한 겹 깊어져 종료시 taskkill /T 가 필요하다
  *   .exe 를 직접 부르면 세 문제가 모두 없다 (shell:false · windowsHide:true).
  */
-export function claudeBin(override = null) {
-  if (override) return override
+/**
+ * 🔴 **설치본이 여럿이면 가장 새것을 쓴다** (실측 결함 2026-09-30).
+ *
+ *   무인 재개가 7초에 튕겼다:
+ *     `API Error: 400 Claude Code 2.1.246 does not support this model;
+ *      version 2.1.280 or newer is required. Run 'claude update' …`
+ *   이 기계에는 설치본이 둘이었다 — npm 전역 **2.1.246**(2026-08-26)과 VS Code 확장이
+ *   들고 있는 **2.1.283**. 사람의 세션은 전부 확장 것으로 돌고 있었고(실행 중 프로세스
+ *   15개가 모두 그 경로), 우리만 낡은 npm 것을 부르고 있었다. 같은 계정·같은 세션을
+ *   이어받는 도구가 **다른 버전으로** 붙으면 그 세션의 모델을 지원하지 못한다.
+ *
+ *   그래서 경로 순서로 고르지 않고 **버전으로** 고른다. 버전은 실행하지 않고 안다 —
+ *   확장은 폴더 이름에(`anthropic.claude-code-2.1.283-win32-x64`), npm 은 package.json 에.
+ *   (실행해서 알아내면 회차마다 프로세스를 띄우게 되고, 그 자체가 느려진다.)
+ */
+export function claudeInstalls() {
+  const out = []
+  const push = (path, version, from) => { if (existsSync(path)) out.push({ path, version, from }) }
+
   const appdata = process.env.APPDATA
   if (appdata) {
-    const exe = join(appdata, 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe')
-    if (existsSync(exe)) return exe
-    // 설치 형태가 다르면 심으로 물러선다 (이때는 호출부가 셸을 써야 한다)
-    const cmd = join(appdata, 'npm', 'claude.cmd')
-    if (existsSync(cmd)) return cmd
+    const root = join(appdata, 'npm', 'node_modules', '@anthropic-ai', 'claude-code')
+    let v = null
+    try { v = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version || null } catch { v = null }
+    push(join(root, 'bin', 'claude.exe'), v, 'npm')
   }
+
+  /** VS Code 확장 번들 — 사람의 세션이 실제로 쓰는 것이다(실측) */
+  const home = process.env.USERPROFILE || process.env.HOME
+  for (const dir of ['.vscode', '.vscode-insiders', '.vscode-server']) {
+    const exts = home ? join(home, dir, 'extensions') : null
+    if (!exts || !existsSync(exts)) continue
+    let names = []
+    try { names = readdirSync(exts) } catch { names = [] }
+    for (const name of names) {
+      const m = /^anthropic\.claude-code-(\d+\.\d+\.\d+)(?:-|$)/.exec(name)
+      if (!m) continue
+      push(join(exts, name, 'resources', 'native-binary', 'claude.exe'), m[1], dir)
+    }
+  }
+  return out
+}
+
+/** `2.1.283` > `2.1.246` — 자리마다 숫자로 견준다(문자열 비교는 `2.1.9 > 2.1.10` 이 된다) */
+export function newerVersion(a, b) {
+  const p = (v) => String(v || '').split('.').map((x) => parseInt(x, 10) || 0)
+  const [x, y] = [p(a), p(b)]
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0) ? a : b
+  }
+  return a
+}
+
+export function claudeBin(override = null) {
+  if (override) return override
+  const list = claudeInstalls()
+  /**
+   * 🔴 버전을 **아는 것부터** 고른다. 모르는 설치본(package.json 이 깨진 경우)을 «최신» 으로
+   *   대접하면 이 결함이 조용히 돌아온다 — 모르는 것을 좋은 쪽으로 읽지 않는다.
+   */
+  const known = list.filter((x) => x.version)
+  if (known.length) {
+    return known.reduce((best, x) => (newerVersion(x.version, best.version) === x.version && x.version !== best.version ? x : best)).path
+  }
+  if (list.length) return list[0].path
+  const appdata = process.env.APPDATA
+  // 설치 형태가 다르면 심으로 물러선다 (이때는 호출부가 셸을 써야 한다)
+  if (appdata && existsSync(join(appdata, 'npm', 'claude.cmd'))) return join(appdata, 'npm', 'claude.cmd')
   return 'claude'
 }
 
