@@ -90,5 +90,12 @@ test('🔴 재시작 로그가 cwd 와 --add-dir 을 함께 남긴다', async ()
   assert.match(src, /launchRoots\(target, v\.project\)/, '판정이 끝난 뒤 뿌리를 여기서 정해야 한다')
   assert.match(src, /cwd \$\{cwd\}/, '로그에 cwd 가 남아야 한다')
   assert.match(src, /--add-dir \$\{addDirs\.join/, '로그에 --add-dir 이 남아야 한다')
-  assert.match(src, /addDirs,\n/, 'runClaude 에 계산된 addDirs 를 넘겨야 한다 (설정값을 그대로 넘기면 안 된다)')
+  /**
+   * 🔴 «계산한 addDirs 를 넘기는가» 를 본다. 예전에는 `addDirs,\n` 이라는 **줄 모양**으로
+   *   쌌는데, 같은 호출에 인자 하나(`exe:`)가 붙자 깨졌다(2026-09-30) — 계약은 그대로인데.
+   *   호출을 집어 **무엇을 넘기는지**로 확인한다.
+   */
+  const call = /runClaude\(\{[\s\S]*?\}\)/.exec(src)?.[0] || ''
+  assert.match(call, /\baddDirs\b/, 'runClaude 에 계산된 addDirs 를 넘겨야 한다')
+  assert.ok(!/addDirs:\s*cfg\./.test(call), '설정값(cfg.addDirs)을 그대로 넘기면 안 된다')
 })

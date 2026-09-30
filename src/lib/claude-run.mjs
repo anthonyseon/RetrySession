@@ -63,7 +63,7 @@ export function launchRoots(target, project) {
  *   깨지지 않는다), 프로세스 트리가 한 겹 얕아 종료가 단순하다.
  *   설치 형태가 달라 .cmd 로 물러설 때만 셸을 쓴다.
  */
-export function runClaude({ sessionId, cwd, prompt, cfg, addDirs }) {
+export function runClaude({ sessionId, cwd, prompt, cfg, addDirs, exe: given = null }) {
   return new Promise((resolve) => {
     const startedText = Date.now()
     const args = ['--resume', sessionId, '-p', '--output-format', 'json',
@@ -87,7 +87,11 @@ export function runClaude({ sessionId, cwd, prompt, cfg, addDirs }) {
     if ((cfg.permissionMode || '') === 'bypassPermissions') args.push('--dangerously-skip-permissions')
     for (const d of addDirs || []) args.push('--add-dir', d)
 
-    const exe = claudeBin(cfg.claudeBin)
+    /**
+     * 🔴 부르는 쪽이 고른 것을 **그대로** 쓴다(로그에 적힌 그것이다). 넘기지 않으면 여기서
+     *   고른다 — 그때도 버전으로 고른다(`claudeBin`). 두 곳에서 따로 고르면 로그가 거짓이 된다.
+     */
+    const exe = given || claudeBin(cfg.claudeBin)
     // 🔴 env 를 계정환경으로 준다 — API 키가 설정돼 있어도 로그인 계정이 이긴다
     const child = spawn(exe, args, {
       cwd, windowsHide: true, env: accountEnv(), shell: needsShell(exe),

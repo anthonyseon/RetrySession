@@ -83,6 +83,20 @@ export function newerVersion(a, b) {
   return a
 }
 
+/**
+ * 고른 실행 파일과 **그 버전**. 🔴 버전은 실행하지 않고 안다(설치본 목록에서 찾는다) —
+ *   회차마다 `--version` 을 띄우면 그 자체가 비용이고, 로그 한 줄 때문에 그럴 이유가 없다.
+ *
+ * 왜 필요한가 (실측 결함 2026-09-30): 재개 로그에 **어느 CLI 로 띄웠는지** 적히지 않아서,
+ *   `400 … does not support this model` 이 났을 때 프로세스 목록을 뒤지고 바이너리를 뜯어야
+ *   원인(설치본이 둘 · 낡은 쪽으로 띄움)에 닿았다. 로그가 스스로 증거가 되게 한다.
+ */
+export function binInfo(override = null) {
+  const path = claudeBin(override)
+  const hit = claudeInstalls().find((x) => x.path === path)
+  return { path, version: hit?.version || null, from: hit?.from || (override ? 'override' : 'PATH') }
+}
+
 export function claudeBin(override = null) {
   if (override) return override
   const list = claudeInstalls()

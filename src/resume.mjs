@@ -43,6 +43,7 @@ import {
 import { classifyRun } from './lib/classify.mjs'
 import { loadTargets, statePaths, resolveRepo, trackerPath, isSessionId } from './lib/targets.mjs'
 import { runClaude, parseResult, launchRoots } from './lib/claude-run.mjs'
+import { binInfo, newerVersion } from './lib/cli.mjs'
 import { resumeGate, nowGate } from './lib/resume-gate.mjs'
 import { printStatus, doRearm } from './lib/resume-report.mjs'
 import { scanSessions } from './lib/sessions.mjs'
@@ -281,10 +282,27 @@ for (const target of items) {
     // 지시문도 **최신 판정으로** 다시 만든다 — 지점이 바뀌었으면 옛 지시문은 거짓이다
     const prompt2 = buildPrompt(target, again.project, { limitStopped: again.limitStopped, interrupted: again.interrupted })
     const { cwd, addDirs } = launchRoots(target, again.project)
+
+    /**
+     * 🔴 **어느 CLI 로 띄웠는지 로그에 남긴다** (실측 결함 2026-09-30).
+     *
+     *   `400 Claude Code 2.1.246 does not support this model` 이 났을 때 로그에는 그 정보가
+     *   없어서, 프로세스 목록을 뒤지고 바이너리 문자열을 긁어야 원인에 닿았다 —
+     *   이 기계에 설치본이 둘이고(npm 전역 · VS Code 확장) 우리가 낡은 쪽을 골랐던 것이다.
+     *   그 세션이 쓰던 버전을 **나란히** 적는다: 우리가 더 낡으면 그 한 줄이 곧 원인이다.
+     *
+     *   🔴 고른 exe 를 **그대로 넘겨** 띄운다. 두 번 고르면(로그용·실행용) 그 사이 확장이
+     *   갱신되며 갈릴 수 있고, 그러면 로그가 실행과 다른 것을 말한다.
+     */
+    const bin = binInfo(cfg.claudeBin)
+    const seen = ctx.sessionMap.get(target.sessionId)?.version || null
+    const behind = bin.version && seen && newerVersion(seen, bin.version) === seen && seen !== bin.version
     log(v.P, [
       '', '═'.repeat(70),
       `${localStamp()} · RUN 시작 · ${again.why}`,
       `  --resume ${target.sessionId} · 권한 ${cfg.permissionMode} · 타임아웃 ${cfg.timeoutMin}분`,
+      `  CLI ${bin.version || '(버전 모름)'} [${bin.from}]${seen ? ` · 그 세션이 쓰던 것 ${seen}` : ''}`
+        + (behind ? ' · 🔴 우리가 더 낡다 — 그 세션의 모델을 모를 수 있다' : ''),
       `  cwd ${cwd}`,
       // 무엇을 쓸 수 있었는지 남긴다 — 권한거부가 나면 여기부터 본다
       addDirs.length ? `  --add-dir ${addDirs.join(' · ')}` : '  --add-dir (없음)',
@@ -295,7 +313,7 @@ for (const target of items) {
     const costBefore = ctx.sessionMap.get(target.sessionId)?.costUSD || 0
 
     const r = await runClaude({
-      sessionId: target.sessionId, cwd, prompt: prompt2, cfg, addDirs,
+      sessionId: target.sessionId, cwd, prompt: prompt2, cfg, addDirs, exe: bin.path,
     })
     const p = parseResult(r.stdout)
 

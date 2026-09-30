@@ -18,7 +18,11 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { claudeInstalls, claudeBin, newerVersion } from '../src/lib/cli.mjs'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { claudeInstalls, claudeBin, newerVersion, binInfo } from '../src/lib/cli.mjs'
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 /* ── 버전 비교 ───────────────────────────────────────────────── */
 
@@ -124,4 +128,47 @@ test('명시한 경로는 언제나 이긴다 (설정으로 못 박을 수 있�
   try {
     assert.equal(claudeBin('D:\\x\\claude.exe'), 'D:\\x\\claude.exe')
   } finally { m.restore() }
+})
+
+/* ── 로그가 스스로 증거가 되는가 ────────────────────────────── */
+
+/**
+ * 🔴 실측 결함 (2026-09-30): `400 … does not support this model` 이 났을 때 재시작 로그에는
+ *   **어느 CLI 로 띄웠는지 없었다.** 그래서 프로세스 목록을 뒤지고 239MB 바이너리를 긁어야
+ *   원인(설치본 둘 · 낡은 쪽으로 띄움)에 닿았다. 로그가 그 한 줄을 들고 있으면 즉시 갈린다.
+ */
+test('🔴 버전을 실행 없이 알아낸다 (로그 한 줄 때문에 프로세스를 띄우지 않는다)', () => {
+  const m = fakeMachine()
+  try {
+    const info = binInfo()
+    assert.equal(info.version, '2.1.283', '고른 것의 버전을 알아야 로그에 적을 수 있다')
+    assert.equal(info.from, '.vscode', '어디서 온 설치본인지도 적는다')
+    assert.match(info.path, /native-binary/)
+  } finally { m.restore() }
+})
+
+test('명시한 경로는 버전을 몰라도 그대로 쓴다 (모르는 것을 지어내지 않는다)', () => {
+  const m = fakeMachine()
+  try {
+    const info = binInfo('D:/x/claude.exe')
+    assert.equal(info.path, 'D:/x/claude.exe')
+    assert.equal(info.version, null, '설치본 목록에 없으면 버전은 모른다')
+    assert.equal(info.from, 'override')
+  } finally { m.restore() }
+})
+
+test('🔴 재시작 로그에 CLI 버전과 **그 세션이 쓰던 버전**을 나란히 적는다', () => {
+  const src = readFileSync(join(ROOT, 'src', 'resume.mjs'), 'utf8')
+  assert.match(src, /const bin = binInfo\(cfg\.claudeBin\)/, '고른 것을 알아야 적을 수 있다')
+  assert.match(src, /CLI \$\{bin\.version/, '우리가 띄운 버전을 적어야 한다')
+  assert.match(src, /그 세션이 쓰던 것 \$\{seen\}/, '견줄 대상이 같은 줄에 있어야 한다')
+  assert.match(src, /우리가 더 낡다/, '우리가 낡은 경우를 그 줄에서 말해야 한다')
+})
+
+test('🔴 고른 exe 를 **그대로 넘겨** 띄운다 (두 번 고르면 로그가 실행과 갈린다)', () => {
+  const src = readFileSync(join(ROOT, 'src', 'resume.mjs'), 'utf8')
+  assert.match(src, /exe: bin\.path/, '로그에 적은 그 파일로 띄워야 한다')
+  const run = readFileSync(join(ROOT, 'src', 'lib', 'claude-run.mjs'), 'utf8')
+  assert.match(run, /const exe = given \|\| claudeBin\(cfg\.claudeBin\)/,
+    '받은 것을 쓰고, 없을 때만 스스로 고른다')
 })
