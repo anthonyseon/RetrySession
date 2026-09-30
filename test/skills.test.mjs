@@ -11,7 +11,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -208,11 +208,17 @@ test('🔴 검사기가 헛돌지 않는다 (없는 파일을 넣으면 잡아�
  */
 test('🔴 스킬이 가리키는 곁 파일이 실재한다 (쪼갤 때 링크가 깨진다)', () => {
   for (const s of skills()) {
-    const src = readFileSync(s.path, 'utf8')
     const dir = join(skillDir, s.name)
-    for (const m of src.matchAll(/\]\(\.\/([A-Za-z0-9_-]+\.md)\)/g)) {
-      assert.ok(existsSync(join(dir, m[1])),
-        `${s.name} 이 ./${m[1]} 을 가리키는데 그 파일이 없다 — 읽는 쪽은 스킬을 불신한다`)
+    /**
+     * 🔴 곁 파일 **안의** 링크도 본다. 갈라낸 조각은 한 겹 깊어진 자리에서 저장소 문서를
+     *   가리키므로(`../../../docs/…`) 옮기는 순간 깨지기 쉽다 — 실측(09-30)으로 두 번 갈랐다.
+     */
+    for (const f of readdirSync(dir).filter((x) => x.endsWith('.md'))) {
+      const src = readFileSync(join(dir, f), 'utf8')
+      for (const m of src.matchAll(/\]\((\.{1,2}\/[^)\s]+\.md)\)/g)) {
+        assert.ok(existsSync(resolve(dir, m[1])),
+          `${s.name}/${f} 가 ${m[1]} 을 가리키는데 그 파일이 없다 — 읽는 쪽은 스킬을 불신한다`)
+      }
     }
   }
 })
