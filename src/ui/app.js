@@ -14,7 +14,8 @@
  */
 'use strict'
 import { $, S, actions, keepScroll, drawPiece } from './common.js'
-import { drawAlerts, drawTiles } from './summary.js'
+import { drawTiles } from './summary.js'
+import { drawAlerts, initAlertsFold } from './alerts.js'
 import { drawFolders, items, syncSelection } from './list.js'
 import { redrawDetail } from './detail.js'
 import { openSettings, closeSettings, drawSettings, isSettingsOpen, pcAction } from './setup.js'
@@ -256,8 +257,8 @@ $('#btnTheme').addEventListener('click', () => {
 /**
  * 요약 타일 묶음을 한 번에 접고 편다.
  *
- * 🔴 경보(.alerts-wrap)는 건드리지 않는다. 접힌 채로 '감시 끊김'이 숨으면
- *   이 도구가 막으려는 일이 정확히 일어난다.
+ * 🔴 경보(.alerts-wrap)는 건드리지 않는다. 요약을 접을 때 함께 숨으면 '감시 끊김'이
+ *   사라진다 — 경보는 자기 띠로 따로 접고, 접혀도 건수·치명 제목이 남는다(alerts.js).
  *
  * 화살표 모양만으로 말하지 않는다 — 옆에 '요약 접기/펴기'를 글자로 적고
  * aria-expanded 로도 알린다. 상태는 기억해 둔다(다시 열 때마다 접지 않아도 되게).
@@ -322,6 +323,8 @@ Object.assign(actions, { draw, loadStatus, loadDetail, post, meta, say })
 // 너비 조절 손잡이와 세션 영역 접기. 저장해 둔 배치를 먼저 적용한다 —
 // 첫 그리기 뒤에 배치가 튀면 사람은 화면이 덜컹거린다고 느낀다.
 initLayout()
+// 경보 접기 — 첫 그리기 전에 기억해 둔 접힘을 적용한다(펴졌다 접히며 덜컹거리지 않게)
+initAlertsFold()
 /**
  * 사용량 패널. 🔴 **폴링에 넣지 않는다** — `/usage` 호출이 몇 초 걸려서, 상태 갱신과
  *   같이 돌면 화면 전체가 그만큼 느려진다. 펼칠 때 한 번 읽고 `갱신` 으로 다시 읽는다.

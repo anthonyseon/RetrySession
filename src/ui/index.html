@@ -42,8 +42,19 @@
   </div>
 </div>
 
-<!-- 🔴 경보는 접히는 묶음 바깥이다. 접은 채로 '감시 끊김'이 숨으면 안 된다. -->
-<div class="alerts-wrap">
+<!-- 🔴 경보는 요약(#top) 바깥이고 **따로** 접힌다(사용자 요청 2026-10-01). 요약을 접어도
+     경보는 남고, 경보를 접어도 이 띠에 건수와 치명 경보의 제목이 남는다 — '감시 끊김'이
+     숨으면 안 된다. 목록은 셋까지 보이고 나머지는 스크롤한다(높이는 alerts.js 가 잰다).
+     띠는 목록 **바깥**이다 — 목록과 함께 스크롤되면 접는 단추가 화면 밖으로 사라진다. -->
+<div class="alerts-wrap" id="alertsWrap">
+  <button type="button" class="sumbar hide" id="btnAlerts" aria-expanded="true" aria-controls="alerts"
+          title="경보를 접어도 건수와 치명 경보의 제목은 이 띠에 남습니다">
+    <span class="chev" id="btnAlertsIc" aria-hidden="true">▾</span>
+    <span class="nm" id="btnAlertsTx">경보 접기</span>
+    <span class="alertsn" id="alertsN"></span>
+    <span class="alertsmore" id="alertsMore"></span>
+    <span class="sumdigest" id="alertsDigest"></span>
+  </button>
   <section id="alerts" class="alerts hide"></section>
 </div>
 

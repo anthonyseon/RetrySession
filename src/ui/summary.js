@@ -1,59 +1,11 @@
 /**
- * summary.js — 경보 배너와 요약 묶음. 화면 위쪽을 그린다.
+ * summary.js — 요약 묶음. 화면 위쪽의 곁눈질용 타일을 그린다.
  *
- * 🔴 경보는 접히지 않는다(index.html 의 .alerts-wrap). 요약만 접힌다.
+ * 경보 배너는 alerts.js 로 옮겼다(2026-10-01) — 경보는 요약과 **따로** 접히고,
+ * 접혀도 건수와 치명 경보의 제목을 띠에 남긴다. 요약을 접을 때 경보가 함께 숨으면 안 된다.
  */
 'use strict'
-import { $, el, n, compact, S, badge, actions } from './common.js'
-
-/* ── 경보 배너 ───────────────────────────────────────────────── */
-/**
- * Windows 풍선 알림 대신 여기에 띄운다.
- *
- * 풍선은 상태가 조금만 오르내려도 떠서(서버 재시작 한 번에 두 번) 진짜 경고가
- * 묻혔다. 화면 맨 위 배너는 창을 열면 바로 보이고, 조치할 곳 바로 옆에 있다.
- * 이력은 "알림" 탭에서 본다 — 창을 닫아둔 사이의 변화는 하트비트가 적어둔다.
- */
-const alertIcon = { critical: '▲', warning: '▲', info: '●' }
-const alertLabel = { critical: '치명', warning: '주의', info: '정보' }
-
-function drawAlerts(d) {
-  const box = $('#alerts'); box.textContent = ''
-  const list = [...(d?.alerts || [])]
-
-  /**
-   * 🔴 상태를 못 읽은 것 자체가 가장 급한 경보다.
-   *   서버가 오류로 답하면 `d` 는 낡은 것이거나 없다 — 그 말은 화면의 나머지 전부가
-   *   낡았다는 뜻이다. 머리말 구석의 작은 글씨로는 그 사실이 전달되지 않고,
-   *   긴 이유는 거기서 잘린다. 배너는 전폭이고 조치를 적는 자리다.
-   */
-  if (S.error) {
-    list.unshift({
-      code: '상태읽기실패', level: 'critical',
-      title: '상태를 읽을 수 없습니다',
-      desc: `${S.error} — 아래 내용은 마지막으로 성공한 시점의 것입니다.`,
-    })
-  }
-
-  if (!list.length) { box.classList.add('hide'); return }
-  box.classList.remove('hide')
-
-  for (const a of list) {
-    const w = el('div', 'alert ' + a.level)
-    w.append(el('i', 'ic', alertIcon[a.level] || '●'))
-    const t = el('div', 'txt')
-    t.append(el('div', 't', a.title), el('div', 'd', a.desc))
-    w.append(t, el('span', 'lv', alertLabel[a.level] || a.level))
-    // 세션에 딸린 경보면 눌러서 그 세션 상세로 간다 — 조치까지 한 번에
-    if (a.target) {
-      w.style.cursor = 'pointer'
-      w.title = '이 세션의 상세 보기'
-      w.addEventListener('click', () => { S.openSession = a.target; S.detail = null; actions.draw(); actions.loadDetail() })
-    }
-    box.append(w)
-  }
-}
-
+import { $, el, n, compact, badge } from './common.js'
 
 /* ── 요약 묶음 ───────────────────────────────────────────────── */
 
@@ -355,4 +307,4 @@ function updateDigest(d) {
 }
 
 
-export { drawAlerts, drawTiles }
+export { drawTiles }

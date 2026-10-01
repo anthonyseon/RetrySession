@@ -37,7 +37,8 @@ test('🔴 서버가 보낸 이유를 버리지 않는다 (HTTP 500 만 보여�
 })
 
 test('🔴 상태를 못 읽으면 그것을 가장 급한 경보로 띄운다', () => {
-  const sum = readFileSync(join(ROOT, 'src', 'ui', 'summary.js'), 'utf8')
+  // 경보 배너는 alerts.js 에 있다(2026-10-01 summary.js 에서 옮겼다 — 접기·셋까지 보이기)
+  const sum = readFileSync(join(ROOT, 'src', 'ui', 'alerts.js'), 'utf8')
   const i = sum.indexOf('function drawAlerts')
   const section = sum.slice(i, i + 1200)
   assert.match(section, /S\.error/, '읽기 실패를 경보 목록에 넣어야 한다')

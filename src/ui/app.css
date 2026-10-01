@@ -25,12 +25,14 @@ a{color:var(--accent)}
 .hide{display:none !important}
 
 /* ── 요약(타일) 묶음 ──
-   🔴 경보(.alerts)는 이 안에 두지 않는다. 이 묶음은 사람이 접을 수 있는데,
-      접힌 채로 '감시 끊김'이 숨으면 이 도구가 존재하는 이유가 사라진다.
-      접히는 것은 요약뿐이고, 경보는 언제나 보인다.
-   높이 상한을 둬서 타일이 늘어도 세션·상세를 0 높이로 밀어내지 않는다. */
+   🔴 경보(.alerts)는 이 안에 두지 않는다 — 요약을 접을 때 '감시 끊김'이 함께 숨으면 안 된다.
+      경보는 자기 띠로 따로 접히고, 접혀도 건수·치명 제목이 띠에 남는다(fold.css · alerts.js).
+   높이 상한을 둬서 타일이 늘어도 세션·상세를 0 높이로 밀어내지 않는다.
+   경보는 **셋까지** 보이고 목록만 스크롤한다 — 높이는 alerts.js 가 셋째의 아래 끝을 재서 정하고,
+   50vh 는 못 쟀을 때의 상한이다(사용자 요청 2026-10-01. 예전 28vh 는 배율 150% 에서 셋째를 잘랐다). */
 .top{flex:0 0 auto; max-height:30vh; overflow-y:auto}
-.alerts-wrap{flex:0 0 auto; max-height:28vh; overflow-y:auto}
+.alerts-wrap{flex:0 0 auto; display:flex; flex-direction:column; min-height:0}
+#alerts{min-height:0; max-height:50vh; overflow-y:auto; overscroll-behavior:contain}
 
 /**
  * 언제 이어받는가 — 화면 맨 위의 한 줄 설명. 접힌 채로도 요지가 남는다.
@@ -92,7 +94,8 @@ button.sm{padding:4px 8px; font-size:12.5px}
    수준 라벨과 아이콘을 함께 적는다. */
 .alerts{padding:12px 16px 0; display:flex; flex-direction:column; gap:8px}
 .alert{
-  display:flex; align-items:flex-start; gap:8px; padding:8px 12px;
+  /* flex:0 0 auto — 목록이 스크롤 상자가 되면서 경보가 눌려 글자가 잘리면 안 된다 */
+  flex:0 0 auto; display:flex; align-items:flex-start; gap:8px; padding:8px 12px;
   border:1px solid var(--ring); border-radius:9px; background:var(--surface);
   border-left-width:3px;
 }
@@ -268,7 +271,8 @@ main{
   /* 🔴 !important — 드래그가 남긴 inline 격자를 좁은 화면에서는 무시해야 한다.
        안 그러면 저장된 px 때문에 한 칸이 화면을 넘어가 상세가 사라진다. */
   main{grid-template-columns:1fr !important; gap:12px; align-items:start}
-  .top, .alerts-wrap{max-height:none; overflow:visible}
+  /* 🔴 경보는 여기서도 셋까지다 — 상한을 풀었더니 경보가 세션·상세를 밀어냈다 */
+  .top{max-height:none; overflow:visible}
   #slist, #dscroll{max-height:70vh}
   /* 세로로 쌓인 뒤에는 손잡이가 아무것도 나누지 않는다 */
   .splitter{display:none}

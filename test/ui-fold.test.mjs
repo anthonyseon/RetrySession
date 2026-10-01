@@ -125,9 +125,9 @@ test('폴더가 없으면 아예 숨긴다 (빈 묶음이 자리를 먹지 않�
   assert.ok(cell.get('folders').classList.contains('hide'))
 })
 
-/* ── 경보는 접히지 않는다 ────────────────────────────────────── */
+/* ── 경보는 요약과 따로 접힌다 (자기 띠 — ui-alerts.test.mjs) ──── */
 
-test('🔴 경보는 접히는 묶음 바깥에 있다 (접은 채로 "감시 끊김"이 숨으면 안 된다)', async () => {
+test('🔴 경보는 요약 묶음 바깥에 있다 (요약을 접을 때 "감시 끊김"이 함께 숨으면 안 된다)', async () => {
   freshFold()
   const { readFileSync } = await import('node:fs')
   const { fileURLToPath } = await import('node:url')
