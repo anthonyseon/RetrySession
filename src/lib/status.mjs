@@ -29,6 +29,7 @@ import { currentAlerts, recentAlerts } from './alerts.mjs'
 import { paths as repoPaths } from './config.mjs'
 import { totalCost } from './pricing.mjs'
 import { pcState } from './pc.mjs'
+import { readyState } from './ready.mjs'
 // 보기 변환은 view.mjs 로 옮겼다. tail 은 바깥(server.mjs)에서도 쓰므로 다시 내보낸다.
 import { tail, quotaView } from './view.mjs'
 export { tail, quotaView }
@@ -168,6 +169,8 @@ export function fullStatus() {
   const alerts = currentAlerts(fallback)
   return {
     ...fallback,
+    // «이 PC 에서 돌 수 있나» — 이미 읽은 작업·전원·계정을 다시 쓴다(판정은 lib/ready.mjs 하나)
+    ready: readyState(fallback),
     alerts,
     alertHistory: recentAlerts(60),
     totals: {

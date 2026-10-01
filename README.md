@@ -279,7 +279,7 @@ config/
 src/
   heartbeat.mjs          ① 감시 본체        hb.mjs  ← 스케줄러가 부르는 ASCII 진입점
   resume.mjs             ② 재시작 본체      rs.mjs  ← 같은 이유
-  ui/server.mjs          ③ 화면 (127.0.0.1) index.html · app.js · layout.js · usage.js · *.css
+  ui/server.mjs          ③ 화면 (127.0.0.1) index.html · app.js · layout.js · usage.js · alerts.js · ready.js · *.css
   lib/
     config.mjs  targets.mjs     설정 · 대상 등록부
     sessions.mjs +session-fold  증분 캐시 스캔 · 줄 접기(사용량 오늘/누적) · detail.mjs 상세
@@ -290,7 +290,7 @@ src/
     resume-gate.mjs             🔴 "지금 재개해도 되나" **판정 하나** — 재개와 화면이 같이 쓴다
     autowatch.mjs               새 세션에 감시만 자동 등록 (기본 꺼짐)
     pricing.mjs stamp.mjs       비용 환산 · 로컬 시각(날짜 키) · session-view.mjs 세션 하나의 보기 상태
-    status.mjs scheduler.mjs    집계(화면·트레이·CLI 공용) · 예약 조회
+    status.mjs scheduler.mjs    집계(화면·트레이·CLI 공용) · 예약 조회 · ready.mjs «이 PC 에서 돌 수 있나» 판정·적용
     resume-report.mjs           --status · --rearm (사람에게 보여주는 것)
 scripts/                 🔴 전부 ASCII
   register-{heartbeat,resume,ui,tray}.ps1 · register-all.ps1 · unregister-all.ps1

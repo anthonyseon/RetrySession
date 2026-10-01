@@ -166,6 +166,41 @@ test('넘친 것이 있으면 띠가 말로도 알린다 (스크롤바는 얇아
   assert.equal(txt('alertsMore'), '', '넘치지 않으면 말하지 않는다')
 })
 
+/* ── 머리말 칩 (페이지가 구른 뒤에도 경보가 숨지 않게) ─────────── */
+
+test('🔴 머리말 칩이 건수와 치명 수를 말하고, 경보가 없으면 숨는다', () => {
+  fresh()
+  drawAlerts(three())
+  const chip = cell.get('hdrAlerts')
+  assert.ok(!chip.classList.contains('hide'), '페이지를 내려 맨 위 경보가 밀려나도 머리말에는 남아야 한다')
+  assert.match(chip.textContent, /경보 3 · 치명 1/)
+  assert.match(chip.children[0].className, /crit/, '치명이 있으면 치명 색이다(아이콘·단어와 함께)')
+  drawAlerts({ alerts: [A('warning', '주의만')] })
+  assert.match(chip.textContent, /경보 1/)
+  assert.doesNotMatch(chip.textContent, /치명/)
+  drawAlerts({ alerts: [] })
+  assert.ok(chip.classList.contains('hide'), '없는 경보를 칩으로 남기면 늑대 외치기다')
+})
+
+test('🔴 상태를 못 읽었을 때도 칩이 치명으로 말한다', () => {
+  fresh()
+  S.error = 'HTTP 500'
+  drawAlerts(null)
+  S.error = null
+  assert.match(cell.get('hdrAlerts').textContent, /경보 1 · 치명 1/)
+})
+
+test('머리말 칩을 누르면 맨 위(경보)로 간다 — 스크롤 상자는 body 다', () => {
+  fresh()
+  drawAlerts(three())
+  const calls = []
+  globalThis.document.body = { scrollTo: (o) => calls.push(o) }
+  try {
+    cell.get('hdrAlerts').fire('click')
+    assert.deepEqual(calls.at(-1), { top: 0, behavior: 'smooth' })
+  } finally { delete globalThis.document.body }
+})
+
 /* ── 뼈대와 모양 ─────────────────────────────────────────────── */
 
 test('🔴 띠는 경보 묶음 안, 목록 **위**에 있다 (목록과 함께 스크롤되면 단추가 사라진다)', () => {

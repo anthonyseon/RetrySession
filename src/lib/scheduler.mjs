@@ -119,24 +119,35 @@ function query() {
  * 같은 조회를 **막지 않고** 한다. 결과는 캐시에만 넣는다 — 부르는 쪽은 기다리지 않는다.
  * 한 번에 하나만 돈다(겹쳐 띄우면 PowerShell 이 쌓인다).
  */
-let _refreshing = false
+let _refreshing = null
 function refreshAsync() {
-  if (_refreshing) return
-  _refreshing = true
-  const ps = psCommand()
-  const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
-    windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+  if (_refreshing) return _refreshing
+  _refreshing = new Promise((resolve) => {
+    const ps = psCommand()
+    const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+      windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let out = ''
+    child.stdout.on('data', (d) => { out += d })
+    child.on('error', () => { _refreshing = null; resolve(false) })
+    child.on('close', () => {
+      _refreshing = null
+      try { _cache.set('tasks', { at: Date.now(), v: buildTaskTable(parseOut(out)) }); resolve(true) } catch { resolve(false) /* 다음 회차에 다시 */ }
+    })
+    // 응답을 붙잡지 않는다 — 서버 종료를 막아서도 안 된다
+    child.unref?.()
   })
-  let out = ''
-  child.stdout.on('data', (d) => { out += d })
-  child.on('error', () => { _refreshing = false })
-  child.on('close', () => {
-    _refreshing = false
-    try { _cache.set('tasks', { at: Date.now(), v: buildTaskTable(parseOut(out)) }) } catch { /* 다음 회차에 다시 */ }
-  })
-  // 응답을 붙잡지 않는다 — 서버 종료를 막아서도 안 된다
-  child.unref?.()
+  return _refreshing
 }
+
+/**
+ * 지금 다시 읽고 **끝날 때까지 기다린다** — 이벤트 루프는 막지 않는다.
+ *
+ * 🔴 작업을 막 등록한 쪽(«이 PC 준비하기»)이 쓴다. 캐시를 비우면(`clearCache`) 다음 조회가
+ *   **동기**로 7초를 막는다(위 taskState 머리말의 실측) — 그동안 /api/ping 이 멈춘다.
+ *   그래서 비우지 않고 비동기로 새로 읽어 캐시를 갈아 끼운다. 이미 읽는 중이면 그것을 기다린다.
+ */
+export const refreshTasks = () => refreshAsync()
 
 /**
  * 네 작업의 상태. 30초 캐시 — UI 가 몇 초마다 물어봐도 PowerShell 을 그만큼 띄우지 않는다.

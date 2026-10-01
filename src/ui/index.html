@@ -11,12 +11,16 @@
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/fold.css">
 <link rel="stylesheet" href="/usage.css">
+<link rel="stylesheet" href="/ready.css">
 </head>
 <body>
 
 <header>
   <h1>RetrySession <small id="acct">계정 확인 중…</small></h1>
   <div class="spacer"></div>
+  <!-- 🔴 경보 칩 — 페이지가 구르면 맨 위의 경보가 밀려 올라간다. 머리말은 붙어 있으니 여기서
+       건수·치명 수를 말하고, 누르면 맨 위(경보)로 간다. 경보가 없으면 숨는다(alerts.js). -->
+  <button type="button" class="hdralerts hide" id="hdrAlerts" title="맨 위의 경보로 갑니다"></button>
   <span class="live"><i class="dot off" id="dot"></i><span id="freshness">연결 중…</span></span>
   <button type="button" class="sm sw-on" id="btnAuto">자동갱신 켬</button>
   <button type="button" class="sm" id="btnRefresh">지금 갱신</button>
@@ -63,15 +67,41 @@
         `세션이 실행 중이다` 로 건너뛰어졌다 — pid 를 '사람이 쓰는 중'으로 읽었기 때문이다.
         사람은 "감시·재시작을 켰는데 왜 안 도나"를 물을 수밖에 없었다 — 조건이 화면에
         없으면 로그를 열어야 알 수 있기 때문이다.
-     접힌 채로도 요지가 보이고(summary), 펴면 조건 전부가 나온다. JS 를 쓰지 않는다. -->
+     접힌 채로도 요지가 보이고(summary), 펴면 조건 전부가 나온다. 조건 표는 JS 를 쓰지 않는다 —
+     «이 PC 에서 돌 수 있나» 와 접힌 줄의 PC 배지만 ready.js 가 그린다. -->
 <details class="howto" id="howto">
   <!-- 🔴 제목도 **단어**다. 접힌 채로도 조건 일곱 개가 그대로 보이고, 펴면 그 단어에
        배지·뜻이 붙는다 — 접힌 줄과 표의 첫 칸이 **같은 말**이어야 눈이 이어진다. -->
   <summary>
     <b>자동 이어받기 조건</b>
+    <!-- PC 가 준비됐는지 — 접어 둔 채로 «안 됨» 이 숨으면 안 된다 -->
+    <span class="readydg" id="readyDigest"></span>
     <span class="cond">재시작 켬 · 일 없음 · 3분 조용 · 제한 해제 · 이어갈 지점 · 조용시간 아님 · 예산 남음</span>
     <span class="muted">— 표 보기</span>
   </summary>
+  <!-- 🔴 펼친 내용은 **이 상자 하나에서** 구른다(ready.css). 실측(2026-10-02, 1500×980): 페이지가
+       구르지 않던 때 점검표를 표 아래에 두었더니 «이 PC 준비하기» 단추를 누를 수 없었다(시험은 통과).
+       페이지가 구르는 지금도 상한은 남긴다 — 펼치자마자 단추가 보이고 일하는 곳을 밀어내지 않는다. -->
+  <div class="howbody" id="howBody">
+  <!-- ── 이 PC 에서 돌 수 있나 ──
+       🔴 아래 조건은 세션마다의 것이고, 이것은 **그 전제**다 — PC 가 준비되지 않으면 조건이 다 맞아도
+          아무것도 돌지 않는다(실측 2026-10-01: node 없음·예약 0개·5분 절전·다른 PC 경로).
+          그래서 맨 앞이다 — 접힌 줄도 «PC 배지 → 조건 단어» 순서다(눈이 같은 순서로 이어진다).
+       🔴 판정은 서버(lib/ready.mjs) 하나다. 단추는 되돌릴 수 있고 돈을 쓰지 않는 것만 고친다. -->
+  <section class="ready" aria-labelledby="readyTitle">
+    <!-- 🔴 «다시 확인» 은 머리줄에 둔다 — 예약(30초)·전원·로그인(1분)은 캐시를 거쳐, 방금 바꾼 것이
+         바로 안 보일 수 있다. 읽은 값의 나이를 옆에 적어 «왜 그대로지» 가 단추로 이어지게 한다. -->
+    <div class="readyhd">
+      <h3 id="readyTitle">이 PC 에서 돌 수 있나</h3>
+      <button type="button" class="sm" id="btnReadyCheck">다시 확인</button>
+      <span class="readyat" id="readyAt"></span>
+    </div>
+    <div id="readyList"></div>
+    <div class="readyacts">
+      <button type="button" class="sm primary" id="btnReady" disabled>이 PC 준비하기</button>
+      <div class="readymsg" id="readyMsg" role="status" aria-live="polite"></div>
+    </div>
+  </section>
   <!-- 🔴 조건을 **단어**로 세우고, 그 조건이 아닐 때 세션 줄에 뜨는 **배지 단어**를 나란히 둔다.
        화면에서 본 단어로 표를 찾을 수 있어야 한다 — 문장으로 적으면 읽고 나서 다시 찾아야 한다. -->
   <table>
@@ -98,6 +128,7 @@
     (무엇이든 입력하면 그 순간부터 다시 사람의 대화로 다룹니다). 예전에는 pid 로 읽어 <b>560회 연속</b>
     건너뛰었습니다.
   </p>
+  </div>
 </details>
 
 <!-- ── 사용량 상세 ──

@@ -30,6 +30,10 @@
 .alertsmore{color:var(--muted)}
 .sumbar[aria-expanded="false"] .alertsmore{display:none}
 .sumdigest .dg-crit{color:var(--crit-ink); font-weight:600}
+/* 머리말의 경보 칩 — 단추 테두리 없이 배지만 보인다(배지가 아이콘·단어·색을 나른다) */
+.hdralerts{padding:0; border:0; background:transparent}
+.hdralerts:hover .badge{border-color:var(--base)}
+.hdralerts .badge{font-size:11.5px; padding:2px 8px}
 
 /* 재시작 판정 패널 — "왜 안 도나"가 로그보다 위에 있어야 한다 */
 .gaterow { display: flex; align-items: center; gap:8px; margin-bottom:6px; flex-wrap: wrap }

@@ -29,6 +29,7 @@ import { isLocal, originOk } from '../lib/http.mjs'
 import { runNow, detail } from './actions.mjs'
 import { pcState, clearCache, validateValue } from '../lib/pc.mjs'
 import { usageReport } from '../lib/usage.mjs'
+import { applyReady, refreshReady } from '../lib/ready.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
@@ -78,6 +79,8 @@ function readBody(req) {
     req.on('error', reject)
   })
 }
+
+let readyBusy = false   // «이 PC 준비하기»(/api/ready)가 도는 중인가 — 겹쳐 돌지 않게 한다
 
 /* 접근 판정은 lib/http.mjs 의 순수 함수다 — 왜 그렇게 막는지는 거기에 적혀 있다 */
 const isLocalRequest = (req) => isLocal({ remoteAddress: req.socket.remoteAddress, host: req.headers.host })
@@ -324,6 +327,21 @@ const server = createServer(async (req, res) => {
       clearCache()
       const output = `${r.stdout || ''}${r.stderr || ''}`.trim()
       return json(res, 200, { ok: r.status === 0, actions: b.action, exit: r.status, output, nowMs: pcState({ force: true }) })
+    }
+
+    /**
+     * «이 PC 준비하기» — 고칠 수 있는 것만 고친다(안 고치는 것은 lib/ready.mjs 머리말 — 재시작 작업 등).
+     * 🔴 기다리되 막지 않는다(async spawn) — 이 스레드가 수 초 멈추면 /api/ping 이 늦어 서버를 죽었다고 읽는다.
+     * 🔴 한 번에 하나만 — 겹치면 같은 작업을 두 번 등록하고 트레이를 두 번 죽였다 살린다.
+     */
+    if (req.method === 'POST' && p === '/api/ready') {
+      const b = await readBody(req)
+      // check — 캐시를 지금 다시 채운다(판정은 이어지는 /api/status 가 같은 길로 한다 — 두 벌 금지)
+      if (b.action === 'check') { await refreshReady(); return json(res, 200, { ok: true, at: localStamp() }) }
+      if (b.action !== 'apply') return json(res, 400, { error: "action 은 'apply' · 'check' 중 하나여야 한다" })
+      if (readyBusy) return json(res, 409, { error: '이미 적용하는 중이다 — 끝나면 화면이 다시 읽는다' })
+      readyBusy = true
+      try { return json(res, 200, await applyReady()) } finally { readyBusy = false }
     }
 
     if (req.method === 'POST' && p === '/api/run') {

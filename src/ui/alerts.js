@@ -14,7 +14,7 @@
  * 부작용이 없다 — `initAlertsFold()` 를 불러야 배선된다(하네스가 마음 놓고 가져온다).
  */
 'use strict'
-import { $, el, S, actions, keepScroll } from './common.js'
+import { $, el, S, actions, keepScroll, badge } from './common.js'
 
 /**
  * Windows 풍선 알림 대신 여기에 띄운다.
@@ -116,6 +116,22 @@ function drawDigest(list) {
   if (crit.length) box.append(' — ', el('span', 'dg-crit', crit.join(' · ')))
 }
 
+/**
+ * 머리말의 경보 칩.
+ * 🔴 페이지가 구르게 되면서(2026-10-02) 맨 위의 경보가 화면 밖으로 밀려날 수 있다. 머리말은
+ *   붙어 있으므로 여기서 건수와 치명 수를 말한다 — «경보가 숨으면 안 된다» 의 이유를 지킨다.
+ */
+function drawHeaderChip(list) {
+  const chip = $('#hdrAlerts')
+  if (!chip) return
+  chip.textContent = ''
+  if (!list.length) { chip.classList.add('hide'); return }
+  chip.classList.remove('hide')
+  const crit = list.filter((a) => a.level === 'critical').length
+  const kind = crit ? 'crit' : list.some((a) => a.level === 'warning') ? 'warn' : 'off'
+  chip.append(badge(kind, kind === 'off' ? '●' : '▲', crit ? `경보 ${list.length} · 치명 ${crit}` : `경보 ${list.length}`))
+}
+
 /* ── 그리기 ──────────────────────────────────────────────────── */
 
 export function drawAlerts(d) {
@@ -135,6 +151,8 @@ export function drawAlerts(d) {
       desc: `${S.error} — 아래 내용은 마지막으로 성공한 시점의 것입니다.`,
     })
   }
+
+  drawHeaderChip(list)
 
   // 경보가 없으면 띠도 숨긴다 — 접을 것이 없는 띠는 자리만 먹는다
   const bar = $('#btnAlerts')
@@ -185,6 +203,8 @@ export function initAlertsFold() {
     // 펴는 순간 다시 잰다 — 접혀 있는 동안은 높이가 0 이라 잴 수 없었다
     fitAlerts()
   })
+  // 머리말 칩 — 맨 위(경보)로 간다. 페이지의 스크롤 상자는 body 다(app.css 의 틀)
+  $('#hdrAlerts')?.addEventListener('click', () => document.body?.scrollTo?.({ top: 0, behavior: 'smooth' }))
   // 창 너비가 바뀌면 경보의 줄바꿈이 바뀌어 셋째의 아래 끝도 바뀐다.
   // 🔴 `window` 를 직접 쓰면 시험 하네스에서 ReferenceError 로 죽는다(layout.js 와 같다)
   globalThis.addEventListener?.('resize', fitAlerts)

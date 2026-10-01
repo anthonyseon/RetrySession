@@ -14,7 +14,7 @@
  *   API 키를 쓰지 않는다. 그래서 자식 프로세스의 환경에서 ANTHROPIC_API_KEY 계열을
  *   **비운다** — 설정돼 있으면 계정 프로필을 가려 다른 주체로 청구될 수 있다.
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, execFile } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -149,6 +149,26 @@ function callJson(args, { timeout = 20000, bin = null } = {}) {
 }
 
 /**
+ * callJson 의 **막지 않는** 짝 — 같은 실행 파일·환경·실패 문구를 쓴다. 다른 것은 기다리는 방식뿐이다.
+ *
+ * 🔴 사람이 «다시 확인» 을 눌렀을 때 쓴다. execFileSync 는 CLI 가 늦으면 그만큼(최대 20초)
+ *   서버의 한 스레드를 멈추고, 그동안 /api/ping 이 늦어 start.ps1·트레이가 서버를 죽었다고 읽는다.
+ */
+export function callJsonAsync(args, { timeout = 20000, bin = null } = {}) {
+  const exe = claudeBin(bin)
+  return new Promise((resolve) => {
+    execFile(exe, args, {
+      encoding: 'utf8', timeout, windowsHide: true, env: accountEnv(),
+      maxBuffer: 8 * 1024 * 1024, shell: needsShell(exe),
+    }, (e, out, err) => {
+      // execFile 은 종료 코드를 e.code 에 담는다 — failureText 가 읽는 모양(stderr·status)으로 맞춘다
+      if (e) return resolve({ ok: false, error: failureText(exe, Object.assign(e, { stderr: err, status: typeof e.code === 'number' ? e.code : null })), data: null })
+      try { resolve({ ok: true, data: JSON.parse(out) }) } catch (x) { resolve({ ok: false, error: failureText(exe, x), data: null }) }
+    })
+  })
+}
+
+/**
  * 실패 이유를 **읽을 수 있는 한 줄**로.
  *
  * 🔴 실측 (2026-09-21): 셸로 물러선 경로에서 claude 를 못 찾자 이렇게 찍혔다 —
@@ -234,6 +254,16 @@ export function account({ ttlMs = 60000 } = {}) {
     // 구독이면 정가 환산은 참고값이다
     isSubscription: !!d.subscriptionType && d.subscriptionType !== 'api',
   }
+}
+
+/**
+ * 로그인을 **지금** 다시 읽어 캐시를 갈아 끼운다 — 막지 않는다.
+ * 🔴 따로 들고 있지 않고 `account()` 의 캐시에 넣는다. 그래야 이어지는 상태 조회(3초 폴링)가
+ *   새 값을 쓴다 — 따로 들면 «다시 확인» 직후 화면이 옛 값으로 되돌아간다.
+ */
+export async function refreshAccount() {
+  _cache.set('auth', { at: Date.now(), v: await callJsonAsync(['auth', 'status', '--json']) })
+  return account()
 }
 
 /**

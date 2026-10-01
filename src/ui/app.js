@@ -16,6 +16,7 @@
 import { $, S, actions, keepScroll, drawPiece } from './common.js'
 import { drawTiles } from './summary.js'
 import { drawAlerts, initAlertsFold } from './alerts.js'
+import { drawReady, initReady } from './ready.js'
 import { drawFolders, items, syncSelection } from './list.js'
 import { redrawDetail } from './detail.js'
 import { openSettings, closeSettings, drawSettings, isSettingsOpen, pcAction } from './setup.js'
@@ -138,6 +139,7 @@ function draw() {
     drawPiece('요약', () => drawTiles(d)),
     drawPiece('폴더', () => drawFolders(d)),
     drawPiece('PC 설정', () => drawSettings()),
+    drawPiece('PC 준비', () => drawReady(d)),
     drawPiece('세션 목록', () => keepScroll('#slist', () => { items(d); syncSelection() })),
     drawPiece('상세', () => redrawDetail()),
   ].filter(Boolean)
@@ -325,6 +327,8 @@ Object.assign(actions, { draw, loadStatus, loadDetail, post, meta, say })
 initLayout()
 // 경보 접기 — 첫 그리기 전에 기억해 둔 접힘을 적용한다(펴졌다 접히며 덜컹거리지 않게)
 initAlertsFold()
+// «이 PC 준비하기» 단추 — 판정은 서버가 하고, 무엇을 고칠지도 서버가 실행 직전에 다시 정한다
+initReady()
 /**
  * 사용량 패널. 🔴 **폴링에 넣지 않는다** — `/usage` 호출이 몇 초 걸려서, 상태 갱신과
  *   같이 돌면 화면 전체가 그만큼 느려진다. 펼칠 때 한 번 읽고 `갱신` 으로 다시 읽는다.

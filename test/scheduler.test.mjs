@@ -169,8 +169,11 @@ test('🔴 캐시가 낡아도 요청을 막지 않는다 (동기 7초를 요청
 
 test('🔴 갱신을 겹쳐 띄우지 않는다 (PowerShell 이 쌓인다)', () => {
   const src = readFileSync(join(ROOT, 'src', 'lib', 'scheduler.mjs'), 'utf8')
-  assert.match(src, /let _refreshing = false/)
-  assert.match(src, /if \(_refreshing\) return/)
+  // 2026-10-02: 끝나기를 기다릴 수 있게 Promise 를 들고 있다 — 도는 중이면 **그 Promise 를** 돌려준다
+  assert.match(src, /let _refreshing = null/)
+  assert.match(src, /if \(_refreshing\) return _refreshing/)
+  // 기다리는 길(«이 PC 준비하기» 가 쓴다)도 같은 관문을 지난다 — 따로 띄우면 겹친다
+  assert.match(src, /export const refreshTasks = \(\) => refreshAsync\(\)/)
 })
 
 /**

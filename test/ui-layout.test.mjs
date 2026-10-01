@@ -50,11 +50,27 @@ test('🔴 min-height:0 이 있다 — 없으면 flex 안에서 스크롤이 조
     '패널에도 min-height:0 이 필요하다')
 })
 
-test('🔴 페이지 전체는 스크롤하지 않는다 — 그래야 패널이 각자 스크롤한다', () => {
-  assert.match(html, /body\s*\{[^}]*overflow:\s*hidden/,
-    'body 가 스크롤되면 패널 스크롤이 의미를 잃는다')
-  assert.match(html, /html,\s*body\s*\{\s*height:\s*100%/,
-    '뷰포트 높이에 묶여 있어야 한다')
+/**
+ * 🔴 규칙을 이유에 맞춰 좁혔다 (사용자 요청 2026-10-02).
+ *   예전: «페이지 전체는 스크롤하지 않는다». 위쪽 영역이 늘자 일하는 곳이 눌리고 아래가 잘렸다.
+ *   지키려던 것은 «패널이 각자 스크롤한다» 다 — 그래서 그것을 직접 센다:
+ *   main 높이가 묶여 있고(0 도 auto 도 아니다), 패널은 그 안에서 구르고, 넘치는 만큼만 페이지가 구른다.
+ */
+test('🔴 페이지도 구르되, 패널은 높이가 묶여 **각자** 구른다', () => {
+  assert.match(html, /html\s*\{[^}]*height:\s*100%[^}]*overflow:\s*hidden/,
+    'html 을 묶지 않으면 스크롤이 뷰포트로 넘어가 body 상자가 100% 에서 끝난다(머리말 sticky 가 떨어진다)')
+  assert.match(html, /body\s*\{[^}]*height:\s*100%/, 'body 는 화면 높이다 — 그래야 main 이 남는 높이를 안다')
+  assert.match(html, /body\s*\{[^}]*overflow-y:\s*auto/, '넘치면 페이지가 구른다')
+  const main = /\nmain\s*\{([^}]*)\}/.exec(html)
+  assert.ok(main, 'main 규칙을 찾지 못했다')
+  assert.match(main[1], /min-height:\s*max\(\d+px,\s*\d+vh\)/,
+    'main 의 최소 높이가 0 이면 위가 길 때 눌려 사라지고, auto 면 목록만큼 부풀어 패널이 안 구른다')
+})
+
+test('🔴 페이지가 굴러도 머리말(«n초 전 갱신»)은 붙어 있다', () => {
+  assert.match(html, /header\s*\{[^}]*position:\s*sticky[^}]*top:\s*0/,
+    '화면이 멈춘 것을 사람이 알아야 한다(CLAUDE.md 화면 규칙) — 스크롤로 사라지면 안 된다')
+  assert.match(html, /header\s*\{[^}]*z-index:\s*\d+/, '아래 내용 위에 그려져야 한다')
 })
 
 test('상세 패널이 세로 flex 다 (머리말·탭 고정 + 본문 스크롤)', () => {
@@ -86,11 +102,13 @@ test('탭 묶음은 #dscroll 바깥이다 — 스크롤해도 탭은 보여야 �
   assert.ok(tabAt < scrollTop2, '탭이 스크롤 영역 안에 들어가면 함께 밀려 올라간다')
 })
 
-test('좁은 화면에서는 페이지 스크롤로 되돌린다 (두 패널이 쌓이면 각자 스크롤은 못 쓴다)', () => {
+test('좁은 화면에서는 main 이 내용 높이대로다 (두 패널이 쌓이면 한 화면에 묶을 수 없다)', () => {
   const m = /@media \(max-width:1100px\)\s*\{([\s\S]*?)\n\}/.exec(html)
   assert.ok(m, '좁은 화면 규칙이 있어야 한다')
-  assert.match(m[1], /body\s*\{\s*overflow:\s*auto/)
   assert.match(m[1], /grid-template-columns:\s*1fr/)
+  assert.match(m[1], /main\{[^}]*flex:\s*0 0 auto[^}]*min-height:\s*0/,
+    '넓은 화면의 최소 높이에 묶이면 쌓인 두 패널이 main 밖으로 넘친다')
+  assert.match(m[1], /#slist,\s*#dscroll\s*\{\s*max-height:\s*\d+vh/, '패널에는 넉넉한 상한을 준다')
 })
 
 /* ── 스크롤 위치 보존 ────────────────────────────────────────── */

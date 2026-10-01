@@ -8,6 +8,15 @@
 #
 # StartWhenAvailable + a logon trigger means: if you were logged off, it starts
 # on next logon; if the task was missed, it runs as soon as it can.
+#
+#   -NoStart   register only: do NOT free the port and do NOT start the task.
+#              The status UI's "prepare this PC" button calls this script FROM
+#              the server that holds port 7345 - freeing the port would kill the
+#              very process waiting for this script, and the button would never
+#              get its answer. The running server keeps serving; the task takes
+#              over at the next logon.
+
+param([switch]$NoStart)
 
 $ErrorActionPreference = 'Stop'
 
@@ -65,6 +74,16 @@ $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" 
 # EADDRINUSE, and the task looks "registered but failing" for no visible reason.
 # It also means a code change never takes effect, because the live process still
 # holds the modules it loaded at startup.
+if ($NoStart) {
+  Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+  Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
+      -Settings $settings -Principal $principal `
+      -Description 'RetrySession: local status UI (127.0.0.1 only).' | Out-Null
+  Write-Host ''
+  Write-Host 'registered (not started - the running server keeps the port; the task starts at next logon).' -ForegroundColor Green
+  exit 0
+}
+
 $holders = @()
 try {
   $holders = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |

@@ -11,15 +11,17 @@
  */
 *{box-sizing:border-box}
 
-/* ── 틀: 화면 높이에 고정한다 ──
-   목록과 상세가 **각각** 스크롤되려면 페이지 전체가 스크롤되면 안 된다.
-   body 를 뷰포트 높이에 묶고, 남는 공간을 main 이 가져가고, 그 안에서
-   각 패널이 자기 스크롤 영역을 갖는다. */
-html, body{height:100%}
+/* ── 틀: 페이지도 구르고, 패널은 **각자** 구른다 ──
+   🔴 예전에는 페이지를 묶었다(overflow:hidden). 위쪽 영역(경보·조건·점검표·사용량·요약)이 늘자
+      일하는 곳(main)이 눌리고 아래가 잘렸다(사용자 요청 2026-10-02). 지키려던 것은 «패널이 각자
+      구른다» 이지 «페이지가 안 구른다» 가 아니다 — main 높이를 묶어(min-height) 패널은 계속 자기
+      안에서 구르고, 넘치는 만큼만 페이지가 구른다. html 을 묶어 **body 가 스크롤 상자**가 되게 한다
+      (뷰포트로 넘기면 body 상자가 100% 에서 끝나 머리말 sticky 가 중간에 떨어진다). */
+html{height:100%; overflow:hidden}
 body{
-  margin:0; background:var(--plane); color:var(--ink);
+  height:100%; margin:0; background:var(--plane); color:var(--ink);
   font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
-  display:flex; flex-direction:column; overflow:hidden;
+  display:flex; flex-direction:column; overflow-x:hidden; overflow-y:auto;
 }
 a{color:var(--accent)}
 .hide{display:none !important}
@@ -63,8 +65,9 @@ a{color:var(--accent)}
 .arrow .chev{display:inline-block; width:9px; font-size:10px; line-height:1; color:var(--ink-2)}
 
 /* ── 머리 ── */
+/* 🔴 sticky — 페이지가 구르면 머리말이 사라진다. «n초 전 갱신» 은 늘 보여야 한다(CLAUDE.md 화면 규칙) */
 header{
-  flex:0 0 auto; background:var(--surface);
+  flex:0 0 auto; background:var(--surface); position:sticky; top:0; z-index:20;
   border-bottom:1px solid var(--grid); padding:10px 16px;
   display:flex; align-items:center; gap:12px; flex-wrap:wrap;
 }
@@ -241,8 +244,10 @@ pre.manual{
 /* 세션 | 손잡이 | 상세.
    🔴 기본은 비율이다. 드래그하면 layout.js 가 첫 칸을 px 로 덮어쓴다 —
      저장된 값이 없으면 inline 스타일을 비워 이 비율로 돌아온다. */
+/* 🔴 min-height 가 «패널은 각자 구른다» 의 보증이다 — 0 이면 위가 길 때 눌려 사라지고,
+     없으면(auto) 목록 길이만큼 부풀어 패널이 아니라 페이지가 구른다 */
 main{
-  flex:1 1 auto; min-height:0;
+  flex:1 1 auto; min-height:max(380px, 75vh);
   display:grid; grid-template-columns:minmax(320px,1.05fr) 6px minmax(420px,1.35fr);
   gap:0 6px; padding:0 16px 16px; align-items:stretch;
 }
@@ -264,13 +269,12 @@ main{
 /* 각 패널의 스크롤 영역 — 이 둘이 서로 독립으로 움직인다 */
 #slist, #dscroll{flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain}
 
-/* 좁은 화면에서는 두 패널이 세로로 쌓인다. 그때 각자 스크롤을 주면 둘 다 너무 낮아
-   쓸 수 없으므로, 페이지 스크롤로 되돌리고 패널에는 넉넉한 상한만 준다. */
+/* 좁은 화면에서는 두 패널이 세로로 쌓인다. 둘을 한 화면 높이에 묶으면 둘 다 너무 낮아
+   쓸 수 없으므로, main 은 내용 높이대로 두고(페이지가 구른다) 패널에는 넉넉한 상한만 준다. */
 @media (max-width:1100px){
-  body{overflow:auto}
   /* 🔴 !important — 드래그가 남긴 inline 격자를 좁은 화면에서는 무시해야 한다.
        안 그러면 저장된 px 때문에 한 칸이 화면을 넘어가 상세가 사라진다. */
-  main{grid-template-columns:1fr !important; gap:12px; align-items:start}
+  main{grid-template-columns:1fr !important; gap:12px; align-items:start; flex:0 0 auto; min-height:0}
   /* 🔴 경보는 여기서도 셋까지다 — 상한을 풀었더니 경보가 세션·상세를 밀어냈다 */
   .top{max-height:none; overflow:visible}
   #slist, #dscroll{max-height:70vh}
