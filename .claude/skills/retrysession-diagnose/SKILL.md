@@ -1,6 +1,6 @@
 ---
 name: retrysession-diagnose
-description: RetrySession 이 예상대로 동작하지 않을 때의 진단 절차. 감시 기록이 안 남거나, 재시작이 안 돌거나, 회차가 timeout·$0 으로 끝나거나, 회로 차단이 안 풀리거나, 사용량 패널의 퍼센트가 이상하거나, 추적기 숫자가 며칠째 그대로거나, 화면·트레이가 안 뜨거나, 세션이 목록에 안 보이거나, 콘솔 창이 뜨거나, 예약 작업이 실패로 남을 때 사용한다. 증상마다 원인이 갈리는 지점과 그것을 가르는 명령을 담았다.
+description: RetrySession 이 예상대로 동작하지 않을 때의 진단 절차. 새 PC 에서 처음 띄우거나 start.exe 를 눌러도 아무 일도 없거나, 감시 기록이 안 남거나, 재시작이 안 돌거나, 회차가 timeout·$0 으로 끝나거나, 회로 차단이 안 풀리거나, 사용량 패널의 퍼센트가 이상하거나, 추적기 숫자가 며칠째 그대로거나, 화면·트레이가 안 뜨거나, 세션이 목록에 안 보이거나, 콘솔 창이 뜨거나, 예약 작업이 실패로 남을 때 사용한다. 증상마다 원인이 갈리는 지점과 그것을 가르는 명령을 담았다.
 ---
 
 # RetrySession 이 안 돌 때
@@ -8,9 +8,11 @@ description: RetrySession 이 예상대로 동작하지 않을 때의 진단 절
 **증상 하나에 원인이 여럿이고, 대처가 서로 다르다.** 먼저 가르고 나서 고쳐라.
 
 🔴 **가르는 가장 확실한 방법은 대조군이다** — 후보 둘에 **같은 입력**을 주고 갈린 자리를 본다.
-실측 두 번: ① 콘솔 창 탐지기가 거짓 음성이었다(일부러 띄운 창도 못 잡았다 — 대조군으로
+실측 세 번: ① 콘솔 창 탐지기가 거짓 음성이었다(일부러 띄운 창도 못 잡았다 — 대조군으로
 드러났다) ② 낡은 CLI 와 새 CLI 에 같은 `--model` 을 던져 400 의 원인이 **버전**임을 확정했다
-(2.1.246 거부 · 2.1.283 답함). 로그를 읽어 «아마 이것이다» 로 고치기 전에, 한 번 갈라 봐라.
+(2.1.246 거부 · 2.1.283 답함) ③ node 가 없는 PC 에서 다른 node 를 **그 명령에서만** PATH 에
+넣어 시험 827개 통과·서버 응답을 보고, 고칠 것이 코드가 아니라 **환경**임을 갈랐다(증상 0).
+로그를 읽어 «아마 이것이다» 로 고치기 전에, 한 번 갈라 봐라.
 추측으로 재등록하거나 재시작하면 멀쩡한 것을 부수고 진짜 원인을 덮는다.
 
 ## 먼저 — 한 번에 전부 본다
@@ -27,6 +29,39 @@ description: RetrySession 이 예상대로 동작하지 않을 때의 진단 절
 | actually running | 서버가 **응답**하나 · 트레이가 살아 있나 |
 | record freshness | **기록**이 신선한가 (fail-closed) |
 | resume budget | 재시작 예산·차단 상태 |
+
+🔴 Claude Code 의 도구 셸처럼 **붙을 콘솔이 없는 곳**에서 부르면 `start.exe -Status` 는 빈
+출력이다(실측 2026-10-01). 그때는 같은 것을 스크립트로 직접 부른다:
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 -Status`
+
+## 증상 0 — 새 PC 에서 처음 띄운다 · `start.exe` 를 눌러도 아무 일도 없다
+
+실측(2026-10-01): 다른 PC 의 폴더를 통째로 복사해 온 PC 에서 겪은 것들이다. 하나씩 가른다.
+
+| 보이는 것 | 원인 | 가르는 명령 · 대처 |
+|---|---|---|
+| 더블클릭해도 **아무것도** 안 뜬다 | node 가 PATH 에 없다. 인자 없는 `start.exe` 는 `start.ps1` 을 숨겨 띄우고 **기다리지 않는다** — `node was not found` 를 아무도 못 본다 | `where.exe node` → 없으면 Node 20+ 설치 |
+| 설치했는데 VS Code 터미널·Claude Code 에서만 `node` 가 없다 | VS Code 가 **설치 전 PATH** 를 들고 있다(git 도 같았다). 탐색기 더블클릭과 예약 작업은 새 PATH 를 받는다 | VS Code 재시작. 급하면 그 셸에서 PATH 를 다시 읽는다(아래) |
+| `node.exe` 가 엉뚱한 곳에 하나 있다 | 다른 앱의 부품이다(실측: Logitech `LogiPluginService` 의 node 22) | **쓰지 마라** — 그 앱이 갱신되면 경로가 바뀌거나 사라진다. 대조군으로만 쓴다 |
+
+```powershell
+# 새로 연 프로세스가 보는 PATH 로 이 셸을 맞춘다 (설치 직후 · VS Code 재시작 전)
+$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
+            [Environment]::GetEnvironmentVariable('Path','User')
+```
+
+복사해 온 폴더에는 **그 PC 의 것**이 딸려 온다(`.gitignore` 된 `state/`·exe 까지 폴더째 왔다면):
+
+- `config/projects.json` 의 `repo`·`sessionSlugs` 가 그 PC 의 경로다 → 그 파일을 **통째로 복사해**
+  경로만 바꾼 `config/projects.local.json` 을 만든다(추적하지 않는다). 🔴 합쳐지지 않고 **대체**된다
+  (`lib/config.mjs` 의 `loadConfig`) — 경로만 적으면 `defaults` 가 사라진다.
+- `state/targets.json` 의 대상은 **그 PC 의 세션**이다. 이 PC 에는 트랜스크립트가 없으므로
+  `--check` 가 끝없이 «하트비트 죽음 N분» 을 낸다 → 화면에서 감시·재시작을 끄거나 `등록 해제`.
+  🔴 재시작이 켜진 대상(`bypassPermissions`)은 `-WithResume` 로 등록하기 **전에** 꺼라.
+- `state/locks/*.lock` 의 pid 도 그 PC 의 것이다 — **지우지 마라.** 이 PC 에서 그 pid 가 죽어
+  있고 `procStartEpoch` 까지 맞춰 보므로 다음 실행이 회수한다(실측: `ui.lock` 이 새 pid 로 바뀌었다).
+- 예약 작업은 따라오지 않는다 → `.\start.exe -Install`. 그 전까지는 감시를 켠 세션이 있어도
+  기록할 작업이 없어 «감시가 끊겼습니다» 가 뜬다 — 고장이 아니라 **미등록**이다.
 
 ## 증상 1 — 감시 기록이 안 남는다
 
