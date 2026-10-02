@@ -19,6 +19,18 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Every task runs through start.exe --hidden. It is a build artifact (not in
+# git), so a fresh clone has none, and a copy built before 2026-10-02 does not
+# know --hidden. Registering without it would make console-window tasks - so
+# build it first. A failed build is not fatal: each register script then says
+# "window : VISIBLE" out loud instead of hiding the problem.
+. (Join-Path $PSScriptRoot 'launcher-lib.ps1')
+if (-not (Get-HiddenLauncher (Split-Path -Parent $PSScriptRoot))) {
+  Write-Host "start.exe is missing or too old (no $HiddenSwitch) - building it first" -ForegroundColor Yellow
+  try { & (Join-Path $PSScriptRoot 'build-exe.ps1') } catch { Write-Host "build failed: $($_.Exception.Message)" -ForegroundColor Red }
+  Write-Host ''
+}
+
 & (Join-Path $PSScriptRoot 'register-heartbeat.ps1')
 Write-Host ''
 & (Join-Path $PSScriptRoot 'register-ui.ps1')

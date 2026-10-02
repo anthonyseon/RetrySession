@@ -5,6 +5,10 @@
 # PowerShell 은 CRLF 를 선호한다. (CR 은 ASCII 이므로 ASCII 시험에는 영향 없다)
 *.ps1 text eol=crlf
 
+# start.bat · stop.bat — cmd.exe 는 LF 만 있는 .bat 에서 레이블·괄호 블록을 잘못 읽는다. 반드시 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 # JSON 상태·설정은 Node 가 읽고 쓴다 — LF 로 고정
 *.json text eol=lf
 *.mjs  text eol=lf

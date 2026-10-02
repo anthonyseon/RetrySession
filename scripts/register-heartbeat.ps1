@@ -32,19 +32,21 @@ Write-Host "node   : $node"
 Write-Host "script : $Script"
 Write-Host "every  : $Minutes minute(s)"
 
-# Route through runhidden.exe so node never gets a console window.
+# Route through the windowless launcher (start.exe --hidden) so node never gets
+# a console window.
 #
 # Measured: a task whose action is node.exe directly spawns a conhost.exe - a
 # real console window. The task's -Hidden setting does not prevent that; it only
 # hides the task in the Task Scheduler list. This one would flash every 5 minutes.
-$hidden = Join-Path $Root 'runhidden.exe'
-if (Test-Path $hidden) {
+. (Join-Path $PSScriptRoot 'launcher-lib.ps1')
+$hidden = Get-HiddenLauncher $Root
+if ($hidden) {
   $action = New-ScheduledTaskAction -Execute $hidden -WorkingDirectory $Root `
-      -Argument ('"' + $node + '" "' + $Script + '"')
-  Write-Host 'window : hidden (runhidden.exe)'
+      -Argument ($HiddenSwitch + ' "' + $node + '" "' + $Script + '"')
+  Write-Host "window : hidden (start.exe $HiddenSwitch)"
 } else {
   $action = New-ScheduledTaskAction -Execute $node -Argument "`"$Script`"" -WorkingDirectory $Root
-  Write-Host 'window : VISIBLE - runhidden.exe is missing.' -ForegroundColor Yellow
+  Write-Host "window : VISIBLE - start.exe is missing or too old (no $HiddenSwitch)." -ForegroundColor Yellow
   Write-Host '         build it with: .\scripts\build-exe.ps1'
 }
 

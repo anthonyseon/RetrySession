@@ -65,16 +65,18 @@ $psExe = (Get-Process -Id $PID).Path   # the powershell.exe running this script
 # `-WindowStyle Hidden` is a PowerShell HOST preference: the console is
 # allocated by Windows first, and on Windows 11 the default host is Windows
 # Terminal, whose window that preference does not control (measured - this is
-# what made the tray task itself show a window). Go through runhidden.exe,
+# what made the tray task itself show a window). Go through start.exe --hidden,
 # which is /target:winexe and starts the child with CREATE_NO_WINDOW, so no
-# console is allocated at all.
-$runHidden = Join-Path $Root 'runhidden.exe'
+# console is allocated at all. Looked up per click, so a rebuilt start.exe is
+# picked up without restarting the tray.
+. (Join-Path $PSScriptRoot 'launcher-lib.ps1')
 
 function Open-Window {
   $open = Join-Path $Root 'scripts\open-app.ps1'
-  if (Test-Path $runHidden) {
-    Start-Process -FilePath $runHidden -ArgumentList @(
-      $psExe, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $open, '-NoWait'
+  $hidden = Get-HiddenLauncher $Root
+  if ($hidden) {
+    Start-Process -FilePath $hidden -ArgumentList @(
+      $HiddenSwitch, $psExe, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $open, '-NoWait'
     )
   } else {
     Start-Process -FilePath $psExe -WindowStyle Hidden -ArgumentList @(
@@ -121,7 +123,26 @@ Add-Item (Lbl 'menu.tasks' 'Scheduled task status') { Start-Process -FilePath 't
 
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 
-Add-Item (Lbl 'menu.quit' 'Quit tray') {
+# "Quit RetrySession" - the complete stop (user request 2026-10-02), the same
+# scripts\stop-all.ps1 as stop.bat and the window's quit button. It ends this
+# tray too, so it runs as its OWN windowless process and the tray leaves at once.
+# stop-all.ps1 ends its own ancestors last, so it outlives us either way.
+Add-Item (Lbl 'menu.stopAll' 'Quit RetrySession (stop everything)') {
+  $answer = [System.Windows.Forms.MessageBox]::Show(
+    (Lbl 'confirm.stopAll' 'Stop RetrySession completely? Start again with start.bat.'),
+    $AppName, [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
+  if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+  # Start-Process joins the array WITHOUT quoting - quote the paths ourselves
+  $stopper = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $Root 'scripts\stop-all.ps1') + '"'), '-By', 'tray')
+  $hidden = Get-HiddenLauncher $Root
+  if ($hidden) { Start-Process -FilePath $hidden -WorkingDirectory $Root -ArgumentList (@($HiddenSwitch, ('"' + $psExe + '"')) + $stopper) }
+  else { Start-Process -FilePath $psExe -WindowStyle Hidden -WorkingDirectory $Root -ArgumentList $stopper }
+  $icon.Visible = $false
+  [System.Windows.Forms.Application]::Exit()
+}
+
+# only the icon goes; the monitor, server and window keep running
+Add-Item (Lbl 'menu.quit' 'Close tray only') {
   $icon.Visible = $false
   [System.Windows.Forms.Application]::Exit()
 }

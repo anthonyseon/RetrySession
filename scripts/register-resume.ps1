@@ -45,16 +45,17 @@ Write-Host ''
 Write-Host 'This task can spend tokens and edit files unattended.' -ForegroundColor Yellow
 Write-Host 'Guards are listed at the top of this script.' -ForegroundColor Yellow
 
-# Route through runhidden.exe so node never gets a console window
-# (see register-heartbeat.ps1 for the measurement).
-$hidden = Join-Path $Root 'runhidden.exe'
-if (Test-Path $hidden) {
+# Route through the windowless launcher (start.exe --hidden) so node never gets
+# a console window (see register-heartbeat.ps1 for the measurement).
+. (Join-Path $PSScriptRoot 'launcher-lib.ps1')
+$hidden = Get-HiddenLauncher $Root
+if ($hidden) {
   $action = New-ScheduledTaskAction -Execute $hidden -WorkingDirectory $Root `
-      -Argument ('"' + $node + '" "' + $Script + '"')
-  Write-Host 'window : hidden (runhidden.exe)'
+      -Argument ($HiddenSwitch + ' "' + $node + '" "' + $Script + '"')
+  Write-Host "window : hidden (start.exe $HiddenSwitch)"
 } else {
   $action = New-ScheduledTaskAction -Execute $node -Argument "`"$Script`"" -WorkingDirectory $Root
-  Write-Host 'window : VISIBLE - runhidden.exe is missing (.\scripts\build-exe.ps1)' -ForegroundColor Yellow
+  Write-Host "window : VISIBLE - start.exe is missing or too old (no $HiddenSwitch) - .\scripts\build-exe.ps1" -ForegroundColor Yellow
 }
 
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) `

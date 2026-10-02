@@ -36,28 +36,26 @@ RetrySession 은 그 비대칭을 없앤다. 감시와 재시작 **둘 다** OS 
 
 ## 시작하기
 
-**`start.exe` 를 더블클릭하면 된다.** 처음 한 번만 빌드한다:
+**실행은 `start.bat`, 종료는 `stop.bat`** 이다(사용자 요청 2026-10-02 — 둘 다 git 에 있어 받자마자 쓴다):
 
 ```powershell
-.\scripts\build-exe.ps1     # start.exe 생성 (Windows 내장 csc.exe, 1초)
-.\start.exe -Install        # 처음 한 번 — OS 작업 등록 + 바로가기 + 창 열기
-.\start.exe                 # 그 뒤로는 더블클릭 (또는 이 명령)
+.\start.bat                 # 실행 — start.exe 가 없으면 만들고, 꺼 둔 예약을 켜고(없으면 감시·화면·트레이 등록), 창을 연다
+.\stop.bat                  # 완전 종료 — 예약을 꺼 두고 서버·트레이·감시·재시작 회차·창을 모두 끝낸다
 ```
 
-`start.exe` 는 `start.ps1` 을 부르는 8KB 짜리 런처다. `.ps1` 은 더블클릭해도 실행되지
-않고 편집기로 열리며, `.bat` 은 콘솔 창을 번쩍인다 — 그래서 `/target:winexe` 로 만든
-진짜 exe 를 쓴다. **콘솔 창이 뜨지 않고 `cmd.exe` 를 거치지 않는다.**
-터미널에서 인자와 함께 부르면 출력은 그 터미널에 그대로 나온다.
+창의 머리말 `종료` 단추와 트레이 메뉴 `종료` 도 `stop.bat` 과 **같은** `scripts/stop-all.ps1` 이다 — 끝나면 남은 것이 없는지
+세어 말한다(이 폴더를 연 VS Code·Claude Code 는 건드리지 않는다). 예약은 **지우지 않고 꺼 둔다** — `-WithResume` 같은 선택이 남는다.
+`.bat` 은 PowerShell 에 넘겨주기만 한다(오래 사는 것은 cmd 밑에서 돌지 않는다). `start.exe` 는 빌드 산출물인 **창 없는 실행기**다 —
+예약 작업이 `start.exe --hidden` 으로 node 를 띄운다. 실패하면 `start.bat` 창이 멈춰 이유를 보여준다.
 
-exe 없이 `.ps1` 을 직접 써도 똑같다:
+`start.bat` 뒤에 `start.ps1` 의 스위치를 그대로 붙인다(`.ps1` 을 직접 써도 같다):
 
 ```powershell
-.\start.ps1 -Install        # 처음 한 번 — OS 작업 등록 + 바로가기 + 창 열기
-.\start.ps1                 # 서버·트레이 확인하고 창을 연다
-.\start.ps1 -Status         # 상태만 출력
-.\start.ps1 -Restart        # 🔴 src\ 를 고친 뒤 (아래 참조)
-.\start.ps1 -Stop           # 서버·트레이 중지 (예약은 남아 다음 로그온에 다시 뜬다)
-.\start.ps1 -Uninstall      # OS 작업 전부 해제 (state\ 는 남는다)
+.\start.bat -Install        # OS 작업을 다시 등록 + 바로가기 + 창 열기
+.\start.bat -Status         # 상태만 출력
+.\start.bat -Restart        # 🔴 src\ 를 고친 뒤 (아래 참조)
+.\start.bat -Stop           # stop.bat 과 같다
+.\start.bat -Uninstall      # 모두 끄고 OS 작업 전부 해제 (state\ 는 남는다)
 ```
 
 `-Install` 은 기본으로 **재시작을 등록하지 않는다.** 사람 없이 토큰을 쓰고 파일을 고치는
@@ -92,14 +90,14 @@ npm run resume:status # 예산·마지막 실행
   고정할 수 있다. 전용 `--user-data-dir` 을 쓰므로 평소 브라우저 세션과 섞이지 않는다.
 - **트레이** — 상태를 색 점으로 보여주고, 상태가 **바뀔 때만** 풍선 알림을 띄운다
   (감시 끊김 · 재시작 차단 · 사용량 제한 · 서버 응답 없음). 더블클릭으로 창을 열고,
-  우클릭 메뉴에서 지금 감시 실행·예약 상태 보기·종료를 할 수 있다.
-- **콘솔 창이 뜨지 않는다.** 예약 작업은 `runhidden.exe` 를 거쳐 node 를 띄운다(`cmd.exe` 도 거치지 않는다).
+  우클릭 메뉴에서 지금 감시 실행·예약 상태 보기·`종료`(전부 끄기 = stop.bat)·트레이만 닫기를 할 수 있다.
+- **콘솔 창이 뜨지 않는다.** 예약 작업은 `start.exe --hidden` 으로 node 를 띄운다(`cmd.exe` 도 거치지 않는다 · 실행 파일은 `start.exe` 하나다).
 
   > 🔴 실측 함정: 예약 작업의 `-Hidden` 설정은 **작업 스케줄러 목록에서 작업을 숨기는**
   > 옵션이지 프로세스 창을 숨기지 않는다. action 을 `node.exe` 로 두면 대화형 로그온에서
   > `conhost.exe` 가 붙어 **콘솔 창이 계속 떠 있는다**(UI 서버는 영원히 돌므로 창도 영원히
-  > 남고, 5분마다 도는 감시는 5분마다 번쩍인다). `/target:winexe` 로 만든 `runhidden.exe`
-  > 가 `CREATE_NO_WINDOW` 로 자식을 띄워 그 창을 없앤다.
+  > 남고, 5분마다 도는 감시는 5분마다 번쩍인다). `/target:winexe` 로 만든 `start.exe` 가
+  > `--hidden` 모드에서 `CREATE_NO_WINDOW` 로 자식을 띄워 그 창을 없앤다(예전 `runhidden.exe` 를 합쳤다).
 
 - **알림은 Windows 풍선으로 띄우지 않는다.** 트레이는 색·툴팁·메뉴로 **상태만** 나르고,
   경보와 그 이력은 창에서 본다. 풍선은 상태가 조금만 오르내려도(서버 재시작 한 번에 두 번)
@@ -294,9 +292,10 @@ src/
     resume-report.mjs           --status · --rearm (사람에게 보여주는 것)
 scripts/                 🔴 전부 ASCII
   register-{heartbeat,resume,ui,tray}.ps1 · register-all.ps1 · unregister-all.ps1
-  tray.ps1  open-app.ps1  shortcut.ps1  status.ps1  build-exe.ps1
-tools/                   start.exe · runhidden.exe 의 C# 원본 (빌드 산출물은 추적 안 함)
-start.ps1                사용자가 만지는 유일한 파일 (start.exe 가 이것을 부른다)
+  tray.ps1  open-app.ps1  shortcut.ps1  status.ps1  build-exe.ps1  launcher-lib.ps1(창 없는 실행기 찾기)
+  stop-all.ps1             🔴 완전 종료 하나 — stop.bat · 트레이 · 창의 종료 단추가 모두 이것을 부른다
+tools/                   start.exe 의 C# 원본 — 유일한 실행 파일, 예약 작업도 --hidden 으로 쓴다 (산출물은 추적 안 함)
+start.bat · stop.bat     사람이 실행·완전 종료하는 두 파일 (start.ps1 · scripts/stop-all.ps1 에 넘긴다 — git 에 있다)
 .claude/skills/          이 저장소에서만 쓰는 작업 절차 (아래)
 state/                   런타임 기록 (추적 안 함)
 test/                    판정·단가·ASCII·중복실행·경보·이름 규칙·설정 무결성·문서 일치를 고정

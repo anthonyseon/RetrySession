@@ -1,15 +1,21 @@
-# start.ps1 - the one file you run. Opens RetrySession and makes sure it is up.
+# start.ps1 - what start.bat runs. Opens RetrySession and makes sure it is up.
 #
 # ASCII ONLY (PowerShell 5.1 reads .ps1 as ANSI - see CLAUDE.md).
-# No cmd.exe anywhere: executables are launched directly, hidden.
+# No cmd.exe beyond start.bat / stop.bat themselves: executables are launched
+# directly, hidden (start.exe --hidden).
+#
+# A person uses start.bat (run) and stop.bat (stop everything) - user request
+# 2026-10-02. Every switch below can be passed through start.bat as well.
 #
 #   .\start.ps1                  bring everything up and open the window
-#   .\start.ps1 -Install         also register the OS tasks + shortcuts (do this once)
+#                                (builds start.exe, re-enables tasks a stop disabled,
+#                                registers monitor/UI/tray if missing)
+#   .\start.ps1 -Install         register the OS tasks + shortcuts again
 #   .\start.ps1 -Install -WithResume   ... including the unattended resumer
 #   .\start.ps1 -Restart         pick up code changes (see below)
 #   .\start.ps1 -Status          just print status, open nothing
-#   .\start.ps1 -Stop            stop the server and the tray (tasks stay registered)
-#   .\start.ps1 -Uninstall       remove every OS task and stop everything
+#   .\start.ps1 -Stop            stop EVERYTHING (= stop.bat): tasks disabled, every process ended
+#   .\start.ps1 -Uninstall       stop everything and remove every OS task
 #   .\start.ps1 -Pc              check the PC power settings this tool needs
 #   .\start.ps1 -Pc -Apply       and set them (reversible: -Pc -Restore)
 #
@@ -48,10 +54,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $Root = $PSScriptRoot
 $Scripts = Join-Path $Root 'scripts'
-# Launcher that starts a child with CREATE_NO_WINDOW (tools/RunHidden.cs).
+# start.exe --hidden starts a child with CREATE_NO_WINDOW (tools/Launcher.cs).
 # Used wherever we start a console program, because `-WindowStyle Hidden` does
 # not prevent a window when Windows Terminal is the default console host.
-$RunHidden = Join-Path $Root 'runhidden.exe'
+# $null when start.exe is missing or an old build without --hidden.
+. (Join-Path $Scripts 'launcher-lib.ps1')
+$Hidden = Get-HiddenLauncher $Root
 
 function Head($text) {
   Write-Host ''
@@ -111,28 +119,11 @@ if ($Uninstall) {
 }
 
 # --------------------------------------------------------------------- stop
+# The same complete stop as stop.bat, the tray's "quit" and the window's quit
+# button - one script, so the four never disagree about what "stopped" means.
 if ($Stop) {
-  Head 'stopping server and tray'
-  try {
-    Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
-      Select-Object -ExpandProperty OwningProcess -Unique |
-      ForEach-Object {
-        Write-Host "  server pid $_" -ForegroundColor Yellow
-        Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
-      }
-  } catch { }
-
-  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*-File*\tray.ps1*' } |
-    ForEach-Object {
-      Write-Host "  tray pid $($_.ProcessId)" -ForegroundColor Yellow
-      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-    }
-
-  Write-Host ''
-  Write-Host 'stopped. The OS tasks are still registered, so both come back at next logon.'
-  Write-Host '  to remove them too: .\start.ps1 -Uninstall'
-  exit 0
+  & (Join-Path $Scripts 'stop-all.ps1') -Port $Port -By 'start.ps1'
+  exit $LASTEXITCODE
 }
 
 $node = Get-Node
@@ -207,6 +198,35 @@ if ($Restart) {
 # -------------------------------------------------------------- normal start
 Head 'RetrySession'
 
+# 0. the parts a stop took away, and the parts a fresh clone never had.
+#    - start.exe is a build artifact (not in git): build it when missing, or
+#      when it is an old build without --hidden (the tasks depend on it).
+#    - a stop (stop.bat / tray / window) DISABLES the tasks so nothing comes back
+#      on its own. Starting is the other half: enable them again. A registered
+#      resumer is enabled too - that restores an explicit -WithResume choice.
+#    - missing monitor/UI/tray tasks are registered. Never the resumer: it spends
+#      tokens unattended and needs -Install -WithResume, typed on purpose.
+if (-not $Hidden) {
+  Write-Host "launcher : start.exe is missing or too old (no $HiddenSwitch) - building it" -ForegroundColor Yellow
+  try { & (Join-Path $Scripts 'build-exe.ps1') | Out-Host } catch { Write-Host "  build failed: $($_.Exception.Message)" -ForegroundColor Red }
+  $Hidden = Get-HiddenLauncher $Root
+}
+$ours = @(Get-ScheduledTask -TaskName 'EasyAI-RetrySession-*' -ErrorAction SilentlyContinue)
+$wasOff = @($ours | Where-Object { $_.State -eq 'Disabled' })
+foreach ($t in $wasOff) {
+  Enable-ScheduledTask -TaskName $t.TaskName -ErrorAction SilentlyContinue | Out-Null
+  Write-Host "task     : enabled $($t.TaskName)" -ForegroundColor Green
+}
+$absent = @('EasyAI-RetrySession-Heartbeat', 'EasyAI-RetrySession-UI', 'EasyAI-RetrySession-Tray' |
+  Where-Object { $_ -notin @($ours | ForEach-Object TaskName) })
+if ($absent.Count -gt 0) {
+  Write-Host "task     : not registered ($($absent -join ', ')) - registering (never the resumer)" -ForegroundColor Yellow
+  try { & (Join-Path $Scripts 'register-all.ps1') | Out-Host } catch { Write-Host "  registering failed: $($_.Exception.Message)" -ForegroundColor Red }
+} elseif ($wasOff.Count -gt 0) {
+  # record right away - otherwise the window says "monitor stalled" until the next 5-minute tick
+  Start-ScheduledTask -TaskName 'EasyAI-RetrySession-Heartbeat' -ErrorAction SilentlyContinue
+}
+
 # 1. server
 if (Test-Server) {
   Write-Host 'server   : already up' -ForegroundColor Green
@@ -219,15 +239,15 @@ if (Test-Server) {
   } else {
     # Not registered yet - run it directly so the user still gets a window.
     #
-    # Go through runhidden.exe. `-WindowStyle Hidden` is not enough: the console
-    # is allocated before the child runs, and on Windows 11 the default console
-    # host is Windows Terminal, whose window that flag does not control
+    # Go through start.exe --hidden. `-WindowStyle Hidden` is not enough: the
+    # console is allocated before the child runs, and on Windows 11 the default
+    # console host is Windows Terminal, whose window that flag does not control
     # (measured - that is how the tray task ended up showing one all day).
     Write-Host 'server   : task not registered - starting it directly for now'
     $serverArgs = @("`"$(Join-Path $Root 'src\ui\server.mjs')`"", '--port', $Port)
-    if (Test-Path $RunHidden) {
-      Start-Process -FilePath $RunHidden -WorkingDirectory $Root `
-        -ArgumentList (@("`"$node`"") + $serverArgs)
+    if ($Hidden) {
+      Start-Process -FilePath $Hidden -WorkingDirectory $Root `
+        -ArgumentList (@($HiddenSwitch, "`"$node`"") + $serverArgs)
     } else {
       Start-Process -FilePath $node -WindowStyle Hidden `
         -ArgumentList $serverArgs -WorkingDirectory $Root
@@ -260,9 +280,9 @@ if (Get-TrayRunning) {
   } else {
     # Same reason as the server above - no console at all, not a hidden one.
     $psExe = (Get-Process -Id $PID).Path
-    if (Test-Path $RunHidden) {
-      Start-Process -FilePath $RunHidden -WorkingDirectory $Root -ArgumentList @(
-        $psExe, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+    if ($Hidden) {
+      Start-Process -FilePath $Hidden -WorkingDirectory $Root -ArgumentList @(
+        $HiddenSwitch, $psExe, '-NoProfile', '-ExecutionPolicy', 'Bypass',
         '-File', (Join-Path $Scripts 'tray.ps1'), '-Port', $Port
       )
     } else {
@@ -309,7 +329,7 @@ if (-not $NoWindow) {
 
 Write-Host ''
 Write-Host "ui   : http://127.0.0.1:$Port"
-Write-Host 'stop : .\start.ps1 -Stop'
+Write-Host 'stop : stop.bat  (or the window / tray "quit" - stops everything)'
 if ($fresh -ne 0) {
   Write-Host 'note : the record is stale - open the window and check why.' -ForegroundColor Yellow
 }

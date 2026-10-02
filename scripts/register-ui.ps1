@@ -35,21 +35,23 @@ Write-Host "node   : $node"
 Write-Host "script : $Script"
 Write-Host "url    : http://127.0.0.1:$Port"
 
-# IMPORTANT: route through runhidden.exe so node never gets a console window.
+# IMPORTANT: route through the windowless launcher (start.exe --hidden) so node
+# never gets a console window.
 #
 # This is the window the user kept seeing: a task whose action is node.exe gets
 # a conhost.exe child under an interactive logon, and the server runs forever,
 # so the console stays on screen forever. The task's -Hidden setting does not
 # prevent it - that only hides the task in the Task Scheduler list.
-$hidden = Join-Path $Root 'runhidden.exe'
-if (Test-Path $hidden) {
+. (Join-Path $PSScriptRoot 'launcher-lib.ps1')
+$hidden = Get-HiddenLauncher $Root
+if ($hidden) {
   $action = New-ScheduledTaskAction -Execute $hidden -WorkingDirectory $Root `
-      -Argument ('"' + $node + '" "' + $Script + '" --port ' + $Port)
-  Write-Host 'window : hidden (runhidden.exe)'
+      -Argument ($HiddenSwitch + ' "' + $node + '" "' + $Script + '" --port ' + $Port)
+  Write-Host "window : hidden (start.exe $HiddenSwitch)"
 } else {
   $action = New-ScheduledTaskAction -Execute $node `
       -Argument "`"$Script`" --port $Port" -WorkingDirectory $Root
-  Write-Host 'window : VISIBLE - runhidden.exe is missing (.\scripts\build-exe.ps1)' -ForegroundColor Yellow
+  Write-Host "window : VISIBLE - start.exe is missing or too old (no $HiddenSwitch) - .\scripts\build-exe.ps1" -ForegroundColor Yellow
 }
 
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"

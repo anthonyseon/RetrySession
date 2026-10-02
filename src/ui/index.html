@@ -26,6 +26,9 @@
   <button type="button" class="sm" id="btnRefresh">지금 갱신</button>
   <button type="button" class="sm" id="btnTheme">어둡게</button>
   <button type="button" class="sm" id="btnSetup" aria-haspopup="dialog">설정</button>
+  <!-- 🔴 «종료» = RetrySession 전부(서버·트레이·감시·재시작 회차·이 창) + 예약 꺼 두기. stop.bat · 트레이 «종료» 와
+       같은 scripts/stop-all.ps1 이다(quit.js · 사용자 요청 2026-10-02). 확인을 받고, 다시 켜는 길을 말한다. -->
+  <button type="button" class="sm" id="btnQuit" title="RetrySession 전부 끄기 — 다시 켜려면 start.bat">종료</button>
 </header>
 
 <!-- ── PC 설정 모달 ──

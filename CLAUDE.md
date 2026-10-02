@@ -146,8 +146,8 @@ PowerShell 5.1 이 `.ps1` 을 ANSI 로 읽는다. 한글 한 자로 파서가 �
 프로세스 트리가 깊어진다. `shell: needsShell(exe)` 패턴을 유지하라 — 설치 형태가 달라
 `.cmd` 로 물러설 때만 셸을 쓴다.
 
-`.ps1` 도 마찬가지다. 모든 자식 프로세스는 `Start-Process` 로 실행 파일을 직접 띄우고,
-`-WindowStyle Hidden` 으로 콘솔을 보이지 않게 한다.
+`.ps1` 도 마찬가지다. 모든 자식 프로세스는 `Start-Process` 로 실행 파일을 직접 띄우고, 창은 `start.exe --hidden` 으로 없앤다(§3-3).
+🔴 예외는 사람이 누르는 **`start.bat` · `stop.bat`** 둘뿐이다(사용자 요청 10-02 — git 에 있어 받자마자 실행·완전 종료한다). 둘은 PowerShell 을 절대 경로로 불러 **넘겨주기만** 한다 — 오래 사는 것은 cmd 밑에서 돌지 않고, 코드·예약 작업은 `.bat` 을 부르지 않는다. 종료는 `scripts/stop-all.ps1` **하나**다(트레이·창의 `종료` 도 같다): 예약은 지우지 않고 **꺼 두고**, 끝낼 것은 **정확한 신원**으로만 고른다(이 폴더를 연 VS Code·Claude Code 는 사람의 일이다).
 
 ### 3-2. 예약 작업을 고칠 때는 실행 중 인스턴스를 먼저 끊는다
 
@@ -165,8 +165,8 @@ PowerShell 5.1 이 `.ps1` 을 ANSI 로 읽는다. 한글 한 자로 파서가 �
 ### 3-3. 콘솔 창을 띄우지 마라
 
 **숨기지 말고 만들지 마라.** 콘솔 프로그램(`node.exe` · `powershell.exe`)을 띄우는
-모든 자리는 **`runhidden.exe`** 를 거친다(`tools/RunHidden.cs`, `/target:winexe`,
-자식을 `CREATE_NO_WINDOW` 로 시작). 할당하지 않으면 보여줄 것도 없다.
+모든 자리는 **`start.exe --hidden`** 을 거친다(`tools/Launcher.cs`, `/target:winexe`, 자식을 `CREATE_NO_WINDOW` 로
+시작 — 예전 `runhidden.exe` 를 합쳐 **실행 파일은 하나다**, 사용자 요청 10-02). 할당하지 않으면 보여줄 것도 없다.
 
 안 통하는 두 가지를 구별하라 — **둘 다 실측으로 틀렸다**:
 
@@ -185,7 +185,7 @@ PowerShell 5.1 이 `.ps1` 을 ANSI 로 읽는다. 한글 한 자로 파서가 �
 
 네 예약 작업 + `tray.ps1` 의 창 열기 + 바로가기(`shortcut.ps1`) + `start.ps1` 의 직접 실행이
 모두 해당된다. `test/ascii.test.mjs` 가 네 곳을 다 센다 — 사람이 하나를 빼먹었으니 기계가 센다.
-`runhidden.exe` 가 없으면 경고하고 물러선다 — 조용히 창을 띄우지 않는다.
+`start.exe` 가 없거나 🔴 **`--hidden` 을 모르는 예전 빌드**면(있다 ≠ 안다 — `scripts/launcher-lib.ps1` 이 이진을 본다) 경고하고 물러선다 — 조용히 창을 띄우지 않는다. `-Install` 은 먼저 빌드한다.
 
 ### 3-3-1. 잠든 PC 는 아무것도 돌리지 않는다
 

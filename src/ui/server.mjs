@@ -15,7 +15,6 @@
  *   node src/ui/server.mjs --port 8080
  */
 import { createServer } from 'node:http'
-import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
@@ -30,6 +29,8 @@ import { runNow, detail } from './actions.mjs'
 import { pcState, clearCache, validateValue } from '../lib/pc.mjs'
 import { usageReport } from '../lib/usage.mjs'
 import { applyReady, refreshReady } from '../lib/ready.mjs'
+import { startStopAll } from '../lib/shutdown.mjs'
+import { json, files, readBody } from './respond.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
@@ -46,39 +47,7 @@ const bootEpochValue = Date.now()
  */
 singleInstance('ui', { staleMin: 24 * 60 })
 
-/* ── 응답 도우미 ─────────────────────────────────────────────── */
-
-const json = (res, code, obj) => {
-  const body = JSON.stringify(obj)
-  res.writeHead(code, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-    'content-length': Buffer.byteLength(body),
-  })
-  res.end(body)
-}
-
-const files = (res, path, type) => {
-  if (!existsSync(path)) return json(res, 404, { error: `없음: ${path}` })
-  const body = readFileSync(path)
-  res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'content-length': body.length })
-  res.end(body)
-}
-
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    let s = ''
-    req.on('data', (d) => {
-      s += d
-      if (s.length > 1_000_000) reject(new Error('본문이 너무 크다'))
-    })
-    req.on('end', () => {
-      if (!s) return resolve({})
-      try { resolve(JSON.parse(s)) } catch (e) { reject(new Error('JSON 이 아니다: ' + e.message)) }
-    })
-    req.on('error', reject)
-  })
-}
+/* 응답 도우미(json · files · readBody)는 respond.mjs 에 있다 — 400줄 규칙 */
 
 let readyBusy = false   // «이 PC 준비하기»(/api/ready)가 도는 중인가 — 겹쳐 돌지 않게 한다
 
@@ -342,6 +311,16 @@ const server = createServer(async (req, res) => {
       if (readyBusy) return json(res, 409, { error: '이미 적용하는 중이다 — 끝나면 화면이 다시 읽는다' })
       readyBusy = true
       try { return json(res, 200, await applyReady()) } finally { readyBusy = false }
+    }
+
+    /**
+     * «종료» — RetrySession 전부를 끈다(사용자 요청 2026-10-02 · scripts/stop-all.ps1 · lib/shutdown.mjs).
+     * 🔴 답을 **먼저** 보내고 조금 뒤에 띄운다 — 그 스크립트가 이 서버도 끈다. 출처 검사는 위에서 거쳤다
+     *   (안 거치면 아무 웹페이지나 감시를 끌 수 있다 — CLAUDE.md §4).
+     */
+    if (req.method === 'POST' && p === '/api/shutdown') {
+      const b = await readBody(req)
+      return json(res, 202, startStopAll(b.by))
     }
 
     if (req.method === 'POST' && p === '/api/run') {

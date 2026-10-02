@@ -17,7 +17,7 @@ const { drawReady, initReady } = await import('../src/ui/ready.js')
 const task = (over = {}) => ({ registered: true, healthy: true, isRunning: false, stopped: false, resultText: '성공', ...over })
 const input = () => ({
   node: { version: 'v24.21.0', dir: 'C:\\n', onPath: true },
-  exe: { runhidden: true, start: true, csc: true },
+  exe: { start: true, hidden: true, csc: true },
   tasks: { heartbeat: task(), UI: task(), tray: task(), restart: task() },
   pc: { read: true, level: 'ok', fixable: [], items: [] },
   account: { loggedIn: true, email: 'a@b.c', error: null },

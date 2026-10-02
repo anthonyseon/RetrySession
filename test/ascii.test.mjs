@@ -142,6 +142,25 @@ test('.ps1 이 가리키는 작업 이름은 scheduler.mjs 와 일치한다', as
   }
 })
 
+/**
+ * 🔴 start.bat · stop.bat (사용자 요청 2026-10-02 — 사람이 실행·종료하는 두 파일, git 에 들어간다).
+ *   cmd.exe 는 .bat 을 OEM 코드페이지로 읽고, LF 만 있는 파일에서는 레이블·괄호 블록을 잘못 읽는다.
+ *   그리고 cmd 는 **넘겨주기만** 한다 — 오래 사는 것은 그 밑에서 돌지 않는다(CLAUDE.md §3-1).
+ */
+test('🔴 start.bat · stop.bat 은 ASCII · CRLF 이고, PowerShell 을 절대 경로로 불러 넘겨주기만 한다', () => {
+  for (const [f, target] of [['start.bat', /-File "%~dp0start\.ps1"/], ['stop.bat', /-File "%~dp0scripts\\stop-all\.ps1"/]]) {
+    const path = join(ROOT, f)
+    assert.ok(existsSync(path), `${f} 가 없다 — 새로 받은 PC 에서 실행할 파일이다`)
+    assert.deepEqual(nonAsciiLines(path), [], `${f} 에 ASCII 밖의 글자가 있다`)
+    const text = readFileSync(path, 'latin1')
+    assert.doesNotMatch(text, /(?<!\r)\n/, `${f} 에 CR 없는 줄바꿈이 있다 — .gitattributes 의 *.bat eol=crlf`)
+    assert.match(text, /"%SystemRoot%\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe"/, 'PATH 를 믿지 않는다')
+    assert.match(text, target)
+    assert.doesNotMatch(text, /^\s*start\s/im, '`start` 로 띄우면 cmd 밑에 오래 사는 것이 생긴다')
+  }
+  assert.match(readFileSync(join(ROOT, '.gitattributes'), 'utf8'), /^\*\.bat\s+text\s+eol=crlf/m)
+})
+
 /* ── 콘솔 창 ─────────────────────────────────────────────────── */
 
 /**
@@ -161,35 +180,79 @@ test('.ps1 이 가리키는 작업 이름은 scheduler.mjs 와 일치한다', as
  *     2. 트레이는 로그온 세션 내내 살아 있어서 창이 사라지지 않는다.
  *        5분 작업은 잠깐 번쩍이지만 트레이는 하루 종일 떠 있다.
  *
- *   숨기는 게 아니라 **만들지 않는 것**이 답이다 — runhidden.exe 는 /target:winexe 이고
- *   자식을 CREATE_NO_WINDOW 로 띄운다. 할당하지 않으면 보여줄 것도 없다.
+ *   숨기는 게 아니라 **만들지 않는 것**이 답이다 — 창 없는 실행기(/target:winexe)가 자식을
+ *   CREATE_NO_WINDOW 로 띄운다. 할당하지 않으면 보여줄 것도 없다. 그 실행기는 처음엔
+ *   runhidden.exe 였고, 2026-10-02 부터 `start.exe --hidden` 이다(실행 파일을 하나로 — 사용자 요청).
  *
  *   사람이 네 곳 중 하나를 빼먹었으니, 기계가 네 곳을 다 센다.
  */
-test('🔴 예약 작업 네 개 모두 runhidden.exe 를 거친다 (하나만 빼먹으면 창이 뜬다)', () => {
+const codeOf = (path) => readFileSync(path, 'utf8').split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+const LAUNCHER = /Get-HiddenLauncher\b/
+
+test('🔴 예약 작업 네 개 모두 창 없는 실행기(start.exe --hidden)를 거친다 (하나만 빼먹으면 창이 뜬다)', () => {
   for (const f of ['register-heartbeat.ps1', 'register-resume.ps1', 'register-ui.ps1', 'register-tray.ps1']) {
-    const src = readFileSync(join(ROOT, 'scripts', f), 'utf8')
-    const code = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
-    assert.ok(/runhidden\.exe/.test(code), `scripts/${f} 가 runhidden.exe 를 쓰지 않는다`)
-    // action 을 만드는 줄이 runhidden 을 가리켜야 한다
+    const code = codeOf(join(ROOT, 'scripts', f))
+    assert.ok(LAUNCHER.test(code), `scripts/${f} 가 Get-HiddenLauncher 를 쓰지 않는다`)
+    // action 을 만드는 줄이 실행기를 가리키고, 스위치를 넘겨야 한다
     const action = code.split('\n').filter((l) => l.includes('New-ScheduledTaskAction'))
     assert.ok(action.length >= 1, `${f} 에서 action 을 찾을 수 없다`)
-    assert.ok(action.some((l) => /\$hidden|\$RunHidden|runhidden/i.test(l)),
-      `${f} 의 action 이 runhidden 을 거치지 않는다: ${action[0]?.trim().slice(0, 80)}`)
+    assert.ok(action.some((l) => /-Execute \$hidden\b/.test(l)),
+      `${f} 의 action 이 실행기를 거치지 않는다: ${action[0]?.trim().slice(0, 80)}`)
+    assert.match(code, /\$HiddenSwitch \+ ' "'/, `${f} 가 ${'--hidden'} 을 넘기지 않는다 — start.ps1 이 대신 돈다`)
   }
 })
 
 test('🔴 콘솔 프로그램을 띄우는 곳은 -WindowStyle Hidden 만 믿지 않는다', () => {
   // Windows Terminal 이 기본 호스트면 그 플래그로는 창이 남는다.
-  // 그 플래그를 쓰는 줄이 있어도 되지만, 반드시 runhidden 대안이 함께 있어야 한다.
+  // 그 플래그를 쓰는 줄이 있어도 되지만, 반드시 창 없는 실행기 대안이 함께 있어야 한다.
   for (const f of ['tray.ps1', 'shortcut.ps1']) {
-    const src = readFileSync(join(ROOT, 'scripts', f), 'utf8')
-    const code = src.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+    const code = codeOf(join(ROOT, 'scripts', f))
     if (!/WindowStyle Hidden|WindowStyle', 'Hidden/.test(code)) continue
-    assert.ok(/runhidden\.exe/.test(code),
-      `scripts/${f} 가 -WindowStyle Hidden 에만 기대고 있다 — runhidden.exe 경로를 함께 둬라`)
+    assert.ok(LAUNCHER.test(code) && /\$HiddenSwitch/.test(code),
+      `scripts/${f} 가 -WindowStyle Hidden 에만 기대고 있다 — start.exe --hidden 경로를 함께 둬라`)
   }
-  const start = readFileSync(join(ROOT, 'start.ps1'), 'utf8')
-  const startSrc = start.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
-  assert.ok(/runhidden\.exe/.test(startSrc), 'start.ps1 도 runhidden.exe 를 알아야 한다')
+  const startSrc = codeOf(join(ROOT, 'start.ps1'))
+  assert.ok(LAUNCHER.test(startSrc) && /\$HiddenSwitch/.test(startSrc), 'start.ps1 도 start.exe --hidden 을 알아야 한다')
+})
+
+/**
+ * 🔴 «창 없는 실행기» 의 이유를 실행기 자체에서 센다 — 이름이 바뀌어도(runhidden → start.exe --hidden)
+ *   지키는 것은 같다: 콘솔을 만들지 않고, 자식을 기다려 종료 코드를 돌려준다(작업 스케줄러가
+ *   «실행 중» 과 실패 코드를 읽는다). 그리고 숨김 모드는 **AttachConsole 보다 먼저** 갈라야 한다.
+ */
+test('🔴 start.exe --hidden 은 콘솔을 만들지 않고, 자식을 기다려 종료 코드를 돌려준다', () => {
+  const cs = readFileSync(join(ROOT, 'tools', 'Launcher.cs'), 'utf8')
+  const body = cs.slice(cs.indexOf('private static int RunHidden('), cs.indexOf('private static string QuoteForWindows('))
+  assert.ok(body.length > 100, 'RunHidden 을 찾지 못했다')
+  assert.match(body, /CreateNoWindow = true/)
+  assert.match(body, /UseShellExecute = false/, 'ShellExecute 는 CREATE_NO_WINDOW 를 따르지 않는다')
+  assert.match(body, /WaitForExit\(\)/, '기다리지 않으면 서버가 도는 동안 작업이 «끝남» 으로 보인다')
+  assert.match(body, /return p\.ExitCode/, '종료 코드를 버리면 작업 기록에 실패가 남지 않는다')
+  const main = cs.slice(cs.indexOf('private static int Main('))
+  assert.ok(main.indexOf('return RunHidden(') < main.indexOf('AttachConsole('),
+    '숨김 모드는 부모 콘솔에 붙기 전에 갈라야 한다 — 예전 runhidden.exe 와 같게')
+})
+
+test('🔴 스위치 글자는 세 곳이 같다 (Launcher.cs · launcher-lib.ps1 · ready.mjs) — 어긋나면 새 빌드도 «낡음» 이다', async () => {
+  const cs = readFileSync(join(ROOT, 'tools', 'Launcher.cs'), 'utf8')
+  const ps = readFileSync(join(ROOT, 'scripts', 'launcher-lib.ps1'), 'utf8')
+  const { HIDDEN_SWITCH } = await import('../src/lib/ready.mjs')
+  assert.equal(/const string HiddenSwitch = "([^"]+)"/.exec(cs)?.[1], HIDDEN_SWITCH)
+  assert.equal(/^\$HiddenSwitch = '([^']+)'/m.exec(ps)?.[1], HIDDEN_SWITCH)
+  // start.ps1 은 한 줄표(-) 매개변수만 받는다 — 두 줄표 스위치가 실수로 넘어가 묶일 일이 없다
+  assert.match(HIDDEN_SWITCH, /^--[a-z]+$/)
+})
+
+test('🔴 runhidden.exe 는 합쳐졌다 — 그것을 부르는 코드가 남지 않는다 (없는 파일을 찾다 창을 띄운다)', () => {
+  assert.ok(!existsSync(join(ROOT, 'tools', 'RunHidden.cs')), 'RunHidden.cs 가 남아 있다 — 두 번째 exe 가 되살아난다')
+  const files = ['start.ps1', ...readdirSync(join(ROOT, 'scripts')).filter((f) => f.endsWith('.ps1')).map((f) => join('scripts', f))]
+  for (const f of files) {
+    const code = codeOf(join(ROOT, f))
+    // build-exe.ps1 은 옛 사본을 **지우고**, stop-all.ps1 은 옛 등록이 남긴 실행기를 **끈다** — 이름은 알되 띄우지 않는다
+    if (f.endsWith('build-exe.ps1') || f.endsWith('stop-all.ps1')) {
+      assert.doesNotMatch(code, /Start-Process[^\n]*runhidden|-Execute[^\n]*runhidden|-FilePath[^\n]*runhidden/i, `${f} 가 runhidden 을 띄운다`)
+      continue
+    }
+    assert.doesNotMatch(code, /runhidden/i, `${f} 가 아직 runhidden 을 부른다`)
+  }
 })

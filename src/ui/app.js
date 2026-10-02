@@ -17,6 +17,7 @@ import { $, S, actions, keepScroll, drawPiece } from './common.js'
 import { drawTiles } from './summary.js'
 import { drawAlerts, initAlertsFold } from './alerts.js'
 import { drawReady, initReady } from './ready.js'
+import { initQuit } from './quit.js'
 import { drawFolders, items, syncSelection } from './list.js'
 import { redrawDetail } from './detail.js'
 import { openSettings, closeSettings, drawSettings, isSettingsOpen, pcAction } from './setup.js'
@@ -155,6 +156,8 @@ function draw() {
 function updateFreshness() {
   const seconds = S.lastOkAt ? Math.round((Date.now() - S.lastOkAt) / 1000) : null
   const dot = $('#dot')
+  // 사람이 «종료» 했다 — 서버가 없는 것은 고장이 아니므로 «읽기 실패» 가 아니라 그 사실을 말한다(quit.js)
+  if (S.stopped) { dot.className = 'dot off'; $('#freshness').textContent = S.stopped; return }
   // 🔴 그리기가 깨진 것도 '이상'이다. 값은 새것인데 화면이 옛것·빈것일 수 있다.
   const isBad = Boolean(S.error || S.drawError)
   dot.className = 'dot' + (isBad ? ' off' : seconds === null ? ' off' : seconds > 12 ? ' stale' : '')
@@ -329,6 +332,8 @@ initLayout()
 initAlertsFold()
 // «이 PC 준비하기» 단추 — 판정은 서버가 하고, 무엇을 고칠지도 서버가 실행 직전에 다시 정한다
 initReady()
+// «종료» 단추 — RetrySession 전부를 끈다(stop.bat · 트레이 «종료» 와 같은 스크립트)
+initQuit()
 /**
  * 사용량 패널. 🔴 **폴링에 넣지 않는다** — `/usage` 호출이 몇 초 걸려서, 상태 갱신과
  *   같이 돌면 화면 전체가 그만큼 느려진다. 펼칠 때 한 번 읽고 `갱신` 으로 다시 읽는다.
@@ -357,9 +362,10 @@ function pollLoop(fn, ms, shouldRun = () => true) {
 
 loadStatus()
 checkBoot()
-pollLoop(loadStatus, 3000, () => S.auto)
+// «종료» 뒤에는 묻지 않는다(S.stopped) — 없는 서버에 계속 물으면 사람이 끈 것을 고장으로 읽는다
+pollLoop(loadStatus, 3000, () => S.auto && !S.stopped)
 // 서버가 다시 떴는지 5초마다 — 고친 코드가 화면에 반영되지 않는 것이 이 저장소의 상습 함정이다
-pollLoop(checkBoot, 5000)
-pollLoop(loadDetail, 2000, () => S.auto && Boolean(S.openSession))
+pollLoop(checkBoot, 5000, () => !S.stopped)
+pollLoop(loadDetail, 2000, () => S.auto && !S.stopped && Boolean(S.openSession))
 // 신선도만 1초마다 — 화면이 멈췄는지 사람이 바로 안다 (전체를 다시 그리지 않는다)
 setInterval(updateFreshness, 1000)

@@ -21,7 +21,7 @@ description: RetrySession(세션 감시·재시작 도구)의 코드·스크립�
 | 무인 실행의 권한 | `--dangerously-skip-permissions` 와 같다. 낮추려면 **설정**(`permissionMode`)으로 — 코드의 조건을 지우지 마라 |
 | 켬/끔·접기 표시 | 색은 **두 채널**이다 — 스위치(테두리·왼쪽 띠) vs 판정(글자·아이콘). 섞지 마라 (「하지 말 것」) |
 | `scripts/*.ps1` · `start.ps1` | **순수 ASCII** — 한글·이모지 금지 |
-| 예약 작업 등록 | action 은 `runhidden.exe` 경유 (콘솔 창) · 서버 **안에서** 부르면 `register-ui.ps1 -NoStart` — 포트를 끊으면 그 요청을 처리하는 서버가 죽는다 |
+| 예약 작업 등록 | action 은 `start.exe --hidden` 경유 (콘솔 창 · 예전 빌드는 `--hidden` 을 모른다 — `Get-HiddenLauncher` 로 찾아라, [`windows-traps.md`](./windows-traps.md)) · 서버 **안에서** 부르면 `register-ui.ps1 -NoStart` — 포트를 끊으면 그 요청을 처리하는 서버가 죽는다 |
 | `src/ui/*` | 고쳐도 **자동 반영되지 않는다** (아래 2번) · 하네스에는 레이아웃이 없다 — 실제 브라우저로 **두 크기**에서 본다 · 높이는 vh 가 아니라 **재서** ([`ui-checks.md`](./ui-checks.md)) |
 | `tray.ps1` | `ShowBalloonTip` 금지 · `/api/tray` 만 읽는다 · **UI 스레드를 붙잡지 마라** |
 | 프로세스를 띄우는 코드 | `shell: needsShell(exe)` — 무조건 `shell:true` 금지 |
@@ -201,7 +201,7 @@ node 프로세스는 **기동 시점의 모듈**을 들고 있다. 화면은 옛
 `.ps1` 이나 `tools/*.cs` 를 고쳤다면 exe 부터 다시 만든다:
 
 ```powershell
-.\scripts\build-exe.ps1     # start.exe + runhidden.exe
+.\scripts\build-exe.ps1     # start.exe 하나 (예약 작업도 --hidden 으로 쓴다 · 도는 중이면 끄지 않고 비켜 둔다)
 ```
 
 예약 작업의 action·설정을 고쳤다면 **재등록**해야 한다. 단순 재시작으로는 안 바뀐다:
@@ -330,7 +330,7 @@ assert.equal(calls.at(-1), '/api/usage?fresh=1')
 
 ## 6. 커밋한다
 
-빌드 산출물(`start.exe` · `runhidden.exe`)과 `state/` 는 커밋하지 않는다.
+빌드 산출물(`start.exe` · 비켜 둔 `start.exe.old-*` · 옛 `runhidden.exe`)과 `state/` 는 커밋하지 않는다.
 
 ```bash
 git add -A && git status --short | grep -i exe   # 비어 있어야 정상

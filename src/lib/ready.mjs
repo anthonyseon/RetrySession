@@ -16,6 +16,7 @@
  *   사람의 것이라 방법만 적는다.
  */
 import { existsSync } from 'node:fs'
+import { HIDDEN_SWITCH, launcherKnowsHidden } from './launcher.mjs'
 import { execFileSync, spawn } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { RS_HOME, loadConfig } from './config.mjs'
@@ -24,6 +25,8 @@ import { taskState, refreshTasks } from './scheduler.mjs'
 import { pcState, clearCache as clearPcCache } from './pc.mjs'
 
 const MIN_NODE = 20
+// 실행기 판정은 launcher.mjs 하나다 — 화면 «종료»(shutdown.mjs)도 같은 것을 쓴다. 여기서는 다시 내보낸다
+export { HIDDEN_SWITCH, launcherKnowsHidden }
 
 /** @param fix 'auto' — 단추가 고친다 · 'manual' — 사람이 고친다(how 에 방법) · null — 고칠 것 없음 */
 const item = (key, name, level, now, why, fix = null, how = null) => ({ key, name, level, now, why, fix, how })
@@ -51,14 +54,23 @@ function nodeItem(n) {
   return item('node', 'Node.js', 'ok', n.version, '예약 작업과 start.exe 가 쓴다')
 }
 
+/**
+ * 실행 파일은 **start.exe 하나**다(2026-10-02, runhidden.exe 를 `--hidden` 모드로 합쳤다).
+ * 🔴 «있다» 로는 모자라다 — 합치기 전에 만든 start.exe 는 `--hidden` 을 몰라 그 인자를 start.ps1 에
+ *   넘기고 매번 실패한다(작업에 창이 없어 조용히). 그래서 «이 모드를 아는 빌드인가» 를 함께 본다.
+ *   못 읽었으면(null) 모름이다 — 아는 것으로 치지 않는다.
+ */
 function exeItem(e) {
   if (!e) return item('exe', '실행 파일', 'unknown', '모름', '확인하지 못했다')
-  if (e.runhidden && e.start) return item('exe', '실행 파일', 'ok', 'runhidden.exe · start.exe', '예약 작업이 콘솔 창 없이 돈다')
-  const miss = [!e.runhidden && 'runhidden.exe', !e.start && 'start.exe'].filter(Boolean).join(' · ')
-  // runhidden.exe 없이 등록한 작업은 콘솔 창을 띄운 채 돈다(실측: 트레이 창이 하루 종일 떠 있었다)
-  return item('exe', '실행 파일', e.runhidden ? 'warn' : 'crit', `없음: ${miss}`,
-    e.runhidden ? 'start.exe(더블클릭 진입점)가 없다' : '없이 등록한 예약 작업은 콘솔 창을 띄운 채 돈다',
-    e.csc ? 'auto' : 'manual', e.csc ? null : 'csc.exe(.NET Framework 4.x)가 없다 — powershell -File start.ps1 로 대신 띄운다')
+  const how = e.csc ? null : 'csc.exe(.NET Framework 4.x)가 없다 — powershell -File start.ps1 로 대신 띄운다'
+  const fix = e.csc ? 'auto' : 'manual'
+  if (!e.start) return item('exe', '실행 파일', 'crit', '없음: start.exe', '없이 등록한 예약 작업은 콘솔 창을 띄운 채 돈다', fix, how)
+  if (e.hidden === true) return item('exe', '실행 파일', 'ok', 'start.exe', '더블클릭 진입점이고, 예약 작업도 이것으로 콘솔 창 없이 돈다')
+  if (e.hidden === false) {
+    return item('exe', '실행 파일', 'crit', `start.exe 가 낡았다 — ${HIDDEN_SWITCH} 를 모른다`,
+      '예전 빌드다 — 이대로 등록하면 예약 작업이 콘솔 창을 띄운 채 돈다', fix, how)
+  }
+  return item('exe', '실행 파일', 'unknown', 'start.exe · 빌드 확인 못 함', `${HIDDEN_SWITCH} 를 아는 빌드인지 읽지 못했다`)
 }
 
 const TASKS = [
@@ -67,6 +79,9 @@ const TASKS = [
   ['tray', '예약: 트레이', 'warn', '창을 닫아도 상태를 알린다'],
 ]
 
+/** 작업 스케줄러의 State 가 «사용 안 함» 인가 — scheduler.mjs 가 그대로 옮겨 준 글자다 */
+const isDisabled = (t) => /^disabled$/i.test(String(t?.state || '').trim())
+
 function taskItems(tasks) {
   return TASKS.map(([key, name, missLevel, why]) => {
     const t = tasks?.[key]
@@ -74,6 +89,9 @@ function taskItems(tasks) {
       return item(key, name, 'unknown', '조회 실패', `작업 스케줄러를 읽지 못했다 — ${t?.error || '이유 불명'}`)
     }
     if (!t.registered) return item(key, name, missLevel, '등록 안 됨', why, 'auto')
+    // 🔴 «종료»(stop.bat · 트레이 · 화면)는 작업을 지우지 않고 **꺼 둔다**. 꺼진 작업은 마지막 결과가
+    //   성공이어도 다시는 돌지 않는다 — 그것을 «됨» 이라 하면 감시가 멈춘 채 괜찮다고 말하게 된다.
+    if (isDisabled(t)) return item(key, name, missLevel, '등록됨 · 꺼짐(사용 안 함)', `${why} — 종료로 꺼 둔 상태다`, 'auto')
     if (t.healthy === false && !t.stopped) {
       return item(key, name, 'warn', `등록됨 · ${t.resultText || '마지막 결과 모름'}`, '마지막 회차가 실패로 끝났다',
         'manual', '진단: retrysession-diagnose 스킬 증상 6')
@@ -86,6 +104,8 @@ function taskItems(tasks) {
 function resumeItem(t, resumeOn) {
   const name = '예약: 재시작 (선택)'
   if (!t || t.queryFailed || typeof t.registered !== 'boolean') return item('restart', name, 'unknown', '조회 실패', '작업 스케줄러를 읽지 못했다')
+  // 꺼진 재시작 작업은 이 단추가 켜지 않는다(토큰) — start.bat 이 사람의 손으로 다시 켠다
+  if (t.registered && isDisabled(t)) return item('restart', name, resumeOn > 0 ? 'warn' : 'info', '등록됨 · 꺼짐(사용 안 함)', '종료로 꺼 둔 상태다 — 이어받지 않는다', 'manual', 'start.bat 을 실행하면 다시 켜진다')
   if (t.registered) return item('restart', name, 'ok', '등록됨', '재시작을 켠 세션을 이어받는다')
   const how = '.\\start.exe -Install -WithResume — 사람 없이 토큰을 쓰므로 이 단추는 등록하지 않는다'
   if (resumeOn > 0) {
@@ -197,7 +217,7 @@ export async function runSteps(steps, run = runStep) {
   for (const s of steps) {
     if (s.needs && failed.has(s.needs)) {
       results.push({ key: s.key, name: s.name, ok: false, skipped: true,
-        output: '실행 파일을 못 만들어 건너뛰었다 — runhidden.exe 없이 등록하면 콘솔 창이 뜨는 작업이 생긴다' })
+        output: `실행 파일을 못 만들어 건너뛰었다 — start.exe ${HIDDEN_SWITCH} 없이 등록하면 콘솔 창이 뜨는 작업이 생긴다` })
       failed.add(s.key)
       continue
     }
@@ -278,7 +298,7 @@ export function readyInputs() {
   const pathText = newProcessPath()
   return {
     node: { version: process.version, dir: dirname(process.execPath), onPath: nodeOnPath(pathText) },
-    exe: { runhidden: existsSync(join(RS_HOME, 'runhidden.exe')), start: existsSync(join(RS_HOME, 'start.exe')), csc: cscFound() },
+    exe: { start: existsSync(join(RS_HOME, 'start.exe')), hidden: launcherKnowsHidden(join(RS_HOME, 'start.exe')), csc: cscFound() },
     cli: { installed: claudeInstalls().length > 0 },
     config: configCheck(),
   }

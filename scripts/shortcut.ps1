@@ -5,8 +5,8 @@
 # The shortcut is what makes this feel like an app: Start Menu search finds
 # "RetrySession", and the window can be pinned to the taskbar.
 #
-# It launches powershell.exe -WindowStyle Hidden -File open-app.ps1, so no cmd
-# window ever flashes. open-app.ps1 then opens the UI in a chromeless
+# It launches start.exe --hidden powershell.exe -File open-app.ps1, so no
+# console window ever flashes. open-app.ps1 then opens the UI in a chromeless
 # Edge/Chrome app window.
 
 param(
@@ -19,6 +19,7 @@ $ErrorActionPreference = 'Stop'
 $Root   = Split-Path -Parent $PSScriptRoot
 $Name   = 'RetrySession'
 $Opener = Join-Path $Root 'scripts\open-app.ps1'
+. (Join-Path $PSScriptRoot 'launcher-lib.ps1')
 
 $psExe = (Get-Process -Id $PID).Path
 if (-not $psExe) { $psExe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" }
@@ -40,22 +41,22 @@ foreach ($dir in $targets) {
 
   $lnk = $wsh.CreateShortcut($lnkPath)
 
-  # Point at runhidden.exe, not powershell.exe.
+  # Point at start.exe --hidden, not powershell.exe.
   #
   # `-WindowStyle Hidden` plus WindowStyle=7 (minimized) still leaves a console
   # to minimise: Windows allocates it before PowerShell runs, and on Windows 11
   # the default console host is Windows Terminal, whose window neither setting
   # controls. Measured: the tray task, launched exactly this way, showed a
   # visible Windows Terminal window for the whole logon session.
-  # runhidden.exe is /target:winexe and uses CREATE_NO_WINDOW - nothing is
+  # start.exe is /target:winexe and --hidden uses CREATE_NO_WINDOW - nothing is
   # allocated, so there is nothing to show or minimise.
-  $runHidden = Join-Path $Root 'runhidden.exe'
-  if (Test-Path $runHidden) {
-    $lnk.TargetPath = $runHidden
-    $lnk.Arguments  = '"' + $psExe + '" -NoProfile -ExecutionPolicy Bypass -File "' +
+  $hidden = Get-HiddenLauncher $Root
+  if ($hidden) {
+    $lnk.TargetPath = $hidden
+    $lnk.Arguments  = $HiddenSwitch + ' "' + $psExe + '" -NoProfile -ExecutionPolicy Bypass -File "' +
                       $Opener + '" -Port ' + $Port
   } else {
-    Write-Host 'note   : runhidden.exe is missing - the shortcut may flash a window' -ForegroundColor Yellow
+    Write-Host "note   : start.exe is missing or too old (no $HiddenSwitch) - the shortcut may flash a window" -ForegroundColor Yellow
     Write-Host '         build it with .\scripts\build-exe.ps1' -ForegroundColor Yellow
     $lnk.TargetPath = $psExe
     $lnk.Arguments  = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +

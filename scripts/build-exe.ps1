@@ -2,6 +2,10 @@
 #
 # ASCII ONLY (PowerShell 5.1 reads .ps1 as ANSI - see CLAUDE.md).
 #
+# start.exe is the ONLY executable (2026-10-02). It is the double-click entry
+# point AND, as `start.exe --hidden <program> ...`, the windowless launcher the
+# scheduled tasks use - the job runhidden.exe used to do.
+#
 # Uses csc.exe, the C# compiler that ships with Windows (.NET Framework 4.x).
 # Nothing to install - that keeps the zero-dependency rule intact.
 #
@@ -20,10 +24,7 @@ $Source = Join-Path $Root 'tools\Launcher.cs'
 $OutExe = Join-Path $Root 'start.exe'
 $IcoTmp = Join-Path $env:TEMP 'retrysession-launcher.ico'
 
-# runhidden.exe is what the scheduled tasks actually invoke, so that node never
-# gets a console window. See tools\RunHidden.cs for the measurement behind it.
-$HiddenSrc = Join-Path $Root 'tools\RunHidden.cs'
-$HiddenExe = Join-Path $Root 'runhidden.exe'
+. (Join-Path $PSScriptRoot 'launcher-lib.ps1')
 
 if (-not (Test-Path $Source)) { throw "source not found: $Source" }
 
@@ -35,7 +36,8 @@ $cscCandidates = @(
 $csc = $cscCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $csc) {
   Write-Host 'csc.exe (.NET Framework 4.x) was not found.' -ForegroundColor Red
-  Write-Host '  start.exe is optional - start.ps1 works on its own:'
+  Write-Host '  start.ps1 still works on its own, but without start.exe the scheduled'
+  Write-Host '  tasks fall back to a VISIBLE console window (they say so when registering):'
   Write-Host '  powershell -ExecutionPolicy Bypass -File start.ps1'
   exit 1
 }
@@ -85,11 +87,22 @@ $cscArgs = @(
 if ($haveIcon) { $cscArgs += "/win32icon:$IcoTmp" }
 $cscArgs += $Source
 
-# Stop a running launcher from locking the output file.
-if (Test-Path $OutExe) {
-  Get-Process -Name 'start' -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -eq $OutExe } |
-    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+# ---- free the output path WITHOUT killing anything ----------------------
+# start.exe now also wraps the long-lived tasks (UI server, tray) and waits on
+# them. Killing it would leave the child running while Task Scheduler shows the
+# task as stopped - two sources disagreeing. A running exe cannot be overwritten
+# or deleted, but it CAN be renamed, so move it aside and build a fresh one.
+# The renamed copies are removed on a later build, once nothing runs them.
+Get-ChildItem -LiteralPath $Root -Filter 'start.exe.old-*' -ErrorAction SilentlyContinue |
+  ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+if (Test-Path -LiteralPath $OutExe) {
+  try {
+    Remove-Item -LiteralPath $OutExe -Force -ErrorAction Stop
+  } catch {
+    $aside = 'start.exe.old-' + (Get-Date -Format 'yyyyMMddHHmmss')
+    Rename-Item -LiteralPath $OutExe -NewName $aside
+    Write-Host "in use   : the running start.exe was moved aside as $aside (removed on a later build)" -ForegroundColor DarkGray
+  }
 }
 
 & $csc $cscArgs
@@ -103,27 +116,23 @@ if (-not (Test-Path $OutExe)) {
   exit 1
 }
 
-# ---- runhidden.exe ------------------------------------------------------
-if (Test-Path $HiddenSrc) {
-  # Stop anything holding the file (a running task action).
-  Get-Process -Name 'runhidden' -ErrorAction SilentlyContinue |
-    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+# The scheduled tasks depend on the hidden mode - check the build really has it.
+if (-not (Get-HiddenLauncher $Root)) {
+  Write-Host "start.exe was built but does not know $HiddenSwitch - tasks would show a console window." -ForegroundColor Red
+  exit 1
+}
 
-  $hArgs = @(
-    '/nologo', '/target:winexe', '/optimize+', '/platform:anycpu', '/codepage:65001',
-    '/reference:System.dll', '/reference:System.Windows.Forms.dll',
-    "/out:$HiddenExe"
-  )
-  if ($haveIcon) { $hArgs += "/win32icon:$IcoTmp" }
-  $hArgs += $HiddenSrc
-
-  & $csc $hArgs
-  if ($LASTEXITCODE -ne 0) {
-    Write-Host 'runhidden.exe compile failed - tasks would show a console window.' -ForegroundColor Red
-    exit $LASTEXITCODE
+# ---- leftovers of the two-exe era ---------------------------------------
+# runhidden.exe was merged into start.exe. A copy left behind reads as a live
+# part, so remove it - unless an old task is still running through it.
+$oldHidden = Join-Path $Root 'runhidden.exe'
+if (Test-Path -LiteralPath $oldHidden) {
+  try {
+    Remove-Item -LiteralPath $oldHidden -Force -ErrorAction Stop
+    Write-Host 'removed  : runhidden.exe (merged into start.exe --hidden)'
+  } catch {
+    Write-Host 'note     : runhidden.exe is still in use by an old task - re-register with .\start.exe -Install' -ForegroundColor Yellow
   }
-  $hs = [Math]::Round((Get-Item $HiddenExe).Length / 1KB, 1)
-  Write-Host "built runhidden.exe ($hs KB)" -ForegroundColor Green
 }
 
 $size = [Math]::Round((Get-Item $OutExe).Length / 1KB, 1)
@@ -133,3 +142,4 @@ Write-Host '  double-click it, or:'
 Write-Host '    .\start.exe            open the window'
 Write-Host '    .\start.exe -Install   register the OS tasks (shows output)'
 Write-Host '    .\start.exe -Status    print status'
+Write-Host "  the scheduled tasks use it too, as: start.exe $HiddenSwitch <program> ..."

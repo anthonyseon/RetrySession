@@ -8,13 +8,13 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readyVerdict, applySteps, runSteps, nodeOnPath } from '../src/lib/ready.mjs'
+import { readyVerdict, applySteps, runSteps, nodeOnPath, launcherKnowsHidden, HIDDEN_SWITCH } from '../src/lib/ready.mjs'
 
 const task = (over = {}) => ({ registered: true, healthy: true, isRunning: false, stopped: false, resultText: '성공', ...over })
 const pcOk = () => ({ read: true, level: 'ok', items: [{ key: 'standbyAc', name: '절전 (전원 연결)', level: 'ok', current: '안 함', why: '' }], fixable: [] })
 const good = () => ({
   node: { version: 'v24.21.0', dir: 'C:\\Program Files\\nodejs', onPath: true },
-  exe: { runhidden: true, start: true, csc: true },
+  exe: { start: true, hidden: true, csc: true },
   tasks: { heartbeat: task(), UI: task({ isRunning: true }), tray: task({ isRunning: true }), restart: task() },
   pc: pcOk(),
   account: { ok: true, loggedIn: true, email: 'a@b.c', error: null },
@@ -62,6 +62,27 @@ test('감시 작업이 없으면 안 됨, 화면·트레이가 없으면 주의 
   assert.equal(v.level, 'crit')
 })
 
+/**
+ * 🔴 «종료»(stop.bat · 트레이 · 화면, 2026-10-02)는 작업을 지우지 않고 꺼 둔다. 꺼진 작업은 마지막 결과가
+ *   성공이어도 다시 돌지 않는다 — «됨» 이라 하면 감시가 멈춘 채 괜찮다고 말한다.
+ */
+test('🔴 꺼진(사용 안 함) 작업은 마지막 결과가 성공이어도 «됨» 이 아니다 · 재시작은 단추가 켜지 않는다', () => {
+  const x = good()
+  x.tasks.heartbeat = task({ state: 'Disabled', resultText: '성공' })
+  const v = readyVerdict(x)
+  assert.equal(at(v, 'heartbeat').level, 'crit')
+  assert.match(at(v, 'heartbeat').now, /꺼짐/)
+  assert.ok(v.fixable.includes('heartbeat'), '다시 등록하면 켜진다 — 단추가 고칠 수 있다')
+  x.tasks.heartbeat = task()
+  x.tasks.restart = task({ state: 'Disabled' })
+  x.resumeOn = 1
+  const r = at(readyVerdict(x), 'restart')
+  assert.equal(r.level, 'warn')
+  assert.equal(r.fix, 'manual', '재시작 작업은 토큰을 쓴다 — 단추가 켜지 않는다')
+  assert.match(r.how, /start\.bat/)
+  assert.ok(!readyVerdict(x).fixable.includes('restart'))
+})
+
 test('등록됐지만 마지막 회차가 실패한 작업은 주의 — 다시 등록하지 않고 진단을 가리킨다', () => {
   const x = good()
   x.tasks.heartbeat = task({ healthy: false, resultText: '오류(1)' })
@@ -71,17 +92,43 @@ test('등록됐지만 마지막 회차가 실패한 작업은 주의 — 다시 
   assert.match(at(v, 'heartbeat').now, /오류\(1\)/)
 })
 
-test('runhidden.exe 가 없으면 안 됨 — csc 가 있으면 단추가, 없으면 사람이', () => {
+test('start.exe 가 없으면 안 됨 — csc 가 있으면 단추가, 없으면 사람이', () => {
   const x = good()
-  x.exe = { runhidden: false, start: false, csc: true }
+  x.exe = { start: false, hidden: null, csc: true }
   assert.equal(at(readyVerdict(x), 'exe').level, 'crit')
   assert.equal(at(readyVerdict(x), 'exe').fix, 'auto')
   x.exe.csc = false
   const it = at(readyVerdict(x), 'exe')
   assert.equal(it.fix, 'manual')
   assert.match(it.how, /start\.ps1/)
-  x.exe = { runhidden: true, start: false, csc: true }
-  assert.equal(at(readyVerdict(x), 'exe').level, 'warn', 'start.exe 만 없으면 예약은 돈다')
+})
+
+/**
+ * 🔴 실행 파일을 하나로 합쳤다(2026-10-02) — runhidden.exe 는 start.exe --hidden 이 됐다.
+ *   합치기 전에 만든 start.exe 는 --hidden 을 몰라 그 인자를 start.ps1 에 넘기고 매번 실패한다.
+ *   «있다» 만 보면 그것을 ok 로 읽는다 — 그래서 «아는 빌드인가» 를 따로 센다. 모르면 모름이다.
+ */
+test('🔴 start.exe 가 --hidden 을 모르는 예전 빌드면 안 됨(단추가 다시 만든다), 못 읽으면 모름', () => {
+  const x = good()
+  x.exe = { start: true, hidden: false, csc: true }
+  const old = at(readyVerdict(x), 'exe')
+  assert.equal(old.level, 'crit')
+  assert.equal(old.fix, 'auto')
+  assert.match(old.now, /--hidden/)
+  assert.ok(readyVerdict(x).fixable.includes('exe'))
+  x.exe = { start: true, hidden: null, csc: true }
+  assert.equal(at(readyVerdict(x), 'exe').level, 'unknown', '읽지 못한 빌드를 아는 것으로 치면 안 된다')
+  assert.equal(readyVerdict(x).ready, false)
+})
+
+test('launcherKnowsHidden — 이진 안의 UTF-16LE 문자열로 본다 · 못 읽으면 null', () => {
+  const u16 = (s) => Buffer.from(s, 'utf16le')
+  // 홀수 자리에 있어도 찾아야 한다(#US 힙의 길이 바이트 때문에 자리가 맞지 않는다)
+  const built = Buffer.concat([Buffer.from([0x4d, 0x5a, 0x01]), u16(HIDDEN_SWITCH), Buffer.from([0x00])])
+  assert.equal(launcherKnowsHidden('x', () => built), true)
+  assert.equal(launcherKnowsHidden('x', () => Buffer.concat([u16('start.ps1'), u16('-Install')])), false)
+  assert.equal(launcherKnowsHidden('x', () => Buffer.from(HIDDEN_SWITCH, 'latin1')), false, 'ASCII 로 든 것은 C# 상수가 아니다')
+  assert.equal(launcherKnowsHidden('x', () => { throw new Error('EBUSY') }), null)
 })
 
 test('node — 낡으면 안 됨, 새 창의 PATH 에 없으면 주의, PATH 를 못 읽으면 모름', () => {
@@ -181,7 +228,7 @@ test('판정에 쓴 값의 나이를 싣는다 — 모르면 null 이다(0초 «
 
 const broken = () => {
   const x = good()
-  x.exe = { runhidden: false, start: false, csc: true }
+  x.exe = { start: false, hidden: null, csc: true }
   x.tasks = { heartbeat: task({ registered: false }), UI: task({ registered: false }), tray: task({ registered: false }), restart: task({ registered: false }) }
   x.pc = { read: true, level: 'crit', fixable: ['standbyAc'], items: [{ key: 'standbyAc', name: '절전', level: 'crit', current: '5분 뒤', why: 'x' }] }
   return readyVerdict(x)

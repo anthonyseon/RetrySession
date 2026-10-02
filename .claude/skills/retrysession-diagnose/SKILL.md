@@ -1,6 +1,6 @@
 ---
 name: retrysession-diagnose
-description: RetrySession 이 예상대로 동작하지 않을 때의 진단 절차. 새 PC 에서 처음 띄우거나 start.exe 를 눌러도 아무 일도 없거나, 화면의 «이 PC 에서 돌 수 있나» 가 안 됨·모름이거나 방금 바꾼 것이 반영되지 않거나, 감시 기록이 안 남거나, 재시작이 안 돌거나, 회차가 timeout·$0 으로 끝나거나, 회로 차단이 안 풀리거나, 사용량 패널의 퍼센트가 이상하거나, 추적기 숫자가 며칠째 그대로거나, 화면·트레이가 안 뜨거나, 세션이 목록에 안 보이거나, 콘솔 창이 뜨거나, 예약 작업이 실패로 남을 때 사용한다. 증상마다 원인이 갈리는 지점과 그것을 가르는 명령을 담았다.
+description: RetrySession 이 예상대로 동작하지 않을 때의 진단 절차. 새 PC 에서 처음 띄우거나 start.bat 을 눌러도 아무 일도 없거나, stop.bat·종료 뒤에도 무엇이 남거나, 화면의 «이 PC 에서 돌 수 있나» 가 안 됨·모름이거나 방금 바꾼 것이 반영되지 않거나, 감시 기록이 안 남거나, 재시작이 안 돌거나, 회차가 timeout·$0 으로 끝나거나, 회로 차단이 안 풀리거나, 사용량 패널의 퍼센트가 이상하거나, 추적기 숫자가 며칠째 그대로거나, 화면·트레이가 안 뜨거나, 세션이 목록에 안 보이거나, 콘솔 창이 뜨거나, 예약 작업이 실패로 남을 때 사용한다. 증상마다 원인이 갈리는 지점과 그것을 가르는 명령을 담았다.
 ---
 
 # RetrySession 이 안 돌 때
@@ -40,7 +40,11 @@ node · 실행 파일 · 예약 넷 · 전원 · Claude 로그인 · 설정 경�
 5분. 머리줄에 «읽은 값: 예약 N초 전 · 전원 N초 전» 이 적혀 있고, `다시 확인` 이 지금 다시 읽어
 «바뀐 것» 을 말한다(서버를 막지 않는다 — 실측 8.5초 동안 /api/ping 최대 1.28초).
 
-## 증상 0 — 새 PC 에서 처음 띄운다 · `start.exe` 를 눌러도 아무 일도 없다
+## 증상 0 — 새 PC 에서 처음 띄운다 · 눌러도 아무 일도 없다 · 종료 뒤에 무엇이 남는다
+
+**먼저 `start.bat` 으로 띄워라**(2026-10-02~) — 실패하면 그 창이 멈춰 이유를 보여준다(`start.exe` 더블클릭은 숨겨
+띄워 아무도 못 본다 — 아래 첫 줄). `stop.bat` · 창/트레이 `종료` 뒤에 남은 것은 `scripts/stop-all.ps1` 이 세어
+말하고 `state/stop.log` 에 남긴다. 종료는 예약을 **꺼 둔다** — `-Status` 에 `Disabled` 면 고장이 아니라 종료다(`start.bat`).
 
 실측(2026-10-01): 다른 PC 의 폴더를 통째로 복사해 온 PC 에서 겪은 것들이다. 하나씩 가른다.
 
@@ -299,11 +303,11 @@ Get-CimInstance Win32_Process -Filter "Name='claude.exe'" |
 (그건 작업 스케줄러 목록에서 작업을 숨기는 옵션이다).
 
 ```powershell
-# action 확인 — runhidden.exe 를 거쳐야 한다
-(Get-ScheduledTask -TaskName 'EasyAI-RetrySession-UI').Actions[0].Execute
+# action 확인 — start.exe 를 거치고 인자가 --hidden 으로 시작해야 한다
+(Get-ScheduledTask -TaskName 'EasyAI-RetrySession-UI').Actions[0] | Select-Object Execute, Arguments
 
 # 고치기
-.\scripts\build-exe.ps1      # runhidden.exe 가 없으면 만든다
+.\scripts\build-exe.ps1      # start.exe 가 없거나 --hidden 을 모르는 예전 빌드면 다시 만든다
 .\scripts\register-ui.ps1    # 감시·재시작도 같은 방식으로 재등록
 ```
 

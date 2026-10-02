@@ -1,9 +1,13 @@
-// Launcher.cs - source for start.exe, the double-clickable entry point.
+// Launcher.cs - source for start.exe, the ONLY executable: the double-clickable
+// entry point, and (with --hidden) the windowless launcher the scheduled tasks use.
 //
 // Why an .exe at all
 //   Double-clicking a .ps1 opens it in an editor, it does not run. A .bat/.cmd
-//   would run it but flashes a console window, and cmd.exe is excluded here on
-//   purpose. So we ship a tiny native launcher instead.
+//   runs it but through a console window. Since 2026-10-02 a person DOES use
+//   start.bat / stop.bat (user request: two plain files in git that work right
+//   after a clone, and whose console shows progress and errors). But nothing
+//   long-lived may sit under cmd.exe, and the scheduled tasks need a launcher
+//   that never creates a console at all - that is this exe (see --hidden below).
 //
 // Why it is built from source instead of committed as a binary
 //   Built with csc.exe, which ships with Windows (.NET Framework 4.x) - no
@@ -16,7 +20,17 @@
 // Behaviour
 //   start.exe                -> runs start.ps1 hidden; the app window appears
 //   start.exe -Install ...   -> shows the PowerShell window so output is readable
-//   Every argument is forwarded to start.ps1 unchanged.
+//   start.exe --hidden <program> [args...]
+//                            -> start a console program with NO window, wait for it,
+//                               and return its exit code (see RunHidden below)
+//   Every other argument is forwarded to start.ps1 unchanged.
+//
+// Why one executable (user request 2026-10-02)
+//   There used to be two: start.exe (for people) and runhidden.exe (for the
+//   scheduled tasks). People asked which one is "the" program. Both are tiny
+//   windowless launchers built from the same toolchain, so the second became a
+//   mode of the first. The --hidden switch is double-dashed on purpose: start.ps1
+//   only takes single-dash parameters, so it can never be forwarded by accident.
 
 using System;
 using System.Diagnostics;
@@ -39,8 +53,19 @@ internal static class Launcher
 
     private const int ATTACH_PARENT_PROCESS = -1;
 
+    // 🔴 scripts/launcher-lib.ps1 and src/lib/ready.mjs look for this exact text
+    //   inside the built exe to tell a current build from an old one (an old
+    //   start.exe would forward "--hidden node.exe ..." to start.ps1 and fail on
+    //   every run, silently - the task has no window). test/ascii.test.mjs ties
+    //   the three together.
+    private const string HiddenSwitch = "--hidden";
+
     private static int Main(string[] rawArgs)
     {
+        // 🔴 Before AttachConsole: the hidden mode must behave exactly like the
+        //   old runhidden.exe - no console of its own, nothing attached.
+        if (rawArgs.Length > 0 && rawArgs[0] == HiddenSwitch) return RunHidden(rawArgs);
+
         bool haveConsole = AttachConsole(ATTACH_PARENT_PROCESS);
         string exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
         string script = Path.Combine(exeDir, "start.ps1");
@@ -182,6 +207,96 @@ internal static class Launcher
             return a;   // a parameter name - pass it through untouched
         }
         return "'" + a.Replace("'", "''") + "'";
+    }
+
+    // ---- --hidden: start a console program with no window --------------------
+    //
+    // Why this exists (measured)
+    //   A scheduled task whose action is node.exe gets a real console window under
+    //   an interactive logon. The task's own `-Hidden` setting does NOT help - that
+    //   flag hides the TASK in the Task Scheduler list, not the process window.
+    //   Measured: the UI server (pid 46100) had a conhost.exe child, which is the
+    //   window the user kept seeing. The 5-minute monitor flashed one every 5
+    //   minutes too. `-WindowStyle Hidden` does not help either: the console is
+    //   allocated before PowerShell runs, and on Windows 11 the default console
+    //   host is Windows Terminal, whose window that flag does not control
+    //   (measured 2026-09-21: the tray showed one all day).
+    //
+    //   This process has no console of its own (/target:winexe), and it starts the
+    //   child with CREATE_NO_WINDOW, so neither process ever shows one.
+    //
+    // It WAITS for the child and returns its exit code, so Task Scheduler still
+    // shows the task as Running while a server runs, and still records a real
+    // failure code.
+    //
+    //   start.exe --hidden <program> [args...]      (no cmd.exe involved)
+    //
+    // The working directory is inherited from the caller (the task definition
+    // sets it), as before.
+    private static int RunHidden(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            Fail("실행할 프로그램을 지정하지 않았습니다.\n\n사용법:\n  start.exe " + HiddenSwitch + " <program> [args...]");
+            return 2;
+        }
+
+        string program = args[1];
+        if (!File.Exists(program))
+        {
+            Fail("실행할 프로그램을 찾을 수 없습니다.\n\n" + program);
+            return 3;
+        }
+
+        var sb = new StringBuilder();
+        for (int i = 2; i < args.Length; i++)
+        {
+            if (sb.Length > 0) sb.Append(' ');
+            sb.Append(QuoteForWindows(args[i]));
+        }
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = program,
+            Arguments = sb.ToString(),
+            WorkingDirectory = Directory.GetCurrentDirectory(),
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+        };
+
+        try
+        {
+            using (Process p = Process.Start(psi))
+            {
+                p.WaitForExit();
+                return p.ExitCode;
+            }
+        }
+        catch (Exception ex)
+        {
+            Fail("실행에 실패했습니다.\n\n" + program + "\n\n" + ex.Message);
+            return 1;
+        }
+    }
+
+    // Standard Windows argument quoting: wrap when the value has whitespace or a
+    // quote, and double up the backslashes that precede a quote.
+    private static string QuoteForWindows(string a)
+    {
+        if (a.Length > 0 && a.IndexOfAny(new[] { ' ', '\t', '"' }) < 0) return a;
+
+        var sb = new StringBuilder("\"");
+        int slashes = 0;
+        foreach (char c in a)
+        {
+            if (c == '\\') { slashes++; continue; }
+            if (c == '"') { sb.Append('\\', slashes * 2 + 1).Append('"'); }
+            else { sb.Append('\\', slashes).Append(c); }
+            slashes = 0;
+        }
+        sb.Append('\\', slashes * 2).Append('"');
+        return sb.ToString();
     }
 
     // A GUI app has nowhere to print, so failures must be a dialog. Silence

@@ -31,6 +31,8 @@ const S = {
   tab: 'now', auto: true, lastOkAt: 0, error: null, onlyRegistered: false, lastDetailKey: null,
   // 값을 못 읽은 것(오류)과 그리다 죽은 것(그리기오류)은 다른 고장이다
   drawError: null,
+  // «종료» 를 눌러 사람이 멈췄다(quit.js) — 그 뒤 서버가 없는 것은 고장이 아니다. 폴링을 멈추고 이 문장을 보인다
+  stopped: null,
 }
 
 
