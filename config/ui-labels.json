@@ -1,0 +1,29 @@
+{
+  "_note": "트레이 아이콘의 한글 문구. scripts/tray.ps1 은 ASCII 여야 하므로(PowerShell 5.1 이 ANSI 로 읽는다) 문구를 이 파일에서 UTF-8 로 읽어 쓴다. 여기를 고치면 트레이 문구가 바뀐다.",
+  "_keyRule": "🔴 키는 반드시 ASCII 다 — tray.ps1 이 키 이름을 코드에 적기 때문이다. 값만 한글이다.",
+  "_noAlertText": "알림 문구는 두지 않는다. 트레이는 풍선 알림을 띄우지 않으므로(ShowBalloonTip 금지 — 너무 잦아 진짜 경고가 묻힌다) 쓸 자리가 없다. 알림은 상태 창에서 본다. 실측: 풍선을 걷어낸 뒤에도 alert.* 문구 8개가 남아 있어 알림이 살아 있는 것처럼 보였다.",
+  "app": "RetrySession",
+  "menu": {
+    "open": "상태 창 열기",
+    "runMonitor": "지금 감시 실행",
+    "tasks": "예약 작업 상태 보기",
+    "quit": "트레이 종료"
+  },
+  "status": {
+    "ok": "감시 정상",
+    "stalled": "감시 끊김",
+    "none": "감시 대상 없음",
+    "down": "상태 서버 응답 없음",
+    "blocked": "재시작 회로 차단됨",
+    "limited": "사용량 제한 중",
+    "alerts": "알림",
+    "slow": "상태 응답 느림",
+    "unknown": "실행 여부 확인 불가",
+    "error": "상태 서버 오류"
+  },
+  "tip": {
+    "sessions": "세션",
+    "watch": "감시",
+    "resume": "재시작"
+  }
+}

@@ -1,0 +1,88 @@
+/**
+ * theme.css — **색만.** 배치·구성요소는 app.css 에 있다.
+ *
+ * 🔴 색은 눈금이 아니라 **측정**으로 정했다 (CIE L*, 2026-09-28).
+ *   사람이 "기능의 구분이 어렵다"고 한 자리를 재 보니 인접한 면이 ΔL* 4 안쪽이었다.
+ *   지금은 두 테마 모두 인접한 면이 **ΔL* 6 이상**이고, 그 면 위의 작은 글씨는
+ *   전부 **4.5:1** 을 넘는다. `test/theme.test.mjs` 가 그 둘을 지킨다.
+ *
+ * 🔴 ΔL* 로 재는 이유 — WCAG 대비율은 어두운 쪽에서 체감과 어긋난다. 예전 어두운
+ *   테마의 "머리줄 vs 패널" 비율은 1.09 로 밝은 테마(1.10)와 거의 같았는데도 눈에는
+ *   뭉개졌다. L* 는 지각적으로 균일해서 같은 ΔL* 가 어디서나 같은 정도로 보인다.
+ *
+ * 🔴 색조는 건드리지 않았다. 따뜻한 중성 회색 + 같은 파랑/초록/빨강 계열이고,
+ *   새 색을 들이지 않았다. "구분은 되지만 튀지 않게" 가 목표다.
+ *
+ * 세 가지 층으로 읽으면 된다:
+ *   면(plane → surface → surface-2 → grid → base)  — 아래에서 위로 밝아진다
+ *   글자(ink → ink-2 → muted)                      — 진한 것에서 흐린 것으로
+ *   뜻(accent · good · warn · serious · crit)       — 반드시 아이콘+라벨과 함께
+ */
+:root{
+  color-scheme: light;
+
+  /* ── 면: 아래에서 위로 ── (L* 89.5 → 93.0 → 96.1 → 98.9) */
+  --plane:#e1e1df;          /* L*89.5  바닥 — 패널이 떠 보이게 살짝 회색 */
+  --surface-2:#ebebe8;      /* L*93.0  머리줄·동작줄·칩·단추면 (패널에서 ΔL* 5.9) */
+  --surface-hover:#f4f4f2;  /* L*96.1  줄에 마우스를 올렸을 때 */
+  --surface:#fcfcfa;        /* L*98.9  패널 본문 (바닥에서 ΔL* 9.4) */
+  --grid:#d2d2ce;           /* L*84.1  경계선 (패널 14.8 · 머리줄 8.9) */
+  --base:#bcbcb8;           /* L*76.1  진한 선·단추 hover 테두리 */
+  --ring:rgba(11,11,11,.14);/* 칩·단추의 얇은 테두리 */
+
+  /* ── 글자 ── (칩 위에서 재서 전부 4.5:1 이상) */
+  --ink:#0b0b0b;            /* 16.48:1 */
+  --ink-2:#4e4d4a;          /*  7.08:1 */
+  --muted:#6b6965;          /*  4.59:1  🔴 예전 #898781 은 3.50 으로 AA 미달이었다 */
+
+  /* ── 뜻 ── 아이콘·채움은 진한 쪽, **글자는 -ink 쪽**을 쓴다 */
+  --accent:#2a78d6;         /* 도형(계량기·초점선·선택 표시) — 칩 위 3.70:1 */
+  --accent-solid:#2976d2;   /* primary 단추 채움 — 흰 글자 4.55:1 (--accent 는 4.42 로 미달) */
+  --accent-track:#cde2fb;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+  --good-ink:#006300;       /* 칩 위 6.31:1 */
+  --crit-ink:#c13737;       /* 칩 위 4.54:1  (--crit #d03b3b 은 4.06 으로 아슬아슬하다) */
+
+  /* ── 어두운 테마의 값은 **여기 한 번만** 적는다 ──
+     🔴 예전에는 [data-theme="dark"] 와 prefers-color-scheme 블록에 **두 벌** 있었다.
+       한쪽만 고치면 토글로 들어온 사람과 시스템 설정으로 들어온 사람이 다른 화면을
+       보는데 아무도 경고하지 않는다. 값은 하나, 아래 두 블록은 **연결만** 한다. */
+  --d-plane:#0d0d0c;          /* L* 3.6 */
+  --d-surface:#1e1e1d;        /* L*11.2  바닥에서 ΔL* 7.6 */
+  --d-surface-hover:#252524;  /* L*14.6 */
+  --d-surface-2:#2c2c2b;      /* L*18.0  패널에서 ΔL* 6.7 (예전 4.0) */
+  --d-grid:#3d3d3b;           /* L*25.7  패널 14.5 · 머리줄 7.7 (예전 4.7) */
+  --d-base:#4e4e4b;           /* L*33.1 */
+  --d-ring:rgba(255,255,255,.14);
+  --d-ink:#fff;               /* 13.98:1 */
+  --d-ink-2:#c3c2b7;          /*  7.80:1 */
+  --d-muted:#95938c;          /*  4.55:1  🔴 예전 #898781 은 3.89 로 AA 미달이었다 */
+  --d-accent:#3987e5;         /* 도형 — 칩 위 3.84:1 */
+  --d-accent-solid:#3277ca;   /* primary 단추 — 흰 글자 4.54:1 (--d-accent 는 3.64) */
+  --d-accent-track:#184f95;
+  --d-good-ink:#0daa0d;       /*  4.51:1 */
+  --d-crit-ink:#f66060;       /*  4.50:1  (--crit #d03b3b 은 2.91 — 글자로 안 읽힌다) */
+}
+
+/* 토글로 고른 어두운 테마. 아래 미디어쿼리 블록과 **같은 줄이어야** 한다 */
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:var(--d-plane); --surface:var(--d-surface); --surface-2:var(--d-surface-2);
+  --surface-hover:var(--d-surface-hover);
+  --grid:var(--d-grid); --base:var(--d-base); --ring:var(--d-ring);
+  --ink:var(--d-ink); --ink-2:var(--d-ink-2); --muted:var(--d-muted);
+  --accent:var(--d-accent); --accent-solid:var(--d-accent-solid); --accent-track:var(--d-accent-track);
+  --good-ink:var(--d-good-ink); --crit-ink:var(--d-crit-ink);
+}
+/* 시스템이 어두운 테마일 때 (사람이 밝게를 고르지 않았다면) */
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --plane:var(--d-plane); --surface:var(--d-surface); --surface-2:var(--d-surface-2);
+    --surface-hover:var(--d-surface-hover);
+    --grid:var(--d-grid); --base:var(--d-base); --ring:var(--d-ring);
+    --ink:var(--d-ink); --ink-2:var(--d-ink-2); --muted:var(--d-muted);
+    --accent:var(--d-accent); --accent-solid:var(--d-accent-solid); --accent-track:var(--d-accent-track);
+    --good-ink:var(--d-good-ink); --crit-ink:var(--d-crit-ink);
+  }
+}

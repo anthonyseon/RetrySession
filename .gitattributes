@@ -1,0 +1,13 @@
+# 줄바꿈을 명시한다 — 플랫폼마다 달라지면 ASCII 시험과 .ps1 실행이 흔들린다.
+
+* text=auto eol=lf
+
+# PowerShell 은 CRLF 를 선호한다. (CR 은 ASCII 이므로 ASCII 시험에는 영향 없다)
+*.ps1 text eol=crlf
+
+# JSON 상태·설정은 Node 가 읽고 쓴다 — LF 로 고정
+*.json text eol=lf
+*.mjs  text eol=lf
+*.js   text eol=lf
+*.md   text eol=lf
+*.html text eol=lf

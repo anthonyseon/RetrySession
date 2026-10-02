@@ -1,0 +1,378 @@
+/**
+ * setup.js — '설정' 단추가 여는 PC 설정 모달.
+ *
+ * 왜 자기 창을 주는가
+ *   여기서 하는 일은 **남의 PC 전원 설정을 바꾸는 것**이다. 요약에 단추만 곁들이면
+ *   무엇을 바꾸는지·되돌릴 수 있는지가 한눈에 안 보이고, 그러면 사람은 누르지
+ *   못하거나 모르고 누른다. 둘 다 나쁘다.
+ *
+ * 🔴 자동과 수동을 **한 화면에** 둔다.
+ *   자동으로 고칠 수 있는 것과 손으로 해야 하는 것이 섞여 있다(이 PC 는 덮개
+ *   항목이 전원 구성에 아예 없어 영원히 '모름'이다). 자동만 보여주면 남은 것을
+ *   놓치고, 수동만 보여주면 할 수 있는 걸 안 한다.
+ *
+ * 🔴 권장값 적용만으로는 **설정 화면이 아니다.**
+ *   실측 (2026-09-22): 이 PC 는 이미 권장값이라 `고칠것`이 0 이었고, 그래서
+ *   [자동 설정] 단추조차 나오지 않았다 — 설정 창을 열면 읽기 전용이었다.
+ *   그래서 항목마다 직접 고르는 칸을 둔다.
+ *
+ * 🔴 규칙은 여기 없다. 백업 먼저·배터리 제외·바꾼 뒤 재확인은 전부 src/pc.mjs 에
+ *   있고 서버가 그것을 부른다. 화면이 따로 구현하면 안전장치를 건너뛰는
+ *   두 번째 경로가 생긴다.
+ */
+'use strict'
+import { $, el, S, badge, actions } from './common.js'
+
+const color = { crit: 'crit', warn: 'warn', unknown: 'off', info: 'off', ok: 'good' }
+const table = { crit: '▲', warn: '▲', unknown: '?', info: 'ℹ', ok: '●' }
+
+/** 모달이 열려 있나 — 열려 있을 때만 다시 그린다 */
+export const isSettingsOpen = () => !$('#setupWrap').classList.contains('hide')
+
+/**
+ * 🔴 사람이 고르던 값은 **다시 그려도 잃지 않는다.**
+ *   화면은 3초마다 상태를 다시 읽고 모달까지 다시 그린다. 그대로 두면 드롭다운을
+ *   고르는 중에 선택이 되돌려진다 — 목록 스크롤·체크박스에서 이미 당한 부류다.
+ *   그래서 (1) 고른 값을 여기 담아 두고, (2) 내용이 그대로면 아예 다시 그리지 않는다.
+ */
+const chosen = new Map()
+let drawnPrint = null
+let applyBtn = null
+
+/** 적용이 끝났으면 고르던 것을 비운다 (현재 값이 곧 그 값이 된다) */
+export const clearChosen = () => { chosen.clear(); drawnPrint = null }
+
+export function openSettings() {
+  $('#setupWrap').classList.remove('hide')
+  $('#btnSetup').setAttribute('aria-expanded', 'true')
+  clearChosen()
+  drawSettings({ force: true })
+}
+
+export function closeSettings() {
+  $('#setupWrap').classList.add('hide')
+  $('#btnSetup').setAttribute('aria-expanded', 'false')
+}
+
+/** 그려야 할 내용의 지문 — 이게 같으면 다시 그릴 이유가 없다 */
+const fingerprint = (pc) => JSON.stringify([
+  pc.level, pc.fixable, pc.backup?.exists, pc.backup?.at, (pc.guide || []).length,
+  (pc.items || []).map((x) => [x.key, x.level, x.current, x.raw]),
+])
+
+/**
+ * 이 값을 고르면 **감시가 멎을 수 있나.** 순수 함수.
+ *
+ * 확인 창에 "무슨 일이 일어나는지"를 적기 위해 있다. 이 도구의 전부는 예약 작업이고
+ * 잠든 PC 는 예약 작업을 돌리지 않는다 — 사람이 그걸 모르고 고르면 감시가 조용히 멎는다.
+ * 0('안 함')만 안전하다.
+ */
+export function mayStopWatching(key, value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n === 0) return ''
+  if (key === 'standbyAc') return '전원이 연결돼 있어도 PC 가 잠들어 그때부터 감시가 멎습니다'
+  if (key === 'hibernateAc') return '전원이 연결돼 있어도 최대 절전에 들어 그때부터 감시가 멎습니다'
+  if (key === 'standbyDc' || key === 'hibernateDc') return '배터리로 쓸 때 잠들어 감시가 멎습니다 (배터리를 아끼려면 이게 맞습니다)'
+  if (key === 'lidAc' || key === 'lidDc') return '덮개를 닫으면 감시가 멎습니다'
+  return ''
+}
+
+const chosenLabel = (sel) => {
+  for (const op of sel.children || []) {
+    if (String(op.value) === String(sel.value)) return op.textContent
+  }
+  return String(sel.value)
+}
+
+/**
+ * 화면에서 고른 값 중 **실제로 바뀐 것만** 모은다.
+ *
+ * 🔴 손대지 않은 항목은 보내지 않는다. 화면에 보이는 값 전부를 보내면 우리가 고르지도
+ *   않은 배터리 설정까지 매번 덮어쓰게 되고, 그건 사람이 시킨 일이 아니다.
+ */
+export function chosenValues() {
+  const values = {}
+  const changed = []
+  const body = $('#setupBody')
+  for (const sel of body.querySelectorAll('select.pcsel')) {
+    const key = sel.dataset?.key
+    const after = sel.value
+    if (!key || after === '' || after === null || after === undefined) continue
+    if (String(sel.dataset.was) === String(after)) continue
+    values[key] = Number(after)
+    changed.push({
+      key, name: sel.dataset.nm || key,
+      prev: sel.dataset.wasTx || sel.dataset.was,
+      after: chosenLabel(sel),
+      warnText: mayStopWatching(key, after),
+    })
+  }
+  return { values, changed }
+}
+
+/**
+ * 🔴 직접 고르는 칸.
+ *
+ *   배터리 항목도 고를 수 있다 — **사람이 직접 고를 때만.** 우리가 알아서 배터리
+ *   절전을 끄는 것은 월권이지만, 알고 고르는 것은 선택이다. (자동 적용은 여전히 AC 만)
+ *
+ * @returns {boolean} 칸을 만들었나
+ */
+function renderSelect(r, pc, x) {
+  const kind = pc.editableKeys?.[x.key]
+  const view = kind ? pc.choices?.[kind] : null
+  if (!view) return false
+
+  /**
+   * 🔴 값을 못 읽은 항목에는 칸을 주지 않는다.
+   *   실측 (2026-09-22): 이 PC 의 전원 구성에는 덮개 항목이 없는데도
+   *   `powercfg /setacvalueindex ... LIDACTION 0` 은 **성공을 돌려준다**
+   *   (다시 읽으면 그대로 null). 고를 수 있게 해 두면 사람은 고르고, 바뀌었다고
+   *   믿고, 실제로는 안 바뀐다. 모를 때는 손으로 하라고 말하는 것이 맞다.
+   */
+  if (!Number.isFinite(x.raw)) return false
+
+  const sel = el('select', 'pcsel')
+  sel.id = `pcsel-${x.key}`
+  sel.dataset.key = x.key
+  sel.dataset.was = String(x.raw)
+  sel.dataset.nm = x.name
+  sel.dataset.wasTx = String(x.current)
+
+  const wantValue = chosen.has(x.key) ? String(chosen.get(x.key)) : String(x.raw)
+  let matched = false
+  for (const o of view) {
+    const op = el('option', null, o.label)
+    op.value = String(o.value)
+    sel.append(op)
+    if (String(o.value) === wantValue) { op.selected = true; matched = true }
+  }
+  /**
+   * 보기에 없는 값(20분처럼 어중간한 값, OEM 이 쓰는 2147483647 등)도 **그대로** 보여준다.
+   * 없는 값을 첫 보기로 대신 표시하면 화면이 거짓말을 한다 — 사람은 '안 함'으로
+   * 돼 있다고 믿고 창을 닫는다.
+   */
+  if (!matched) {
+    const op = el('option', null, `${x.current} (현재 값)`)
+    op.value = wantValue
+    op.selected = true
+    sel.append(op)
+  }
+  sel.value = wantValue
+  sel.addEventListener('change', () => {
+    chosen.set(x.key, sel.value)
+    updateApplyButton()
+  })
+
+  const cell = el('div', 'ed')
+  const lb = el('label', 'edl', '바꾸기')
+  lb.setAttribute('for', sel.id)
+  cell.append(lb, sel)
+  r.append(cell)
+  return true
+}
+
+/**
+ * 적용 단추의 글자·활성 상태를 고른 개수에 맞춘다.
+ * 🔴 모달을 다시 그리지 않고 이것만 고친다 — 다시 그리면 고르던 칸이 닫힌다.
+ */
+function updateApplyButton() {
+  if (!applyBtn) return
+  const n = chosenValues().changed.length
+  applyBtn.textContent = n ? `고른 값 적용 (${n}개)` : '고른 값 적용'
+  applyBtn.disabled = n === 0
+  applyBtn.className = n ? 'sm primary' : 'sm'
+  applyBtn.title = n
+    ? '고른 값만 바꿉니다. 바꾸기 전 값을 저장하고, 바꾼 뒤 다시 읽어 확인합니다.'
+    : '바꿀 값을 먼저 고르세요 — 손대지 않은 항목은 보내지 않습니다.'
+}
+
+/**
+ * 모달 내용. 상태를 새로 받을 때마다 호출되지만, 내용이 같으면 그냥 돌아간다.
+ * @param force 창을 새로 열 때처럼 무조건 다시 그려야 할 때
+ */
+export function drawSettings({ force = false } = {}) {
+  if (!isSettingsOpen()) return
+  const pc = S.state?.pc
+  const body = $('#setupBody')
+  const foot = $('#setupFoot')
+
+  if (!pc || !Array.isArray(pc.items)) {
+    body.textContent = ''; foot.textContent = ''; applyBtn = null; drawnPrint = null
+    body.append(el('div', 'empty', '아직 PC 설정을 읽지 못했습니다. 잠시 뒤 다시 열어 주세요.'))
+    return
+  }
+
+  const thisPrint = fingerprint(pc)
+  if (!force && thisPrint === drawnPrint) return
+  drawnPrint = thisPrint
+  body.textContent = ''; foot.textContent = ''; applyBtn = null
+
+  /* ── 왜 이걸 보는지 한 줄 ── */
+  const head = el('div', 'note')
+  head.textContent = '잠든 PC 는 예약 작업을 돌리지 않습니다 — 감시도 재개도 그때 멎습니다. '
+    + '자동 설정은 전원이 연결된 상태만 바꾸고, 배터리는 직접 고를 때만 바꿉니다.'
+  body.append(head)
+
+  /* ── 항목별 현재/권장/고르기 ── */
+  let cellCount = 0
+  for (const x of pc.items) {
+    const r = el('div', 'srow2')
+    r.append(el('div', 'nm', x.name))
+    const st = el('div', 'st')
+    st.append(badge(color[x.level] || 'off', table[x.level] || '●', String(x.current)))
+    r.append(st)
+    if (x.why) r.append(el('div', 'wh', x.why))
+
+    /**
+     * 🔴 "자동으로는 못 바꿉니다"를 **아무 줄에나 붙이지 않는다.**
+     *   처음에 그렇게 했더니 이미 정상인 줄에도 그 문구가 붙어, 고칠 게 없다는
+     *   뜻이 "이건 자동으로 못 고친다"는 능력 문제처럼 읽혔다(실측: 다섯 줄 전부).
+     *   문제가 있을 때만 고칠 수 있는지 없는지를 말한다.
+     */
+    const trouble = x.level !== 'ok' && x.level !== 'info'
+    const tail2 = !trouble ? ''
+      : x.canFix ? ' · 자동으로 바꿀 수 있습니다'
+        : ' · 자동으로는 못 바꿉니다 — 아래 수동 방법을 보세요'
+    r.append(el('div', 'rec', `권장: ${x.recommended}${tail2}`))
+
+    if (renderSelect(r, pc, x)) cellCount += 1
+    body.append(r)
+  }
+
+  /* ── 보관된 이전 값 — 되돌릴 수 있다는 것을 보여준다 ── */
+  const backup = pc.backup || {}
+  const b = el('div', 'srow2')
+  b.append(el('div', 'nm', '이전 값 보관'))
+  const bst = el('div', 'st')
+  bst.append(backup.exists ? badge('good', '▤', '보관됨')
+    : backup.error ? badge('warn', '▲', '파일 손상') : badge('off', '○', '아직 없음'))
+  b.append(bst)
+  b.append(el('div', 'wh', backup.exists
+    ? `${backup.at} 에 ${(backup.changedKeys || []).join(', ') || '설정'} 을 바꾸기 전 값을 저장했습니다. '되돌리기'로 복구합니다.`
+    : backup.error
+      ? backup.error
+      : '설정을 바꾸면 바꾸기 전 값을 먼저 저장합니다. 저장에 실패하면 바꾸지 않습니다.'))
+  body.append(b)
+
+  /* ── 수동 설정 방법 (자동으로 못 바꾸는 것) ── */
+  const needsManual = pc.items.some((x) => x.level !== 'ok' && x.level !== 'info' && !x.canFix)
+  const guide = Array.isArray(pc.guide) ? pc.guide : []
+  if (guide.length) {
+    const d = el('details')
+    const sm = el('summary', null, needsManual
+      ? '수동 설정 방법 — 자동으로 못 바꾸는 항목이 있습니다'
+      : '수동 설정 방법 (직접 바꾸려면)')
+    sm.style.cursor = 'pointer'
+    sm.style.fontSize = '12.5px'
+    d.append(sm, el('pre', 'manual', guide.join('\n')))
+    if (needsManual) d.open = true     // 할 일이 있으면 펼쳐서 보여준다
+    body.append(d)
+  }
+
+  /* ── 바닥 단추 ── */
+  if (cellCount) {
+    applyBtn = el('button', 'sm', '고른 값 적용')
+    applyBtn.type = 'button'
+    applyBtn.dataset.pc = 'set'
+    foot.append(applyBtn)
+    updateApplyButton()
+  }
+  const fixCount = (pc.fixable || []).length
+  if (fixCount) {
+    const a = el('button', 'sm primary', `권장값으로 (${fixCount}개)`)
+    a.type = 'button'
+    a.dataset.pc = 'apply'
+    a.title = '전원 연결 상태에서 잠들지 않게 합니다. 배터리는 건드리지 않고, 이전 값은 보관합니다.'
+    foot.append(a)
+  } else if (!cellCount) {
+    foot.append(el('span', 'note', pc.level === 'ok'
+      ? '자동으로 바꿀 것이 없습니다 — 이대로 계속 돌 수 있습니다.'
+      : '자동으로 바꿀 수 있는 항목이 없습니다. 위 수동 방법을 보세요.'))
+  }
+  if (backup.exists) {
+    const r = el('button', 'sm', '되돌리기')
+    r.type = 'button'
+    r.dataset.pc = 'restore'
+    r.title = `보관된 값으로 되돌립니다 (${backup.at || '시각 미상'})`
+    foot.append(r)
+  }
+  foot.append(el('span', 'spacer'))
+  const c = el('button', 'sm', '닫기')
+  c.type = 'button'
+  c.dataset.setup = 'close'
+  foot.append(c)
+}
+
+/**
+ * 🔴 바꾸는 길은 **모달과 같은 파일**에 둔다.
+ *   app.js 가 403줄이 되어 400줄 규칙을 넘겼고, 처음엔 pc-actions 라는 새 조각으로 뺐다 —
+ *   그런데 그 파일이 setup.js 를 import 해서 "조각끼리 엮지 않는다" 규칙을 깼다
+ *   (ui-modules 시험이 잡았다). 모달과 그 모달의 동작은 한 조각이다.
+ *
+ * 🔴 사건 배선(document click)은 app.js 에 남긴다. 이 파일은 **부작용이 없어야** 한다 —
+ *   하네스가 그 성질 위에 서 있다(가져와도 폴링·바인딩이 돌지 않는다).
+ */
+/**
+ * 🔴 남의 PC 설정을 바꾸는 일이라 반드시 확인을 받는다. 되돌릴 수 있다는 것도
+ *   함께 말한다 — 되돌릴 길을 모르면 사람은 누르지 못한다.
+ *   규칙(백업 먼저·배터리 제외·바꾼 뒤 재확인)은 서버가 src/pc.mjs 를 불러 지킨다.
+ */
+export async function pcAction(action) {
+  // 수동 안내는 모달에 접힌 채로 들어 있다 — 단추 하나로 열어준다
+  if (action === 'manual') { openSettings(); return }
+  if (action === 'set') { await pcApplyChosen(); return }
+
+  const question = action === 'apply'
+    ? [
+      'PC 전원 설정을 바꿉니다.',
+      '',
+      '· 전원이 연결된 상태에서 잠들지 않도록 합니다.',
+      '· 배터리 설정은 건드리지 않습니다 (배터리를 태우지 않기 위해).',
+      '· 바꾸기 전 값을 저장하므로 언제든 되돌릴 수 있습니다.',
+      '',
+      '계속할까요?',
+    ].join('\n')
+    : 'PC 전원 설정을 바꾸기 전 값으로 되돌립니다.\n\n계속할까요?'
+  if (!confirm(question)) return
+
+  const r = await actions.post('/api/pc', { action })
+  // 결과를 그대로 보여준다 — "바꿨다"만 말하고 실제로 안 바뀌면 그게 최악이다
+  if (r && r.output) alert(r.output)
+}
+
+/**
+ * 🔴 사람이 **직접 고른 값**을 보낸다 (권장값 적용과 다른 길이다).
+ *
+ *   무엇이 어떻게 바뀌는지 **줄 단위로** 적어 확인을 받는다 — "PC 설정을 바꿉니다"
+ *   같은 뭉뚱그린 물음은 읽히지 않고, 읽히지 않는 확인은 확인이 아니다.
+ *   고른 값이 감시를 멎게 할 수 있으면 그 사실을 함께 적는다. 이 도구의 전부는
+ *   예약 작업이고, 잠든 PC 는 예약 작업을 돌리지 않는다.
+ */
+async function pcApplyChosen() {
+  const { values, changed } = chosenValues()
+  if (!changed.length) {
+    alert('바꿀 값을 먼저 고르세요.\n\n손대지 않은 항목은 보내지 않습니다.')
+    return
+  }
+  const warnText = changed.filter((x) => x.warnText)
+  if (!confirm([
+    'PC 전원 설정을 바꿉니다.',
+    '',
+    ...changed.map((x) => `· ${x.name}: ${x.prev} → ${x.after}`),
+    ...(warnText.length ? ['', '⚠ 이 선택은 감시를 멎게 할 수 있습니다'] : []),
+    ...warnText.map((x) => `· ${x.name} — ${x.warnText}`),
+    '',
+    '바꾸기 전 값을 저장하므로 되돌릴 수 있습니다.',
+    '',
+    '계속할까요?',
+  ].join('\n'))) return
+
+  const r = await actions.post('/api/pc', { action: 'set', values })
+  // 고르던 값은 비운다 — 적용됐으면 그게 현재 값이고, 실패했으면 화면의 실제 값을 봐야 한다
+  clearChosen()
+  drawSettings({ force: true })
+  // 결과를 그대로 보여준다. powercfg 는 없는 항목에도 성공을 돌려주므로(실측)
+  // 서버가 바꾼 뒤 다시 읽어 대조한 결과를 사람이 봐야 한다.
+  if (r && r.output) alert(r.output)
+}

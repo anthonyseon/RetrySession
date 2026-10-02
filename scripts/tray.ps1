@@ -1,0 +1,370 @@
+# tray.ps1 - tray icon: watch status at a glance, open the window, get notified.
+#
+# ASCII ONLY (PowerShell 5.1 reads .ps1 as ANSI).
+#   Korean wording lives in config/ui-labels.json and is read as UTF-8 at
+#   runtime. That file's KEYS are ASCII on purpose, because this script names
+#   them in code. Never type Korean into this file.
+#   For the same reason this script reads /api/tray, not /api/status: the status
+#   payload has Korean property names, which this script could not reference.
+#
+# Why PowerShell + WinForms and not Electron
+#   Zero install. This tool has to come up when everything else is broken, so a
+#   tray that needs `npm install` first is a tray that is missing when needed.
+#
+# The icon is DRAWN at runtime (a filled circle in the status color), so there is
+# no .ico asset to keep in sync. Status is never carried by color alone - the
+# tooltip and the menu header always spell it out in words.
+#
+# No cmd.exe: every child process is started with Start-Process on an executable.
+
+param(
+  [int]$Port = 7345,
+  [int]$IntervalSeconds = 5
+)
+
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Net.Http
+
+# ---- win32: let an outside click dismiss the menu ------------------------
+# A NotifyIcon menu belongs to a process that is not the foreground window, so
+# Windows does not always send it the "you lost focus" message - the menu can
+# sit there after the user clicks elsewhere. Making our menu the foreground
+# window first is the documented fix (KB135788).
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public class RsTrayWin {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+}
+'@
+
+$Root    = Split-Path -Parent $PSScriptRoot
+$BaseUrl = "http://127.0.0.1:$Port"
+
+# ---- single instance ----------------------------------------------------
+# Held in a GLOBAL so nothing collects it. A Mutex released by the finalizer
+# would silently let a second tray start, and two icons reporting the same
+# thing is worse than one.
+$global:RSTrayMutex = New-Object System.Threading.Mutex($false, 'Global\EasyAI-RetrySession-Tray')
+if (-not $global:RSTrayMutex.WaitOne(0)) { exit 0 }   # already running
+
+# ---- leaf helpers (wording, status dot) ---------------------------------
+# Dot-sourced so it shares this scope. Kept out of this file to stay under the
+# 400 line rule without touching the polling state machine below.
+. (Join-Path $PSScriptRoot 'tray-lib.ps1')
+
+$AppName = Lbl 'app' 'RetrySession'
+
+# ---- helpers ------------------------------------------------------------
+$psExe = (Get-Process -Id $PID).Path   # the powershell.exe running this script
+
+# Opening the window must not flash a console of its own.
+#
+# `-WindowStyle Hidden` is a PowerShell HOST preference: the console is
+# allocated by Windows first, and on Windows 11 the default host is Windows
+# Terminal, whose window that preference does not control (measured - this is
+# what made the tray task itself show a window). Go through runhidden.exe,
+# which is /target:winexe and starts the child with CREATE_NO_WINDOW, so no
+# console is allocated at all.
+$runHidden = Join-Path $Root 'runhidden.exe'
+
+function Open-Window {
+  $open = Join-Path $Root 'scripts\open-app.ps1'
+  if (Test-Path $runHidden) {
+    Start-Process -FilePath $runHidden -ArgumentList @(
+      $psExe, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $open, '-NoWait'
+    )
+  } else {
+    Start-Process -FilePath $psExe -WindowStyle Hidden -ArgumentList @(
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+      '-File', $open, '-NoWait'
+    )
+  }
+}
+
+# ---- tray icon and menu -------------------------------------------------
+$icon = New-Object System.Windows.Forms.NotifyIcon
+$icon.Icon = Get-StatusIcon 'off'
+$icon.Text = "$AppName - ..."
+$icon.Visible = $true
+
+$menu = New-Object System.Windows.Forms.ContextMenuStrip
+
+# header row: the current state in words (never color alone)
+$hdr = New-Object System.Windows.Forms.ToolStripMenuItem
+$hdr.Enabled = $false
+$menu.Items.Add($hdr) | Out-Null
+$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+
+function Add-Item([string]$text, [scriptblock]$action) {
+  $i = New-Object System.Windows.Forms.ToolStripMenuItem
+  $i.Text = $text
+  $i.Add_Click($action)
+  $menu.Items.Add($i) | Out-Null
+}
+
+Add-Item (Lbl 'menu.open' 'Open window') { Open-Window }
+
+Add-Item (Lbl 'menu.runMonitor' 'Run monitor now') {
+  try {
+    Invoke-RestMethod -Uri "$BaseUrl/api/run" -Method Post -Body '{"kind":"heartbeat"}' `
+      -ContentType 'application/json' -TimeoutSec 10 | Out-Null
+  } catch {
+    # server down - go straight to the OS task instead
+    Start-ScheduledTask -TaskName 'EasyAI-RetrySession-Heartbeat' -ErrorAction SilentlyContinue
+  }
+}
+
+Add-Item (Lbl 'menu.tasks' 'Scheduled task status') { Start-Process -FilePath 'taskschd.msc' }
+
+$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+
+Add-Item (Lbl 'menu.quit' 'Quit tray') {
+  $icon.Visible = $false
+  [System.Windows.Forms.Application]::Exit()
+}
+
+$icon.ContextMenuStrip = $menu
+$icon.Add_MouseDoubleClick({ Open-Window })
+
+# ---- menu dismissal -----------------------------------------------------
+#
+# Two ways out of the menu, because a tray menu that will not go away is worse
+# than no menu - it sits on top of whatever the user is doing.
+#
+# 1. CLICK ELSEWHERE.
+#    AutoClose does this, but only if the menu is told it lost focus. A tray
+#    menu belongs to a process that is not in the foreground, so Windows may
+#    never send that message and the menu stays put. Making the menu the
+#    foreground window when it opens is the documented fix (KB135788).
+#
+# 2. WALK AWAY.
+#    If the user opens the menu and does nothing, it closes on its own.
+#    Hovering it counts as doing something, so it will not vanish while being
+#    read. Only idle time closes it.
+$MenuIdleSeconds = 8
+$script:menuIdleFrom = $null
+
+$menu.AutoClose = $true
+$menu.Add_Opened({
+  [RsTrayWin]::SetForegroundWindow($menu.Handle) | Out-Null
+  $script:menuIdleFrom = [DateTime]::UtcNow
+})
+$menu.Add_Closed({ $script:menuIdleFrom = $null })
+# Any pointer movement over the menu means the user is still with it.
+$menu.Add_MouseMove({ $script:menuIdleFrom = [DateTime]::UtcNow })
+$menu.Add_ItemClicked({ $script:menuIdleFrom = [DateTime]::UtcNow })
+
+# A short timer, and only while the menu is open. Checking idle time on the
+# 5-second status tick would make "8 seconds" mean anywhere from 8 to 13.
+$menuTimer = New-Object System.Windows.Forms.Timer
+$menuTimer.Interval = 500
+$menuTimer.Add_Tick({
+  if ($null -eq $script:menuIdleFrom) { return }
+  if (([DateTime]::UtcNow - $script:menuIdleFrom).TotalSeconds -ge $MenuIdleSeconds) {
+    $script:menuIdleFrom = $null
+    $menu.Close()
+  }
+})
+$menuTimer.Start()
+
+# ---- polling ------------------------------------------------------------
+#
+# IMPORTANT: NO BALLOON NOTIFICATIONS.
+#
+#   An earlier version raised a Windows balloon on every state change. In
+#   practice it fired far too often - a single server restart flips the state
+#   twice - and constant popups are how a real warning gets ignored. Worse, a
+#   balloon interrupts whatever the user is doing to say something they cannot
+#   act on from the popup anyway.
+#
+#   The tray now carries STATE ONLY: a coloured dot, a tooltip, and the menu
+#   header, all in words as well as colour. Alerts and their history live in
+#   the window (its alerts tab), which is where you can actually act on them.
+#   Do not add ShowBalloonTip back here.
+#
+# *** THE UI THREAD IS NEVER BLOCKED. *** (measured bug, 2026-09-21)
+#
+#   This used to call `Invoke-RestMethod` straight from the timer tick. A
+#   WinForms timer ticks ON THE UI THREAD, so for as long as that request was in
+#   flight the thread could not pump messages - and an open context menu is
+#   drawn by that same thread. Result: right-click the tray icon, and within 5
+#   seconds the menu froze mid-display.
+#
+#   It was not a rare hazard. /api/tray builds the whole status: measured
+#   0.65s, 0.70s and 1.86s warm on this machine, and 11.3s on a cold cache.
+#   The menu was therefore frozen for a large part of the time it was open,
+#   which is exactly what the user reported.
+#
+#   So the request is started and then only CHECKED for completion on later
+#   ticks. Each tick does a handful of microseconds of work, whatever the
+#   server is doing. HttpClient is in-box (.NET Framework) - no new dependency.
+$script:lastKind = $null
+$script:http = New-Object System.Net.Http.HttpClient
+$script:http.Timeout = [TimeSpan]::FromSeconds(20)
+$script:task = $null      # the request in flight
+$script:taskKind = $null  # 'tray' or 'ping'
+
+# GetAsync, not GetStringAsync.
+#
+#   Measured bug (2026-09-21): with GetStringAsync an HTTP 500 arrives as a
+#   faulted task, indistinguishable from a timeout. The tray then asked /api/ping,
+#   ping answered, and it concluded "slow" - keeping the last good state. But a
+#   500 is not slow; it is broken and will not fix itself. A corrupt
+#   state/targets.json does exactly this (loadTargets throws by design), so the
+#   tray would have sat there looking fine while the screen showed nothing.
+#   GetAsync hands back the status code instead of throwing, so "answered with an
+#   error" and "did not answer" stay different things.
+function Start-Request([string]$path, [string]$kind) {
+  try {
+    $script:taskKind = $kind
+    $script:task = $script:http.GetAsync("$BaseUrl$path")
+  } catch {
+    # Could not even start the request. Leave nothing in flight so the next
+    # tick tries again - a tray that stops asking is a tray that lies.
+    $script:task = $null
+    $script:taskKind = $null
+  }
+}
+
+function Render([string]$kind, [string]$head, [string]$tip) {
+  $icon.Icon = Get-StatusIcon $kind
+  # NotifyIcon.Text is capped at 63 characters; a longer string throws.
+  if ($tip.Length -gt 62) { $tip = $tip.Substring(0, 62) }
+  $icon.Text = $tip
+  $hdr.Text  = $head
+  $script:lastKind = $kind
+}
+
+function Show-TrayState([string]$body) {
+  $kind = 'off'; $head = ''; $tip = ''
+  try {
+    $s = $body | ConvertFrom-Json
+
+    # The server decided `state`; the tray must not re-derive it, or the tray
+    # and the window would disagree about what is wrong.
+    switch ($s.state) {
+      'stalled' { $kind = 'crit'; $head = (Lbl 'status.stalled' 'monitor stalled') + " ($($s.dead))" }
+      # Cannot tell whether sessions are running - autonomous resume is
+      # fail-closed, so it has stopped. Quiet-looking, but nothing is working.
+      'unknown' { $kind = 'crit'; $head = Lbl 'status.unknown' 'run state unknown' }
+      'blocked' { $kind = 'crit'; $head = (Lbl 'status.blocked' 'resume blocked') + " ($($s.blocked))" }
+      'limited' { $kind = 'warn'; $head = Lbl 'status.limited' 'usage limited' }
+      'none'    { $kind = 'off';  $head = Lbl 'status.none' 'nothing watched' }
+      default   { $kind = 'good'; $head = (Lbl 'status.ok' 'monitor ok') + " ($($s.watched))" }
+    }
+
+    # Unread alert count belongs in the tooltip, not in a popup.
+    if ($s.alerts -and $s.alerts -gt 0) { $head = "$head - " + (Lbl 'status.alerts' 'alerts') + " $($s.alerts)" }
+
+    # "0 running" and "cannot tell" are not the same claim - do not print 0.
+    $runTxt = if ($s.runningKnown -eq $false) { '?' } else { "$($s.running)" }
+    $tip = "$AppName - $head`n" +
+           (Lbl 'tip.sessions' 'sessions') + " $runTxt/$($s.sessions)  " +
+           (Lbl 'tip.watch' 'watch') + " $($s.watched)  " +
+           (Lbl 'tip.resume' 'resume') + " $($s.resumeOn)"
+  } catch {
+    # The body was not the shape we expect - ask the cheap endpoint what is
+    # really going on rather than guessing (see Resolve-Failure).
+    Start-Request '/api/ping' 'ping'
+    return
+  }
+
+  Render $kind $head $tip
+}
+
+# Slow is not dead.
+#
+# Measured: a cold /api/tray took 11.3 seconds. Treating that timeout as "server
+# down" would paint the tray red while the server is fine - the same cry-wolf
+# failure this tool exists to avoid. So a failed /api/tray does not decide
+# anything; it starts a /api/ping, and the ANSWER to that decides.
+function Resolve-Failure {
+  if ($script:taskKind -eq 'tray') {
+    Start-Request '/api/ping' 'ping'   # still asynchronous - no blocking
+    return
+  }
+  # ping failed too: nothing is listening.
+  Render 'crit' (Lbl 'status.down' 'status server down') ("$AppName - " + (Lbl 'status.down' 'status server down'))
+}
+
+function Resolve-Ping {
+  # The server answers, so it is alive and merely slow. Keep the last known
+  # state instead of inventing a worse one.
+  $kind = if ($script:lastKind) { $script:lastKind } else { 'off' }
+  $head = Lbl 'status.slow' 'status slow'
+  Render $kind $head "$AppName - $head"
+}
+
+# The server ANSWERED, with an error. That is not slow and not down - it is
+# broken in a way that will not clear on its own (corrupt state file, a bug).
+# Saying "slow" here would keep the last good colour forever.
+function Resolve-HttpError([int]$code) {
+  $head = (Lbl 'status.error' 'status error') + " ($code)"
+  Render 'crit' $head "$AppName - $head"
+}
+
+# The timer tick. Must stay cheap - see the block comment above.
+#
+# Everything is wrapped: an error escaping a WinForms event handler can take the
+# whole tray down, and a watchdog that quietly disappears is the worst outcome
+# this repo has - the icon would simply stop being there and nobody is told.
+function Poll {
+  try {
+    # A request is in flight: look, do not wait.
+    if ($null -ne $script:task) {
+      if (-not $script:task.IsCompleted) { return }   # <- this is what keeps the menu alive
+
+      $t = $script:task
+      $kindWas = $script:taskKind
+      $script:task = $null
+      $script:taskKind = $null
+
+      if ($t.IsFaulted -or $t.IsCanceled) {
+        # No answer at all: refused, or the 20s timeout ran out.
+        $script:taskKind = $kindWas
+        Resolve-Failure
+      } else {
+        $resp = $t.Result
+        if (-not $resp.IsSuccessStatusCode) {
+          # Answered with an error. Decided here for BOTH endpoints - a 500 from
+          # /api/ping is just as broken as one from /api/tray.
+          Resolve-HttpError ([int]$resp.StatusCode)
+        } elseif ($kindWas -eq 'ping') {
+          Resolve-Ping
+        } else {
+          # The body is already buffered (GetAsync reads it before completing),
+          # so reading it here does not wait on anything.
+          Show-TrayState $resp.Content.ReadAsStringAsync().Result
+        }
+        $resp.Dispose()
+      }
+      return
+    }
+
+    Start-Request '/api/tray' 'tray'
+  } catch {
+    $script:task = $null
+    $script:taskKind = $null
+  }
+}
+
+$timer = New-Object System.Windows.Forms.Timer
+# Halved: a tick is now microseconds, and completed requests are noticed sooner.
+$timer.Interval = [Math]::Max(1, [int]([Math]::Max(2, $IntervalSeconds) / 2)) * 1000
+$timer.Add_Tick({ Poll })
+$timer.Start()
+
+Poll   # start the first request right away instead of after one interval
+
+$ctx = New-Object System.Windows.Forms.ApplicationContext
+[System.Windows.Forms.Application]::Run($ctx)
+
+$timer.Stop()
+$menuTimer.Stop()
+$script:http.Dispose()
+$icon.Dispose()
+[System.GC]::KeepAlive($global:RSTrayMutex)
+$global:RSTrayMutex.ReleaseMutex()

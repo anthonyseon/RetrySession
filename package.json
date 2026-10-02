@@ -1,0 +1,22 @@
+{
+  "name": "retry-session",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code 세션을 세션 바깥(OS)에서 감시하고 재시작한다. 의존성 없음.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "ui": "node src/ui/server.mjs",
+    "hb": "node src/heartbeat.mjs",
+    "check": "node src/heartbeat.mjs --check",
+    "list": "node src/heartbeat.mjs --list",
+    "cli:which": "node src/which.mjs",
+    "resume": "node src/resume.mjs",
+    "resume:dry": "node src/resume.mjs --dry-run",
+    "resume:status": "node src/resume.mjs --status",
+    "resume:rearm": "node src/resume.mjs --rearm",
+    "test": "node --test test/*.test.mjs"
+  }
+}

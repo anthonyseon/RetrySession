@@ -1,0 +1,349 @@
+/**
+ * detail.js — 오른쪽 상세 패널. 처리 상황·대화·로그·설정·알림 탭.
+ */
+'use strict'
+// 🔴 n(숫자 서식)을 빠뜨려 상세 탭이 전부 ReferenceError 로 죽었다 (2026-09-22 실측).
+//   app.js 를 조각으로 나눌 때 한 파일 안에 있던 이름이 import 목록에서 누락됐다.
+import { $, el, n, compact, shortPath, S, badge, keepScroll, actions } from './common.js'
+
+/** 상세를 다시 그린다. 보고 있던 세션·탭이 바뀌었으면 맨 위에서 시작한다 */
+/**
+ * 시간순으로 쌓이는 탭(대화·도구 · 감시 로그 · 재시작 로그 · 알림)은 **바닥**에서 시작한다.
+ * 🔴 순서를 뒤집지 않는 대신 스크롤로 최신을 보여준다 — 흐름(대화·회차 덩어리)은 지키고,
+ *   "방금 무슨 일이 있었나"는 열자마자 보이게 한다. 다른 탭은 그대로 위에서 시작한다.
+ */
+const TAIL_TABS = new Set(['tl', 'hb', 'rs', 'al'])
+
+function redrawDetail() {
+  const key = `${S.openSession || ''}|${S.tab}`
+  const changed = key !== S.lastDetailKey
+  S.lastDetailKey = key
+  const tail = changed && TAIL_TABS.has(S.tab)
+  keepScroll('#dscroll', drawDetail, { toTop: changed && !tail, toBottom: tail })
+}
+
+
+/* ── 상세 ────────────────────────────────────────────────────── */
+function drawDetail() {
+  const d = S.detail
+  const s = S.state?.sessions.find((x) => x.sessionId === S.openSession)
+
+  // 알림 이력은 세션 선택과 무관하다 — 창을 열자마자 볼 수 있어야 한다
+  const history = S.state?.alertHistory || []
+  $('#tab-al').textContent = history.length
+    ? history.join('\n')
+    : '(기록된 경보 변화가 없습니다. 하트비트가 5분마다 확인하고, 상태가 바뀔 때만 여기에 남깁니다.)'
+
+  if (!S.openSession || !d || !s) {
+    $('#dbody').classList.add('hide')
+    // 알림 탭은 세션 없이도 보여준다
+    $('#dempty').classList.toggle('hide', S.tab === 'al')
+    // 🔴 세션을 골랐는데 못 읽은 것이면 그 이유를 적는다. 안내문만 두면 사람은
+    //   화면이 멈춘 줄 안다.
+    $('#dempty').textContent = S.openSession && S.detailError
+      ? `이 세션의 상세를 읽을 수 없습니다 — ${S.detailError}`
+      : '세션 행을 누르면 처리 상황과 내용이 실시간으로 표시됩니다.'
+    $('#dtitle').textContent = S.tab === 'al' ? '알림 이력' : '상세 — 왼쪽에서 세션을 고르세요'
+    drawTab()
+    return
+  }
+  $('#dempty').classList.add('hide'); $('#dbody').classList.remove('hide')
+  $('#dtitle').textContent = ''
+  $('#dtitle').append(
+    el('span', null, s.title || s.shortId),
+    el('span', null, ' '),
+    badge(s.running ? 'good' : 'off', s.running ? '▶' : '■', s.running ? '실행 중' : '정지'),
+    (() => { const x = el('span', 'spacer'); return x })(),
+    el('code', null, s.sessionId),
+  )
+
+  if (!d.ok) { $('#tab-now').textContent = d.error || '상세를 읽을 수 없다'; return }
+
+  /* 처리 상황 */
+  const now = $('#tab-now'); now.textContent = ''
+
+  if (d.progress.toolRunning) {
+    const w = el('div', 'warnbox')
+    w.append(el('div', null, `▲ 도구 실행 중 — 결과가 아직 안 온 호출 ${d.progress.openTools.length}건`))
+    for (const t of d.progress.openTools) {
+      const c = el('div', 'tchip'); c.append(el('b', null, t.name), el('span', null, t.digest || ''))
+      w.append(c)
+    }
+    now.append(w, el('div', null, ' '))
+  }
+
+  const dl = el('dl', 'kv')
+  const kv = (k, v) => { dl.append(el('dt', null, k), el('dd', null, v ?? '-')) }
+  kv('마지막 활동', `${d.item.at(-1)?.at || '?'} · ${d.activeMin}분 전 · 마지막 ${d.progress.lastKind || '?'}`)
+  kv('실행 위치', shortPath(s.runCwd))
+  kv('주 작업 위치', shortPath(s.mainCwd))
+  if (s.cwdTop?.length > 1) kv('오간 위치', s.cwdTop.map((c) => `${shortPath(c.path)} (${n(c.entries)})`).join('\n'))
+  kv('저장소', `${s.repoId}${s.hasRepoConfig ? ' (설정 있음)' : ' (설정 없음 — 기본값으로 돈다)'}`)
+  kv('git', s.git ? `${s.git.branch || '?'} · ${s.git.head || '?'} · 커밋 ${s.git.commits || '?'} · 미커밋 ${s.git.uncommittedFiles}` : '감시를 켜면 조회한다')
+  kv('트랜스크립트', `${(d.bytes / 1048576).toFixed(1)}MB · 꼬리 ${(d.tailRead / 1024).toFixed(0)}KB 읽음 · 항목 ${n(d.entryCount)}`)
+  now.append(dl)
+
+  if (d.tracker?.ok) {
+    now.append(el('h3', null, ''))
+    const t2 = el('dl', 'kv')
+    const kv2 = (k, v) => { t2.append(el('dt', null, k), el('dd', null, v ?? '-')) }
+    // 🔴 숫자의 뜻을 **화면에** 적는다 — `9/9` 만 있으면 아는 사람만 읽는다(사용자 지적)
+    //   그리고 **언제 바뀐 파일인지**도 적는다. 우리는 읽기만 하고, 갱신은 세션이 한다.
+    kv2('추적기', `${d.restart?.trackerFile || ''} · 단계 ${d.tracker.doneMark} 완료 (끝난 단계/전체 단계)`
+      + (d.tracker.fileAt ? `\n마지막 수정 ${d.tracker.fileAt}` : '')
+      + (d.tracker.fileAgeMin >= 1440 ? ` — ${Math.floor(d.tracker.fileAgeMin / 1440)}일 그대로 (갱신은 재개된 세션이 합니다)` : ''))
+    kv2('재개 지점', d.tracker.doing ? `doing ${d.tracker.doing.id} — ${d.tracker.doing.title || ''}`
+      : d.tracker.nextTodo ? `todo ${d.tracker.nextTodo.id} — ${d.tracker.nextTodo.title || ''}`
+      : d.tracker.allDone ? '전부 done — 재개할 것이 없다' : '없음')
+    if (d.tracker.doing?.evidence) kv2('근거', d.tracker.doing.evidence)
+    if (d.tracker.nextAction) kv2('nextAction', d.tracker.nextAction)
+    now.append(t2)
+  }
+
+  /* 사용량 — 오늘(로컬)과 누적을 갈라서 */
+  if (Object.keys(s.byModel || {}).length) {
+    const sum = el('dl', 'kv')
+    const kvSum = (k, u) => {
+      sum.append(el('dt', null, k))
+      sum.append(el('dd', null,
+        `턴 u${n(u.user)}/a${n(u.asst)} · 도구 ${n(u.tools)} · 토큰 ${compact(u.tokens)} · 정가 $${(u.usd || 0).toFixed(2)}`))
+    }
+    kvSum(`오늘 (${s.todayKey || '로컬 자정 기준'})`, {
+      user: s.todayUserMsgs || 0, asst: s.todayAssistantMsgs || 0, tools: s.todayToolCalls || 0,
+      tokens: s.todayTokenSum || 0, usd: s.todayCostUSD || 0,
+    })
+    kvSum('누적', {
+      user: s.userMsgs, asst: s.assistantMsgs, tools: s.toolCalls,
+      tokens: s.tokenSum, usd: s.costUSD,
+    })
+    now.append(el('h3', null, '사용량'), sum)
+    now.append(el('div', 'note', '토큰은 트랜스크립트 실측이고 금액은 정가 환산이다. ' + (S.state.totals.costNote || '')))
+
+    /** 모델별 표. 오늘 몫이 있으면 **같은 모양으로 두 번** 그린다 — 어느 모델을 오늘 태우고 있나 */
+    const modelTable = (byModel) => {
+      const tb = el('table', 'models')
+      const thead = el('thead'), hr = el('tr')
+      for (const h of ['모델', '입력', '캐시쓰기', '캐시읽기', '출력', '정가']) hr.append(el('th', null, h))
+      thead.append(hr); tb.append(thead)
+      const body = el('tbody')
+      for (const [id, t] of Object.entries(byModel)) {
+        const r = el('tr')
+        r.append(el('td', null, id + (t.estimated ? ' (추정)' : '')),
+          el('td', null, compact(t.input)), el('td', null, compact(t.cacheWrite1h + t.cacheWrite5m)),
+          el('td', null, compact(t.cacheRead)), el('td', null, compact(t.output)),
+          el('td', null, '$' + t.usd.toFixed(2)))
+        body.append(r)
+      }
+      tb.append(body)
+      return tb
+    }
+    if (Object.keys(s.todayByModel || {}).length) {
+      now.append(el('div', 'note', '모델별 — 오늘'), modelTable(s.todayByModel))
+    }
+    now.append(el('div', 'note', '모델별 — 누적'), modelTable(s.byModel))
+  }
+
+  /* 재시작 예산 */
+  if (d.restart) {
+    const r = d.restart, c = r.config, b = r.budget
+    const box = el('div')
+    // 🔴 비용은 **막지 않는다** — 참고선이라고 적는다. "/$5" 처럼 쓰면 상한으로 읽힌다.
+    box.append(el('div', 'note', `재시작 예산 — 오늘 ${b.runsToday}/${c.maxPerDay}회`
+      + ` · $${b.costToday} 씀(참고선 $${c.maxCostUSDPerDay ?? '-'} · 막지 않음)`
+      + ` · 연속실패 ${r.state.failStreak || 0}/${c.failStreakMax} · 권한 ${c.permissionMode}`))
+    const m = el('div', 'meter' + (b.runsToday >= c.maxPerDay ? ' crit' : b.runsToday / c.maxPerDay > .7 ? ' warn' : ''))
+    const i = el('i'); i.style.width = Math.min(100, (b.runsToday / Math.max(1, c.maxPerDay)) * 100) + '%'
+    m.append(i); box.append(m)
+    if (!b.ok) box.append(el('div', 'note', `지금 재시작하지 않는 이유: ${b.why}`))
+    if (r.state.lastRun) {
+      const L = r.state.lastRun
+      box.append(el('div', 'note', `마지막 실행 ${L.at} · ${L.result} · ${L.tookSec}초 · $${L.costUSD ?? 0} · 턴 ${L.turns ?? '?'}`))
+      if (L.summary) box.append(el('div', 'warnbox', L.summary))
+    }
+    now.append(el('div', null, ' '), box)
+  }
+
+  /* 타임라인 — **시간순**(최신이 맨 아래). 로그 두 탭과 같은 방향이다(사용자 지시 2026-09-28).
+     🔴 뒤집지 마라. 대화는 앞뒤가 이어지는 흐름이라 거꾸로 놓으면 도구 호출과 그 결과가
+       뒤바뀌어 읽힌다. 최신을 보이게 하는 것은 스크롤이 한다(keepScroll 의 toBottom). */
+  const tl = $('#tab-tl'); tl.textContent = ''
+  for (const it of d.item) {
+    const cls = it.kind === '사용자' ? 'user' : it.kind === '어시스턴트' ? 'asst' : 'tool'
+    const w = el('div', 'ti ' + cls)
+    const hd = el('div', 'hd')
+    hd.append(el('span', 'who', it.kind), el('span', null, it.at || ''))
+    if (it.models) hd.append(el('span', null, it.models))
+    if (it.hasThinking) hd.append(el('span', null, '· 사고'))
+    if (it.sidechain) hd.append(el('span', null, '· 서브에이전트'))
+    if (it.tokens) hd.append(el('span', 'tok', `· 출력 ${n(it.tokens.output)}${it.tokens.thinking ? ` (사고 ${n(it.tokens.thinking)})` : ''} · 캐시읽기 ${compact(it.tokens.cacheRead)}`))
+    w.append(hd)
+    if (it.label) w.append(el('div', 'body', it.label))
+    if (it.result?.length) {
+      for (const r of it.result) {
+        const c = el('div', 'tchip')
+        c.append(el('b', null, r.error ? '오류' : '결과'), el('span', null, r.digest || ''))
+        w.append(c)
+      }
+    }
+    if (it.tools?.length) {
+      const box = el('div', 'tools')
+      for (const t of it.tools) {
+        const c = el('div', 'tchip'); c.append(el('b', null, t.name), el('span', null, t.digest || ''))
+        box.append(c)
+      }
+      w.append(box)
+    }
+    tl.append(w)
+  }
+  if (!d.item.length) tl.append(el('div', 'empty', '최근 항목이 없다.'))
+
+  /* 로그 — **시간순**(최신이 맨 아래). 파일에 쌓인 순서 그대로다.
+     🔴 뒤집지 마라 (사용자 지시 2026-09-28). 재시작 로그의 한 회차는 `RUN 시작` · 인자 ·
+       `RUN 끝` · 요약 여러 줄이 이어진 **덩어리**라, 줄을 뒤집으면 요약이 거꾸로 읽힌다.
+       최신을 바로 보이게 하는 것은 순서가 아니라 **스크롤**로 한다(keepScroll 의 toBottom). */
+  $('#tab-hb').textContent = (d.watchLog || []).join('\n')
+    || '(감시 기록이 없다 — 감시를 켜고 5분 기다리거나 “지금 감시 실행”)'
+  $('#rsLog').textContent = (d.restartLog || []).join('\n') || '(재시작 기록이 없다)'
+  drawGate(s)
+
+  /* 설정 */
+  const cfg = $('#tab-cfg'); cfg.textContent = ''
+  cfg.append(el('div', 'note', '재개지시 — 추적기가 없는 세션은 이 지시가 있어야 재시작한다. 비우면 “하던 일을 이어서”가 된다.'))
+  const ta = el('textarea'); ta.value = d.target?.resumePrompt || ''
+  ta.placeholder = '예: _plan/todo.md 의 첫 미완 항목을 하나만 끝내고 커밋하라.'
+  cfg.append(ta)
+  const save = el('button', 'sm primary', '재개지시 저장')
+  save.addEventListener('click', async () => {
+    save.disabled = true
+    await actions.post('/api/targets', { sessionIds: [S.openSession], resumePrompt: ta.value, meta: actions.meta(s) })
+    save.disabled = false; actions.loadDetail()
+  })
+  const row = el('div'); row.style.marginTop = '8px'; row.style.display = 'flex'; row.style.gap = '7px'
+  row.append(save)
+  const b1 = el('button', 'sm', '지금 감시 실행')
+  b1.addEventListener('click', () => actions.post('/api/run', { kind: 'heartbeat' }).then(() => setTimeout(actions.loadDetail, 2500)))
+  const b2 = el('button', 'sm', '지금 재시작 실행')
+  b2.addEventListener('click', async () => {
+    // 🔴 무엇을 건너뛰는지 **누르기 전에** 말한다 — `--now` 는 조건을 전부 건너뛰므로
+    //   일하는 세션에도 끼어든다. 그 사실을 나중에 알리는 것은 알리지 않는 것과 같다.
+    if (!confirm([
+      '이 세션을 지금 재시작합니다 — 재시작 조건을 **전부** 건너뜁니다.',
+      '',
+      '· 재개지시를 그대로 실행합니다',
+      '· 하루 횟수 · 최소 간격 · 연속실패 · 조용한 시간 · 사용량 제한을 건너뜁니다',
+      '· 🔴 그 세션이 일하는 중이어도 끼어듭니다 — 누군가 쓰고 있으면 지금 멈추세요',
+      '· 이미 재개가 돌고 있으면 띄우지 않습니다 (같은 세션에 둘이 쓰면 서로를 덮어씁니다)',
+      '',
+      '사람이 보지 않는 상태로 토큰을 쓰고 파일을 고칩니다. 계속할까요?',
+    ].join('\n'))) return
+    /**
+     * 🔴 화면이 보여주던 판정과 **실행 직전의 최신 판정**을 견준다.
+     *
+     *   화면의 값은 몇 초(자동갱신을 끄면 몇 분) 전에 받은 것이다. 그 사이 사람이 그 세션에
+     *   입력하거나 도구가 끝나거나 제한이 풀릴 수 있다. 서버는 띄우기 전에 `--dry-run` 으로
+     *   다시 판정하고 그 답을 돌려주므로, 둘이 다르면 **다르다고 말한다** — 사람이 낡은
+     *   화면을 근거로 판단하지 않게. 실측(2026-09-28): 화면과 로그가 달라 보이는 일을 겪었다.
+     */
+    const seen = S.state?.sessions?.find((x) => x.sessionId === S.openSession)?.restart?.gate || null
+    b2.disabled = true
+    const r = await actions.post('/api/run', { kind: 'resume', sessionId: S.openSession })
+    b2.disabled = false
+    const v = r && r.verdict
+    if (v) {
+      const same = seen ? (!!seen.go === !!v.go) : true
+      const head = v.go ? '강제 실행 — 조건을 건너뛰고 띄웠습니다' : '띄우지 못했습니다'
+      actions.say(`${head}: ${v.why}` + (same ? '' : ' · 🔴 화면이 보여주던 판정과 달랐습니다(화면을 새로 읽었습니다)'))
+    } else if (r && r.error) {
+      actions.say(`✖ ${r.error}`)
+    }
+    // 어느 쪽이든 화면을 최신으로 맞춘다 — 낡은 값을 그대로 두지 않는다
+    actions.loadStatus()
+    setTimeout(actions.loadDetail, 3000)
+  })
+  row.append(b1, b2)
+  cfg.append(row)
+  cfg.append(el('div', 'note', `대상 등록 ${d.target ? '됨' : '안 됨'} · 감시 ${d.target?.watch ? 'O' : 'X'} · 재시작 ${d.target?.restart ? 'O' : 'X'}`))
+
+  drawTab()
+}
+
+function drawTab() {
+  for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === S.tab)
+  for (const k of ['now', 'tl', 'hb', 'rs', 'cfg', 'al']) $('#tab-' + k).classList.toggle('hide', k !== S.tab)
+  // 알림 탭에서는 세션 상세 묶음을 숨긴다 (알림은 그 바깥에 있다)
+  if (S.openSession && S.detail) $('#dbody').classList.toggle('hide', S.tab === 'al')
+}
+
+
+/* ── 재시작: 지금 판정 ───────────────────────────────────────── */
+
+/**
+ * 🔴 **왜 안 도나**를 로그보다 위에 둔다.
+ *
+ *   실측 (2026-09-22): 사용자가 반복해서 물은 것이 정확히 이것이다 — 재시작을 켰고
+ *   화면은 "재시작 준비"라고 했는데 15분마다 조용히 건너뛰었다. 판정은 로그 스무 줄
+ *   아래에 묻혀 있었다. 감시 장치가 아는 것을 말하지 않으면 모르는 것과 같다.
+ *
+ * 🔴 고칠 수 있는 것에는 **단추를 함께 준다.** 이유만 알려주고 어디서 고치는지
+ *   말하지 않으면 사람은 또 찾아다닌다.
+ */
+function drawGate(s) {
+  const box = $('#rsGate'); box.textContent = ''
+  const r = s?.restart
+  if (!r?.on) {
+    box.append(el('div', 'note', '재시작이 꺼져 있습니다 — 왼쪽 목록에서 고르고 [재시작 시작] 을 누르세요.'))
+    return
+  }
+  const g = r.gate
+
+  const head = el('div', 'gaterow')
+  head.append(g?.go ? badge('good', '●', '재개 가능') : badge(g ? 'off' : 'warn', '⊘', '재개 안 함'))
+  head.append(el('span', 'gatewhy',
+    g ? (g.go ? `재개 지점 ${g.point}` : g.why) : '판정할 수 없습니다 — 저장소를 찾지 못했습니다'))
+  box.append(head)
+
+  // 숫자는 한 줄로. 상한에 얼마나 가까운지가 한눈에 보여야 한다.
+  const nums = el('div', 'note')
+  nums.textContent = `오늘 ${r.runsToday ?? '?'}/${r.maxPerDay ?? '-'}회`
+    // 비용은 통계다 — 상한처럼 보이지 않게 적는다
+    + ` · $${r.costToday ?? 0} 씀(참고선 $${r.maxCostUSDPerDay ?? '-'})`
+    + ` · 연속실패 ${r.failStreak ?? 0}/${r.failStreakMax ?? '-'}`
+    + (r.overloadToday ? ` · API 과부하로 막힘 ${r.overloadToday}회` : '')
+    // 연속실패로 세지 않는 것들은 여기서라도 세어 보여야 "왜 안 돌았나"가 보인다
+    + (r.authToday ? ` · 로그인 끊겨 헛돔 ${r.authToday}회` : '')
+    // 🔴 잘린 회차 — 실패로 세지 않는다(일하는 중이었을 수 있다). 하루 2회면 경보다
+    + (r.timeoutToday ? ` · 시간초과로 잘림 ${r.timeoutToday}회` : '')
+    + (r.permissionMode ? ` · 권한 ${r.permissionMode}` : '')
+  box.append(nums)
+
+  /* 고칠 수 있는 것에는 길을 준다 */
+  const acts = el('div', 'gateacts')
+  const stage = g?.stage
+  if (stage === 'point' || stage === 'repeated') {
+    const b = el('button', 'sm primary', '재개지시 넣기')
+    b.addEventListener('click', () => { S.tab = 'cfg'; redrawDetail() })
+    acts.append(b)
+  }
+  if (stage === 'blocked' || r.blocked) {
+    const b = el('button', 'sm', '차단 해제')
+    b.addEventListener('click', async () => {
+      b.disabled = true
+      await actions.post('/api/rearm', { sessionIds: [S.openSession] })
+      b.disabled = false; actions.loadDetail()
+    })
+    acts.append(b)
+  }
+  if (stage === 'busy') {
+    acts.append(el('div', 'note',
+      '그 세션이 지금 일하는 중입니다 — 도구가 결과를 기다리거나, 물어본 답이 아직 나오지 않았습니다. ' +
+      '끝나고 조용해지면 다음 회차부터 대상이 됩니다. 창이 열려 있는 것 자체는 막지 않습니다.'))
+  }
+  if (stage === 'unknown') {
+    acts.append(el('div', 'note',
+      '마지막 활동 시각을 읽을 수 없어 판정을 멈췄습니다 — 모르는 채로 사람의 대화에 끼어들지 않습니다.'))
+  }
+  if (stage === 'repo') acts.append(el('div', 'note', 'config/projects.json 에서 그 저장소의 resume.enabled 를 켜야 합니다 (--force 로도 뚫리지 않습니다).'))
+  if (acts.children.length) box.append(acts)
+}
+
+export { redrawDetail }

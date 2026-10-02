@@ -1,0 +1,145 @@
+/**
+ * fold.css — **접고 펴는 것**과 재시작 판정 패널의 모양.
+ *
+ * 🔴 왜 파일을 나눴나 — app.css 가 405줄이 되어 400줄 규칙을 넘겼다.
+ *   자를 자리는 여기가 맞다: 접기는 한 가지 관심사이고 서로 붙어 있어야 읽힌다
+ *   (요약 띠 · 경보 띠 · 묶음마다 접기 · 열린 폴더 · 재시작 판정 패널 · **토글의 켬/끔 색**).
+ *   index.html 이 두 파일을 함께 불러온다. 시험은 css 를 폴더에서 훑으므로 그대로 돈다.
+ */
+.sumbar{
+  width:100%; display:flex; align-items:center; gap:8px; text-align:left;
+  background:var(--surface-2); border:0; border-bottom:1px solid var(--grid);
+  border-radius:0; padding:6px 16px; color:var(--ink-2); font-size:11.5px;
+}
+.sumbar:hover{background:var(--surface)}
+.sumbar .chev{display:inline-block; width:9px; font-size:10px; color:var(--ink-2)}
+.sumbar .nm{font-weight:600}
+/* 접었을 때만 한 줄 요지를 보여준다 — 접었다고 아무것도 모르면 안 된다 */
+.sumdigest{
+  flex:1; min-width:0; color:var(--muted); font-size:11.5px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.sumbar[aria-expanded="true"] .sumdigest{display:none}
+
+/* ── 경보 띠 (요약 띠와 같은 모양 · 따로 접힌다) ──
+   🔴 접어도 건수와 치명 경보의 제목은 띠에 남는다 — 접힌 채로 '감시 끊김'이 숨으면 안 된다.
+   왼쪽 띠·화살표 색은 아래 [aria-expanded] 규칙이 그대로 준다(따로 칠하지 않는다).
+   치명은 **글자** 색으로 나른다 — 왼쪽 띠는 접힘 상태(스위치 채널)라 섞지 않는다. */
+.alerts-wrap.folded #alerts{display:none}
+.alertsn{color:var(--ink-2); font-variant-numeric:tabular-nums}
+.alertsmore{color:var(--muted)}
+.sumbar[aria-expanded="false"] .alertsmore{display:none}
+.sumdigest .dg-crit{color:var(--crit-ink); font-weight:600}
+/* 머리말의 경보 칩 — 단추 테두리 없이 배지만 보인다(배지가 아이콘·단어·색을 나른다) */
+.hdralerts{padding:0; border:0; background:transparent}
+.hdralerts:hover .badge{border-color:var(--base)}
+.hdralerts .badge{font-size:11.5px; padding:2px 8px}
+
+/* 재시작 판정 패널 — "왜 안 도나"가 로그보다 위에 있어야 한다 */
+.gaterow { display: flex; align-items: center; gap:8px; margin-bottom:6px; flex-wrap: wrap }
+.gatewhy { font-size:12.5px; line-height: 1.5 }
+.gateacts { display: flex; align-items: center; gap:8px; margin-top:8px; flex-wrap: wrap }
+.gateacts .note { margin: 0 }
+
+/* ── 묶음마다 따로 접기 ──
+   🔴 화살표는 ::after 로만 그린다. h3 안에 글자로 넣으면 묶음 이름이 '▾계정' 이 되어
+     이름으로 찾는 코드·시험이 조용히 어긋난다. */
+.grp > h3{cursor:pointer; user-select:none; display:flex; align-items:center; gap:6px}
+.grp > h3::after{content:'▾'; margin-left:auto; font-size:10px; opacity:.55}
+.grp.folded > h3::after{content:'▸'}
+.grp > h3:hover{color:var(--ink-2)}
+.grp > h3:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+.grp.folded > h3{margin-bottom:0; padding-bottom:0; border-bottom:0}
+.grp.folded > .grow{display:none}
+
+/* ── 열린 폴더 접기 ── */
+.fhead{
+  display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;
+  padding:4px 0; font-size:11.5px; color:var(--muted);
+}
+.fhead::after{content:'▾'; margin-left:auto; font-size:10px; opacity:.55}
+.folders.folded .fhead::after{content:'▸'}
+.fhead:hover{color:var(--ink-2)}
+.fhead:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+
+/**
+ * 🔴 **모든 토글은 색으로도 상태를 말한다** (사용자 요청 2026-09-28).
+ *
+ *   펴짐 = 강조색 · 접힘 = 흐린 색. 화살표(▾/▸)와 글자(`요약 접기`/`펴기`)와
+ *   `aria-expanded` 는 그대로 둔다 — **색만으로 나르지 않는다**(색각 이상·인쇄·스크린리더).
+ *   색은 훑을 때의 단서를 하나 더 얹는 것이다.
+ *
+ *   `[aria-expanded]` 에 걸어 둔다. 그러면 접기 토글을 새로 만들어도 **따로 손대지 않아도**
+ *   같은 규칙을 받는다 — 화면 조각마다 색을 다시 칠하면 반드시 하나가 빠진다.
+ */
+[aria-expanded="true"] > .chev, [aria-expanded="true"].foldbtn{color:var(--accent)}
+[aria-expanded="false"] > .chev, [aria-expanded="false"].foldbtn{color:var(--muted)}
+.sumbar[aria-expanded="true"]{box-shadow:inset 3px 0 0 var(--accent)}
+.sumbar[aria-expanded="false"]{box-shadow:inset 3px 0 0 var(--grid)}
+.fhead[aria-expanded="true"]{color:var(--ink-2)}
+.fhead[aria-expanded="false"]{color:var(--muted)}
+
+/* 누른 결과 — 없으면 "적용이 안 된 것 같다"가 된다(실측, 사용자 보고 두 번) */
+.actmsg{
+  flex:1; min-width:0; font-size:11.5px; color:var(--muted);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+/* ── 너비 조절 손잡이 ──
+   🔴 6px 은 잡기에 좁다. ::before 로 보이지 않는 여유를 좌우로 더 준다 —
+     보이는 선은 얇게, 잡히는 영역은 넓게. */
+.splitter{
+  position:relative; cursor:col-resize; background:transparent;
+  border-radius:4px; align-self:stretch;
+}
+.splitter::after{
+  content:''; position:absolute; top:0; bottom:0; left:50%; width:1px;
+  transform:translateX(-50%); background:var(--grid);
+}
+.splitter::before{ content:''; position:absolute; top:0; bottom:0; left:-5px; right:-5px }
+.splitter:hover::after, .splitter.dragging::after{ width:3px; background:var(--accent) }
+.splitter:focus-visible{ outline:2px solid var(--accent); outline-offset:1px }
+
+/* ── 세션 영역 세로 접기 ──
+   🔴 접어도 "세션 n개" 는 남는다. 접힌 것이 없는 것으로 보이면 감시 장치가
+     스스로 눈을 가리는 셈이다 (요약 묶음·열린 폴더와 같은 규칙). */
+.foldbtn{
+  flex:0 0 auto; width:18px; height:18px; padding:0; border:0; border-radius:4px;
+  background:transparent; color:var(--ink-2); font-size:10px; line-height:1;
+  cursor:pointer; display:inline-flex; align-items:center; justify-content:center;
+}
+.foldbtn:hover{ background:var(--surface); color:var(--ink) }
+.foldbtn:focus-visible{ outline:2px solid var(--accent); outline-offset:1px }
+
+main.sessfold #spanel > h2{
+  writing-mode:vertical-rl; height:100%; justify-content:flex-start;
+  padding:10px 8px; border-bottom:0; border-right:1px solid var(--grid);
+  gap:8px; flex-wrap:nowrap; white-space:nowrap;
+}
+/* 단추와 배지는 바로 세워 둔다 — 화살표까지 누우면 무슨 뜻인지 알 수 없다 */
+main.sessfold #spanel > h2 .foldbtn,
+main.sessfold #spanel > h2 .badge{ writing-mode:horizontal-tb }
+main.sessfold #spanel > h2 .spacer{ flex:0 }
+main.sessfold #spanel > h2 .filter{ display:none }
+main.sessfold #spanel .actions,
+main.sessfold #spanel #folders,
+main.sessfold #spanel #slist{ display:none }
+
+/**
+ * 스위치(감시·재시작)가 **켜졌나**를 색으로 나른다 — 판정 색과 다른 채널이다.
+ *
+ * 🔴 왜 — 판정에만 색을 쓰면 `켬 · 대기` 는 검은 글씨에 작은 점만 주황이고 `꺼짐` 은
+ *   회색 글씨라, 훑을 때 스위치 상태가 구별되지 않는다(사용자 지적 2026-09-28).
+ *   켬 = 강조색 테두리 + 왼쪽 띠 · 꺼짐 = 점선 테두리 + 흐린 글자.
+ *   면 색은 건드리지 않는다 — 칩 위의 글자 대비를 그 면(--surface-2)으로 재 뒀기 때문이다.
+ */
+.badge.sw-on{border-color:var(--accent); box-shadow:inset 3px 0 0 var(--accent); padding-left:12px}
+.badge.sw-off{border-style:dashed; color:var(--muted)}
+.badge.sw-off .ic{color:var(--muted)}
+
+/**
+ * 켬/끔 단추(자동갱신)도 **색으로** 갈린다 — 글자만 바뀌면 지금 어느 쪽인지 훑어서 모른다.
+ * 배지와 같은 채널을 쓴다: 켬 = 강조색 테두리 + 왼쪽 띠, 끔 = 흐린 글자.
+ */
+button.sw-on{border-color:var(--accent); box-shadow:inset 3px 0 0 var(--accent); padding-left:12px}
+button.sw-off{color:var(--muted)}
